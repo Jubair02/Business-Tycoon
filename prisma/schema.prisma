@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Player {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  cash      Float    @default(500000)
+  netWorth  Float    @default(500000)
+  level     Int      @default(1)
+ experience Int     @default(0)
+ avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businesses Business[]
+  gameLogs   GameLog[]
+}
+
+model Business {
+  id            String   @id @default(cuid())
+  playerId      String
+  type          String
+  city          String
+  name          String
+  level         Int      @default(1)
+  reputation    Float    @default(50)
+  cash          Float    @default(0)
+  dailyRevenue  Float    @default(0)
+  dailyExpense  Float    @default(0)
+  dailyProfit   Float    @default(0)
+ totalRevenue  Float    @default(0)
+  totalProfit   Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  player      Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  inventories Inventory[]
+  employees   Employee[]
+  logs        GameLog[]
+}
+
+model Product {
+  id         String  @id @default(cuid())
+  name       String  @unique
+  category   String
+  basePrice  Float
+  baseDemand Float
+  icon       String?
+}
+
+model Inventory {
+  id            String   @id @default(cuid())
+  businessId    String
+  productId     String
+  productName   String
+  category      String
+  quantity      Int      @default(0)
+  purchasePrice Float
+  sellPrice     Float
+  createdAt     DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model Employee {
+  id          String   @id @default(cuid())
+  businessId  String
+  role        String
+  name        String
+  salary      Float
+  skill       Float
+  efficiency  Float
+  hiredAt     DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model MarketPrice {
+  id               String   @id @default(cuid())
+  productName      String
+  city             String
+  priceMultiplier  Float   @default(1)
+  demandMultiplier Float   @default(1)
+  updatedAt        DateTime @default(now())
+
+  @@unique([productName, city])
+}
+
+model GameEvent {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  type        String
+  effects     String
+  active      Boolean  @default(true)
+  startsAt    DateTime @default(now())
+  endsAt      DateTime
+
+  @@index([active])
+}
+
+model GameLog {
+  id         String   @id @default(cuid())
+  playerId   String?
+  businessId String?
+  type       String
+  message    String
+  amount     Float?
+  createdAt  DateTime @default(now())
+
+  player   Player?   @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@index([playerId])
+  @@index([businessId])
+}
+
+model NewsArticle {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  category  String
+  icon      String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model GameState {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
