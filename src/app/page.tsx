@@ -15,10 +15,12 @@ import NewsFeed from '@/components/game/NewsFeed';
 import AchievementsView from '@/components/game/AchievementsView';
 import BankView from '@/components/game/BankView';
 import Navigation from '@/components/game/Navigation';
+import SettingsView from '@/components/game/SettingsView';
 import HintBar from '@/components/game/HintBar';
 import DailySummary from '@/components/game/DailySummary';
 import TutorialOverlay from '@/components/game/TutorialOverlay';
 import { toast } from 'sonner';
+import { AutoTickSync } from '@/components/game/AutoTickSync';
 
 export default function Home() {
   const {
@@ -46,8 +48,10 @@ export default function Home() {
   const [registering, setRegistering] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [preTickBusinesses, setPreTickBusinesses] = useState<any[]>([]);
+  const [autoTickSpeed, setAutoTickSpeed] = useState<string>('off');
   const initDone = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoTickTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchPlayer = useCallback(async () => {
     try {
@@ -189,6 +193,33 @@ export default function Home() {
     checkAuth();
   }, []);
 
+  // Auto-tick timer based on speed setting
+  useEffect(() => {
+    if (autoTickTimer.current) {
+      clearInterval(autoTickTimer.current);
+      autoTickTimer.current = null;
+    }
+    if (autoTickSpeed === 'off' || view === 'welcome') return;
+    const intervals: Record<string, number> = { slow: 120000, normal: 60000, fast: 30000 };
+    const interval = intervals[autoTickSpeed] || 60000;
+    autoTickTimer.current = setInterval(async () => {
+      if (isTicking) return;
+      setIsTicking(true);
+      try {
+        setPreTickBusinesses([...useGameStore.getState().businesses]);
+        const res = await fetch('/api/game/tick', { method: 'POST' });
+        if (res.ok) {
+          await fetchAllData();
+          setShowSummary(true);
+        }
+      } catch { /* silent */ }
+      finally { setIsTicking(false); }
+    }, interval);
+    return () => {
+      if (autoTickTimer.current) clearInterval(autoTickTimer.current);
+    };
+  }, [autoTickSpeed, view]);
+
   useEffect(() => {
     if (view !== 'welcome') {
       refreshTimer.current = setInterval(fetchAllData, 30000);
@@ -288,6 +319,8 @@ export default function Home() {
         return <NewsFeed />;
       case 'achievements':
         return <AchievementsView />;
+      case 'settings':
+        return <SettingsView />;
       default:
         return <Dashboard />;
     }
@@ -333,6 +366,8 @@ export default function Home() {
       />
 
       {showTopBar && businesses.length === 0 && <TutorialOverlay />}
+      {/* Sync auto-tick speed from localStorage */}
+      <AutoTickSync speed={autoTickSpeed} onSpeedChange={setAutoTickSpeed} />
     </div>
   );
 }

@@ -15,7 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen } from 'lucide-react';
+import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const BUSINESS_COLORS: Record<string, string> = {
@@ -46,6 +46,9 @@ export default function BusinessDetail() {
   const [marketProducts, setMarketProducts] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [showSellBusinessDialog, setShowSellBusinessDialog] = useState(false);
+  const [sellingBusiness, setSellingBusiness] = useState(false);
+  const [sellBusinessConfirm, setSellBusinessConfirm] = useState('');
 
   const fetchBusiness = useCallback(async () => {
     if (!currentBusiness?.id) return;
@@ -388,32 +391,67 @@ export default function BusinessDetail() {
               </CardContent>
             </Card>
 
-            {/* Business Performance mini chart (placeholder) */}
+            {/* Business Performance chart from logs */}
             <Card className="game-shine">
               <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm font-semibold game-gradient-text">Business Performance</CardTitle>
+                <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+                  <BarChart3 className="h-4 w-4" /> Performance History
+                </CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-4">
-                <div className="h-24 flex items-end gap-1">
-                  {[...Array(14)].map((_, i) => {
-                    const h = 20 + Math.sin((i + 3) * 0.8) * 30 + Math.random() * 15;
-                    const isPositive = h > 35;
-                    return (
-                      <motion.div
-                        key={i}
-                        className="flex-1 rounded-t"
-                        style={{
-                          height: `${h}%`,
-                          background: isPositive ? 'rgba(0, 106, 78, 0.6)' : 'rgba(244, 42, 65, 0.5)',
-                        }}
-                        initial={{ height: 0 }}
-                        animate={{ height: `${h}%` }}
-                        transition={{ delay: i * 0.03, duration: 0.3 }}
-                      />
-                    );
-                  })}
-                </div>
-                <div className="text-[10px] text-muted-foreground text-center mt-2">Last 14 days</div>
+                {logs.length > 0 ? (() => {
+                  const profitLogs = logs.filter((l: any) => l.type === 'PROFIT').slice(-14);
+                  if (profitLogs.length === 0) return (
+                    <div className="h-24 flex items-center justify-center">
+                      <div className="text-center">
+                        <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+                        <p className="text-xs text-muted-foreground">No profit data yet. Advance days to see your chart.</p>
+                      </div>
+                    </div>
+                  );
+                  const maxAbs = Math.max(...profitLogs.map((l: any) => Math.abs(l.amount || 0)), 1);
+                  return (
+                    <div className="space-y-0.5">
+                      <div className="h-24 flex items-end gap-[3px]">
+                        {profitLogs.map((log: any, i: number) => {
+                          const amount = log.amount || 0;
+                          const h = Math.max(5, (Math.abs(amount) / maxAbs) * 85 + 10);
+                          const isPositive = amount >= 0;
+                          return (
+                            <motion.div
+                              key={log.id || i}
+                              className="flex-1 rounded-t"
+                              style={{
+                                height: `${h}%`,
+                                background: isPositive
+                                  ? 'linear-gradient(to top, rgba(0, 106, 78, 0.7), rgba(0, 168, 107, 0.4))'
+                                  : 'linear-gradient(to top, rgba(244, 42, 65, 0.6), rgba(244, 42, 65, 0.3))',
+                              }}
+                              initial={{ height: 0 }}
+                              animate={{ height: `${h}%` }}
+                              transition={{ delay: i * 0.03, duration: 0.3 }}
+                              title={`${formatTaka(amount)}`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5">
+                        <span>Last {profitLogs.length} days</span>
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-green-600/60 inline-block" /> Profit</span>
+                          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-red-500/60 inline-block" /> Loss</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div className="h-24 flex items-center justify-center">
+                    <div className="text-center">
+                      <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+                      <p className="text-xs text-muted-foreground">No data yet. Advance days to see your chart.</p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -777,21 +815,98 @@ export default function BusinessDetail() {
                 </CardContent>
               </Card>
 
-              <Card className="border-red-200">
+              <Card className="border-red-200/60">
                 <CardHeader className="pb-2 pt-4 px-4">
                   <CardTitle className="text-sm flex items-center gap-2 text-red-600"><HandCoins className="h-4 w-4" /> Sell Business</CardTitle>
-                  <CardDescription>Sell this business and recover some of your investment.</CardDescription>
+                  <CardDescription>Sell and recover a portion of your investment based on reputation.</CardDescription>
                 </CardHeader>
                 <CardContent className="px-4 pb-4">
-                  <Button
-                    variant="outline"
-                    className="text-red-600 border-red-300 hover:bg-red-50"
-                    onClick={() => toast.info('Coming soon! Sell business feature is under development.')}
-                  >
-                    Sell Business
-                  </Button>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Estimated Value</div>
+                      <div className="text-lg font-bold">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="text-red-600 border-red-300 hover:bg-red-50 gap-1.5"
+                      onClick={() => { setSellBusinessConfirm(''); setShowSellBusinessDialog(true); }}
+                    >
+                      <HandCoins className="h-4 w-4" />
+                      Sell
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
+
+              <Dialog open={showSellBusinessDialog} onOpenChange={setShowSellBusinessDialog}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-red-600">
+                      <HandCoins className="h-5 w-5" />
+                      Sell Business
+                    </DialogTitle>
+                    <DialogDescription>
+                      Permanently remove this business, all inventory, and all staff.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <div className="rounded-lg bg-red-50 border border-red-200 p-3 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Business Value</span>
+                        <span className="font-medium">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Inventory Liquidation</span>
+                        <span className="font-medium">{formatTaka(inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between text-sm font-bold">
+                        <span>Total You Receive</span>
+                        <span className="text-green-700">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)) + inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Type business name to confirm:</label>
+                      <input
+                        type="text"
+                        value={sellBusinessConfirm}
+                        onChange={(e) => setSellBusinessConfirm(e.target.value)}
+                        placeholder={currentBusiness.name}
+                        className="mt-1 w-full h-10 px-3 rounded-lg border border-red-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter className="gap-2">
+                    <Button variant="outline" onClick={() => setShowSellBusinessDialog(false)}>Cancel</Button>
+                    <Button
+                      onClick={async () => {
+                        if (sellBusinessConfirm !== currentBusiness.name) return;
+                        setSellingBusiness(true);
+                        try {
+                          const res = await fetch(`/api/businesses/${currentBusiness.id}/sell`, { method: 'POST' });
+                          if (res.ok) {
+                            const data = await res.json();
+                            toast.success(`Sold for ${formatTaka(data.totalReceived)}`);
+                            setView('businesses');
+                            const bRes = await fetch('/api/businesses');
+                            if (bRes.ok) useGameStore.getState().setBusinesses(await bRes.json());
+                            const pRes = await fetch('/api/player');
+                            if (pRes.ok) useGameStore.getState().setPlayer(await pRes.json());
+                          } else {
+                            const err = await res.json();
+                            toast.error(err.error || 'Failed to sell');
+                          }
+                        } catch { toast.error('Network error'); }
+                        finally { setSellingBusiness(false); }
+                      }}
+                      disabled={sellingBusiness || sellBusinessConfirm !== currentBusiness.name}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      {sellingBusiness ? 'Selling...' : 'Confirm Sale'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </TabsContent>
         </div>

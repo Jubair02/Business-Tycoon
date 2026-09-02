@@ -140,7 +140,7 @@ export default function Dashboard() {
 
       {/* Stat Cards */}
       <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <Card className="game-gradient-card border-0 shadow-sm">
+        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-1">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <div className="h-7 w-7 rounded-lg bg-green-100 flex items-center justify-center">
@@ -154,7 +154,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="game-gradient-card border-0 shadow-sm">
+        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-2">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <div className="h-7 w-7 rounded-lg bg-amber-100 flex items-center justify-center">
@@ -168,7 +168,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="game-gradient-card border-0 shadow-sm">
+        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-3">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <div className="h-7 w-7 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -180,7 +180,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="game-gradient-card border-0 shadow-sm">
+        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-4">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <div className="h-7 w-7 rounded-lg bg-purple-100 flex items-center justify-center">
@@ -226,7 +226,7 @@ export default function Dashboard() {
         <motion.div variants={item}>
           <Card className="shadow-sm">
             <CardHeader className="pb-2 pt-3 px-4">
-              <CardTitle className="text-sm flex items-center gap-2">
+              <CardTitle className="text-sm flex items-center gap-2 game-section-header">
                 <BarChart3 className="h-4 w-4" style={{ color: '#006a4e' }} />
                 Business Performance
               </CardTitle>
@@ -267,7 +267,7 @@ export default function Dashboard() {
         <motion.div variants={item}>
           <Card className="border-amber-200 shadow-sm">
             <CardHeader className="pb-2 pt-3 px-4">
-              <CardTitle className="text-sm flex items-center gap-2">
+              <CardTitle className="text-sm flex items-center gap-2 game-section-header">
                 <Zap className="h-4 w-4 text-amber-500" />
                 Active Events
               </CardTitle>
@@ -290,7 +290,7 @@ export default function Dashboard() {
       {/* Quick Business List */}
       <motion.div variants={item}>
         <div className="flex items-center justify-between mb-2.5">
-          <h3 className="text-sm font-bold flex items-center gap-1.5">
+          <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
             <Building2 className="h-4 w-4" style={{ color: '#006a4e' }} />
             Your Businesses
           </h3>
@@ -308,20 +308,18 @@ export default function Dashboard() {
 
         {businesses.length === 0 ? (
           <Card className="border-dashed shadow-sm">
-            <CardContent className="py-8 text-center">
-              <div className="text-4xl mb-2 game-float">🏗️</div>
-              <h4 className="font-semibold text-sm mb-1">No Businesses Yet</h4>
-              <p className="text-xs text-muted-foreground mb-3 max-w-xs mx-auto">
+            <CardContent className="game-empty-state">
+              <div className="game-empty-icon game-float">🏗️</div>
+              <h4 className="game-empty-title">No Businesses Yet</h4>
+              <p className="game-empty-desc">
                 Create your first business to start earning taka!
               </p>
-              <Button
-                size="sm"
+              <button
+                className="game-empty-action"
                 onClick={() => setView('new-business')}
-                className="gap-1 text-white text-xs"
-                style={{ background: '#006a4e' }}
               >
-                <Plus className="h-3.5 w-3.5" /> Create Business
-              </Button>
+                <Plus className="h-3.5 w-3.5 inline mr-1" /> Create Business
+              </button>
             </CardContent>
           </Card>
         ) : (
@@ -336,7 +334,7 @@ export default function Dashboard() {
                   variants={item}
                 >
                   <Card
-                    className="game-card-interactive shadow-sm"
+                    className="game-card-interactive game-shimmer-overlay shadow-sm"
                     onClick={() => useGameStore.getState().selectBusiness(b.id)}
                   >
                     <CardContent className="p-3">
@@ -381,7 +379,7 @@ export default function Dashboard() {
       {/* Activity Feed */}
       <motion.div variants={item}>
         <div className="flex items-center justify-between mb-2.5">
-          <h3 className="text-sm font-bold flex items-center gap-1.5">
+          <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
             <Clock className="h-4 w-4" style={{ color: '#006a4e' }} />
             Recent Activity
           </h3>
@@ -407,7 +405,7 @@ export default function Dashboard() {
                 {logs.slice(0, 8).map((log: any, i: number) => (
                   <div
                     key={log.id}
-                    className={`flex items-start gap-2 p-2 rounded-lg ${i % 2 === 0 ? 'bg-muted/30' : ''}`}
+                    className={`flex items-start gap-2 p-2 rounded-lg game-activity-item ${i % 2 === 0 ? 'bg-muted/30' : ''}`}
                   >
                     <div className="mt-0.5 shrink-0">{getLogIcon(log.type)}</div>
                     <div className="flex-1 min-w-0">
@@ -434,7 +432,7 @@ export default function Dashboard() {
       {news.length > 0 && (
         <motion.div variants={item}>
           <div className="flex items-center justify-between mb-2.5">
-            <h3 className="text-sm font-bold flex items-center gap-1.5">
+            <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
               <Newspaper className="h-4 w-4" style={{ color: '#006a4e' }} />
               Latest News
             </h3>

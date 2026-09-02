@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements';
+type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
 
 interface GameState {
   view: GameView;

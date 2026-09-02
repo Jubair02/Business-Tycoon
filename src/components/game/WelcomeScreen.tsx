@@ -57,17 +57,21 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
             initial={{ scale: 0.5 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 200, delay: 0.2 }}
-            className="text-6xl mb-4 game-flag-glow inline-block"
+            className="text-6xl mb-4 inline-block relative"
           >
-            🇧🇩
+            {/* Pulsing glow behind the flag emoji */}
+            <span className="absolute inset-0 rounded-full blur-xl opacity-40" style={{ background: 'radial-gradient(circle, rgba(0,106,78,0.6) 0%, rgba(244,42,65,0.3) 50%, transparent 70%)', animation: 'pulse 2.5s ease-in-out infinite' }} />
+            <span className="relative game-flag-glow">🇧🇩</span>
           </motion.div>
           <motion.h1
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            className="text-3xl md:text-4xl font-bold mb-2 game-gradient-text"
+            className="text-3xl md:text-4xl font-bold mb-2 game-gradient-text relative"
           >
             Bangladesh
+            {/* Thin animated gradient line below main title */}
+            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3/4 h-0.5 rounded-full" style={{ background: 'linear-gradient(90deg, transparent, #006a4e, #00a86b, #f42a41, transparent)', backgroundSize: '200% 100%', animation: 'shimmer 3s linear infinite' }} />
           </motion.h1>
           <motion.h2
             initial={{ opacity: 0 }}
@@ -114,7 +118,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleStart()}
-                  className="h-12 text-lg"
+                  className="h-12 text-lg game-input-focus-green"
                   disabled={isLoading}
                   autoFocus
                 />
@@ -123,7 +127,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
               <Button
                 onClick={handleStart}
                 disabled={isLoading || !name.trim()}
-                className="w-full h-12 text-base font-semibold text-white game-start-btn-glow"
+                className="w-full h-12 text-base font-semibold text-white game-start-btn-glow game-btn-shimmer"
                 style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 50%, #00a86b 100%)' }}
               >
                 {isLoading ? (
@@ -160,7 +164,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.8 + idx * 0.08 }}
-              className="flex items-center gap-2 p-3 rounded-xl bg-white/50 backdrop-blur-sm border border-white/40 game-shine game-card-interactive cursor-default"
+              className="flex items-center gap-2 p-3 rounded-xl bg-white/50 backdrop-blur-sm border border-white/40 game-shine game-shimmer-overlay game-card-interactive cursor-default hover:scale-[1.03] transition-transform duration-200"
             >
               <span className="text-2xl game-float" style={{ animationDelay: `${idx * 0.5}s` }}>{item.icon}</span>
               <div>

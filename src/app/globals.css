@@ -267,7 +267,7 @@
   pointer-events: none;
 }
 .game-shine:hover::after {
-  animation: shine-sweep 0.7s ease-in-out;
+  animation: shine-sweep 3s ease-in-out;
 }
 
 /* --- game-badge-pulse: Subtle pulse for notification badges --- */
@@ -337,16 +337,17 @@
   border-radius: inherit;
 }
 
-/* --- game-stat-card: Enhanced stat card with inner glow and hover lift --- */
+/* --- game-stat-card: Enhanced stat card with left color bar, gradient bg, hover lift --- */
 .game-stat-card {
   position: relative;
   background: linear-gradient(135deg, rgba(0, 106, 78, 0.03) 0%, rgba(0, 106, 78, 0.08) 100%);
-  transition: all 0.25s ease;
-  box-shadow: inset 0 1px 0 0 rgba(0, 106, 78, 0.05);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 1px 0 0 rgba(0, 106, 78, 0.05), inset 3px 0 0 0 #006a4e;
+  border-radius: 0.75rem;
 }
 .game-stat-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 28px -8px rgba(0, 106, 78, 0.18), inset 0 1px 0 0 rgba(0, 106, 78, 0.08);
+  box-shadow: 0 12px 28px -8px rgba(0, 106, 78, 0.18), inset 0 1px 0 0 rgba(0, 106, 78, 0.08), inset 3px 0 0 0 #006a4e;
 }
 
 /* --- Enhanced game-pattern-bg: Bangladesh-inspired geometric pattern --- */
@@ -460,7 +461,9 @@
 }
 .game-next-day-glow:hover {
   animation: none;
-  box-shadow: 0 0 24px 6px rgba(0, 106, 78, 0.5);
+  box-shadow: 0 0 28px 8px rgba(0, 106, 78, 0.55), 0 0 60px -4px rgba(0, 106, 78, 0.35);
+  transform: scale(1.03);
+  transition: all 0.2s ease;
 }
 
 /* --- game-amber-pulse: Pulsing amber glow for events section --- */
@@ -619,4 +622,303 @@
 }
 .game-slide-up-fade {
   animation: slide-up-fade 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* ============================================ */
+/* TASK 8 - NEW STYLING ANIMATION CLASSES       */
+/* ============================================ */
+
+/* --- game-shimmer-overlay: Moving shimmer/gradient overlay for cards on hover --- */
+@keyframes shimmer-overlay-move {
+  0% { background-position: -300% 0; }
+  100% { background-position: 300% 0; }
+}
+.game-shimmer-overlay {
+  position: relative;
+  overflow: hidden;
+}
+.game-shimmer-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 25%,
+    rgba(0, 106, 78, 0.04) 35%,
+    rgba(0, 106, 78, 0.09) 50%,
+    rgba(0, 106, 78, 0.04) 65%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+}
+.game-shimmer-overlay:hover::before {
+  opacity: 1;
+  animation: shimmer-overlay-move 4s ease-in-out infinite;
+}
+
+/* --- game-section-header: Section heading with gradient underline decoration --- */
+.game-section-header {
+  position: relative;
+  display: inline-block;
+  padding-bottom: 6px;
+}
+.game-section-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, #006a4e, #00a86b, rgba(0, 168, 107, 0.2));
+  border-radius: 1px;
+}
+
+/* --- game-empty-state: Empty state with large faded icon and centered layout --- */
+.game-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+.game-empty-state .game-empty-icon {
+  font-size: 3rem;
+  opacity: 0.35;
+  margin-bottom: 0.75rem;
+  filter: grayscale(0.3);
+}
+.game-empty-state .game-empty-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  margin-bottom: 0.25rem;
+}
+.game-empty-state .game-empty-desc {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  max-width: 16rem;
+  margin: 0 auto 1rem;
+  line-height: 1.5;
+}
+.game-empty-state .game-empty-action {
+  background: linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%);
+  color: white;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 106, 78, 0.25);
+}
+.game-empty-state .game-empty-action:hover {
+  box-shadow: 0 4px 16px rgba(0, 106, 78, 0.35);
+  transform: translateY(-1px);
+}
+
+/* --- game-tooltip-bubble: Small tooltip bubble for chart bars --- */
+.game-tooltip-bubble {
+  position: absolute;
+  padding: 4px 10px;
+  background: #006a4e;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
+  transition: all 0.2s ease;
+  z-index: 50;
+}
+.game-tooltip-bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: #006a4e;
+}
+
+/* --- game-stagger-1 through game-stagger-4: Animation delay utilities --- */
+.game-stagger-1 { animation-delay: 0.05s; }
+.game-stagger-2 { animation-delay: 0.1s; }
+.game-stagger-3 { animation-delay: 0.15s; }
+.game-stagger-4 { animation-delay: 0.2s; }
+
+/* --- game-gradient-border: Animated gradient border effect --- */
+@keyframes gradient-border-spin {
+  0% { --angle: 0deg; }
+  100% { --angle: 360deg; }
+}
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.game-gradient-border {
+  position: relative;
+  border: none;
+}
+.game-gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(from var(--angle), #006a4e, #00a86b, #f42a41, #f42a41, #006a4e);
+  animation: gradient-border-spin 4s linear infinite;
+  z-index: -1;
+}
+.game-gradient-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: white;
+  z-index: -1;
+}
+
+/* --- game-fade-up: Smooth fade-up animation (opacity 0→1, translateY 10px→0) --- */
+@keyframes fade-up {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.game-fade-up {
+  animation: fade-up 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* --- bell-swing: Gentle swing animation for notification bell --- */
+@keyframes bell-swing {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(8deg); }
+  30% { transform: rotate(-6deg); }
+  45% { transform: rotate(4deg); }
+  60% { transform: rotate(-2deg); }
+  75% { transform: rotate(0deg); }
+}
+.game-bell-swing {
+  animation: bell-swing 2s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+/* --- game-pulse-red: Pulsing red glow for danger/reset buttons --- */
+@keyframes pulse-red-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 42, 65, 0.3); }
+  50% { box-shadow: 0 0 12px 2px rgba(244, 42, 65, 0.15); }
+}
+.game-pulse-red {
+  animation: pulse-red-glow 2.5s ease-in-out infinite;
+}
+
+/* --- game-input-focus-green: Green focus ring animation for input fields --- */
+.game-input-focus-green:focus {
+  border-color: #006a4e;
+  box-shadow: 0 0 0 3px rgba(0, 106, 78, 0.12), 0 0 0 1px #006a4e;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* --- game-btn-shimmer: Subtle shimmer on enabled start button --- */
+.game-btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.game-btn-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 80%;
+  height: 100%;
+  background: linear-gradient(
+    120deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 30%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0.08) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+.game-btn-shimmer:not(:disabled)::before {
+  animation: shine-sweep 3s ease-in-out infinite;
+}
+.game-btn-shimmer:disabled::before {
+  display: none;
+}
+
+/* --- game-mobile-nav-tooltip: Hover tooltip for mobile nav items --- */
+.game-mobile-nav-tooltip {
+  position: relative;
+}
+.game-mobile-nav-tooltip::before {
+  content: attr(data-label);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  padding: 3px 8px;
+  background: rgba(0, 106, 78, 0.9);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  z-index: 100;
+}
+.game-mobile-nav-tooltip:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* --- game-activity-item: Left color bar + transition for activity feed items --- */
+.game-activity-item {
+  position: relative;
+  padding-left: 12px;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+.game-activity-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #006a4e, #00a86b);
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+.game-activity-item:hover {
+  background-color: rgba(0, 106, 78, 0.04);
+}
+.game-activity-item:hover::before {
+  opacity: 1;
+}
+
+/* --- game-sidebar-gradient-bar: Gradient indicator bar at top of sidebar --- */
+.game-sidebar-gradient-bar {
+  position: relative;
+}
+.game-sidebar-gradient-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #006a4e, #00a86b, #f42a41);
+  border-radius: 0 0 2px 2px;
 }

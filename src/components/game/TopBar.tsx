@@ -81,7 +81,7 @@ export default function TopBar({ onNextDay, isTicking }: TopBarProps) {
   }
 
   return (
-    <header className="sticky top-0 z-50 bg-gradient-to-r from-white via-white/95 to-green-50/80 backdrop-blur-md game-border-bottom-animate">
+    <header className="sticky top-0 z-50 bg-gradient-to-r from-white via-white/95 to-green-50/80 backdrop-blur-md game-border-bottom-animate relative">
       <div className="flex items-center justify-between h-14 px-3 md:px-4">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
           <span className="text-lg shrink-0">🇧🇩</span>
@@ -108,6 +108,8 @@ export default function TopBar({ onNextDay, isTicking }: TopBarProps) {
               <span className="md:hidden" style={cashDirection === 'up' ? { color: '#16a34a' } : cashDirection === 'down' ? { color: '#dc2626' } : undefined}>{formatTakaShort(player.cash)}</span>
               <span className="md:hidden">·</span>
               <span>Day {gameDay}</span>
+              {/* Auto-tick speed indicator dot */}
+              <span className="inline-block w-1.5 h-1.5 rounded-full ml-1" style={{ background: 'var(--auto-tick-color, #d1d5db)' }} title="Auto-play status" />
             </div>
           </div>
         </div>
@@ -152,11 +154,10 @@ export default function TopBar({ onNextDay, isTicking }: TopBarProps) {
             aria-label="Open notifications"
           >
             <Bell
-              className={`h-4.5 w-4.5 transition-colors ${unreadCount > 0 ? 'text-green-700' : 'text-muted-foreground'}`}
-              style={unreadCount > 0 ? { animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite', color: '#006a4e' } : undefined}
+              className={`h-4.5 w-4.5 transition-colors ${unreadCount > 0 ? 'text-green-700 game-bell-swing' : 'text-muted-foreground'}`}
             />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] flex items-center justify-center rounded-full text-[9px] font-bold text-white px-1">
+              <span className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] flex items-center justify-center rounded-full text-[9px] font-bold text-white px-1 game-badge-pulse">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
@@ -172,11 +173,10 @@ export default function TopBar({ onNextDay, isTicking }: TopBarProps) {
             aria-label="Open notifications"
           >
             <Bell
-              className={`h-4.5 w-4.5 transition-colors ${unreadCount > 0 ? 'text-green-700' : 'text-muted-foreground'}`}
-              style={unreadCount > 0 ? { animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite', color: '#006a4e' } : undefined}
+              className={`h-4.5 w-4.5 transition-colors ${unreadCount > 0 ? 'text-green-700 game-bell-swing' : 'text-muted-foreground'}`}
             />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] flex items-center justify-center rounded-full text-[9px] font-bold text-white px-1">
+              <span className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] flex items-center justify-center rounded-full text-[9px] font-bold text-white px-1 game-badge-pulse">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
@@ -186,7 +186,7 @@ export default function TopBar({ onNextDay, isTicking }: TopBarProps) {
             onClick={onNextDay}
             disabled={isTicking}
             size="sm"
-            className="gap-1.5 text-white text-xs md:text-sm shrink-0 game-next-day-glow game-shine"
+            className="gap-1.5 text-white text-xs md:text-sm shrink-0 game-next-day-glow game-shine game-shimmer-overlay"
             style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' }}
           >
             {isTicking ? (

@@ -1,11 +1,11 @@
 'use client';
 
 import { useGameStore } from '@/store/game-store';
-import { LayoutDashboard, Store, TrendingUp, Trophy, Newspaper, Medal, Landmark } from 'lucide-react';
+import { LayoutDashboard, Store, TrendingUp, Trophy, Newspaper, Medal, Landmark, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type NavItem = {
-  view: 'dashboard' | 'businesses' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements';
+  view: 'dashboard' | 'businesses' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
   label: string;
   icon: React.ReactNode;
 };
@@ -18,6 +18,7 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'leaderboard', label: 'Ranks', icon: <Trophy className="h-5 w-5" /> },
   { view: 'news', label: 'News', icon: <Newspaper className="h-5 w-5" /> },
   { view: 'achievements', label: 'Achievements', icon: <Medal className="h-5 w-5" /> },
+  { view: 'settings', label: 'Settings', icon: <Settings className="h-5 w-5" /> },
 ];
 
 export default function Navigation() {
@@ -29,7 +30,7 @@ export default function Navigation() {
   return (
     <>
       {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-white via-white/95 to-white/80 backdrop-blur-xl border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-white/95 via-white/90 to-white/80 backdrop-blur-xl border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
         <div className="flex items-center justify-around h-16 safe-area-pb">
           {NAV_ITEMS.map((item, idx) => {
             const isActive = currentView === item.view;
@@ -38,11 +39,12 @@ export default function Navigation() {
                 key={item.view}
                 onClick={() => setView(item.view)}
                 className={cn(
-                  'relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl transition-all duration-200 min-w-[56px] game-slide-in-bottom',
+                  'relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl transition-all duration-200 min-w-[56px] game-slide-in-bottom game-mobile-nav-tooltip',
                   isActive
-                    ? 'text-green-700 scale-105'
+                    ? 'text-green-700 scale-105 shadow-md shadow-green-200/40'
                     : 'text-muted-foreground hover:text-foreground hover:scale-105'
                 )}
+                data-label={item.label}
                 style={{ animationDelay: `${idx * 40}ms` }}
               >
                 <div className={cn('transition-colors duration-200', isActive ? '' : 'opacity-60')}>
@@ -50,7 +52,7 @@ export default function Navigation() {
                 </div>
                 <span className="text-[10px] font-semibold">{item.label}</span>
                 {isActive && (
-                  <div className="absolute bottom-1 w-5 h-0.5 rounded-full game-nav-bounce" style={{ background: 'linear-gradient(90deg, #006a4e, #00a86b)' }} />
+                  <div className="absolute bottom-1 w-5 h-0.5 rounded-full game-nav-bounce" style={{ background: 'linear-gradient(90deg, #006a4e, #00a86b)', boxShadow: '0 0 8px rgba(0,106,78,0.3)' }} />
                 )}
                 {item.view === 'news' && activeEvents > 0 && !isActive && (
                   <span className="absolute top-0.5 right-1.5 h-4 w-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center game-badge-pulse" style={{ background: '#f42a41' }}>
@@ -67,7 +69,7 @@ export default function Navigation() {
       </nav>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex fixed left-0 top-14 bottom-0 w-52 flex-col bg-gradient-to-b from-white to-green-50/30 border-r z-40">
+      <aside className="hidden md:flex fixed left-0 top-14 bottom-0 w-52 flex-col bg-gradient-to-b from-white to-green-50/30 border-r z-40 game-sidebar-gradient-bar">
         {/* Logo/brand section at top */}
         <div className="px-3 pt-5 pb-3 border-b border-green-100/50">
           <div className="flex items-center gap-2.5 px-2">
@@ -88,7 +90,7 @@ export default function Navigation() {
                 className={cn(
                   'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
                   isActive
-                    ? 'text-white shadow-md shadow-green-200/50'
+                    ? 'text-white shadow-md shadow-green-200/50 scale-[1.02]'
                     : 'text-muted-foreground hover:text-foreground hover:bg-green-50/60 hover:scale-[1.02]'
                 )}
                 style={isActive ? { background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' } : {}}

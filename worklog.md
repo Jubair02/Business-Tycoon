@@ -423,3 +423,182 @@ Stage Summary:
 - All card hover effects use game-card-glow-subtle or whileHover for lift
 - Bangladesh green (#006a4e) and red (#f42a41) theme used consistently throughout
 - ESLint: 0 errors, dev server compiles successfully
+
+---
+Task ID: 8
+Agent: frontend-styling-expert
+Task: Comprehensive styling improvements (CSS classes + 6 component enhancements)
+
+Work Log:
+- **globals.css - New CSS Classes Added (15+ classes)**:
+  - `game-shimmer-overlay`: Moving shimmer/gradient overlay on card hover (subtle, 4s infinite loop)
+  - `game-section-header`: Section heading with green gradient underline decoration (via ::after pseudo-element)
+  - `game-empty-state`: Empty state layout (centered flex) with `.game-empty-icon` (large faded), `.game-empty-title`, `.game-empty-desc`, `.game-empty-action` (styled button)
+  - `game-tooltip-bubble`: Small green tooltip bubble with arrow for chart bars (opacity/translateY transition)
+  - `game-stagger-1` through `game-stagger-4`: Animation delay utilities (0.05s, 0.1s, 0.15s, 0.2s)
+  - `game-gradient-border`: Animated conic-gradient border using @property --angle + spinning animation (4s linear infinite)
+  - `game-fade-up`: Smooth fade-up animation (opacity 0→1, translateY 10px→0, 0.5s cubic-bezier)
+  - `game-bell-swing`: Gentle swing animation for notification bell (rotate oscillation, 2s ease-in-out)
+  - `game-pulse-red`: Pulsing red glow for danger/reset buttons (2.5s ease-in-out)
+  - `game-input-focus-green`: Green focus ring animation for input fields (border-color + box-shadow transition)
+  - `game-btn-shimmer`: Subtle shimmer sweep on enabled buttons only (3s ease-in-out infinite)
+  - `game-mobile-nav-tooltip`: Hover tooltip for mobile nav items (green bubble with fade-up transition)
+  - `game-activity-item`: Activity feed items with 3px green gradient left bar + hover background transition
+  - `game-sidebar-gradient-bar`: Green-to-red gradient indicator bar at top of sidebar (3px height)
+- **globals.css - Enhanced Existing Classes**:
+  - `game-shine`: Animation duration changed from 0.7s to 3s for smoother, less flickery effect
+  - `game-stat-card`: Added 3px left color bar (inset box-shadow), improved cubic-bezier transition, border-radius
+  - `game-next-day-glow:hover`: More prominent glow (28px/60px spread) + scale(1.03) + transition
+
+- **Dashboard.tsx Enhancements**:
+  - All 4 stat cards now use `game-stat-card` + `game-shimmer-overlay` + `game-fade-up` with stagger delays (1-4)
+  - All section headings (Business Performance, Active Events, Your Businesses, Recent Activity, Latest News) use `game-section-header`
+  - "No Businesses Yet" empty state converted to `game-empty-state` with styled icon/title/desc/action classes
+  - Business list cards have `game-shimmer-overlay` for hover effect
+  - Activity feed items use `game-activity-item` with left gradient color bars and hover transitions
+
+- **WelcomeScreen.tsx Enhancements**:
+  - Flag emoji now has a pulsing radial glow behind it (green center, red edge, 2.5s pulse)
+  - Thin animated gradient line below main "Bangladesh" title (green→aqua→red shimmer, 3s)
+  - Input field has `game-input-focus-green` class for green focus ring animation
+  - Start button has `game-btn-shimmer` for subtle continuous shimmer when enabled
+  - Business type preview cards have `game-shimmer-overlay` + `hover:scale-[1.03]` effect
+
+- **TopBar.tsx Enhancements**:
+  - Auto-tick speed indicator dot added (small colored circle, uses CSS variable `--auto-tick-color`)
+  - Bell notification icons use `game-bell-swing` (gentle swing) instead of pulse when unread
+  - Notification badges use `game-badge-pulse` for subtle animation
+  - Next Day button has `game-shimmer-overlay` + enhanced `game-next-day-glow:hover` (scale + larger glow)
+
+- **Navigation.tsx Enhancements**:
+  - Mobile nav has stronger backdrop blur (backdrop-blur-xl, more transparent backgrounds)
+  - Mobile nav items have `game-mobile-nav-tooltip` with `data-label` attribute for hover tooltips
+  - Active mobile nav items have `shadow-md shadow-green-200/40` for depth
+  - Active indicator dot has green glow (box-shadow)
+  - Desktop sidebar has `game-sidebar-gradient-bar` (green→aqua→red gradient bar at top)
+  - Desktop active nav items have `scale-[1.02]` for subtle scale transition
+
+- **SettingsView.tsx Enhancements**:
+  - Settings title uses `game-section-header`
+  - Auto-Play Speed card title uses `game-section-header`
+  - Auto-tick speed selector buttons have `duration-300` + `scale-[1.05]` when active for better transitions
+  - Game statistics cards use `game-stat-card`
+  - Danger zone card has `game-gradient-border` (animated spinning conic gradient border)
+  - Reset button has `game-pulse-red` (subtle pulsing red glow)
+
+Stage Summary:
+- 6 files modified (globals.css, Dashboard, WelcomeScreen, TopBar, Navigation, SettingsView)
+- 15+ new CSS animation/utility classes added
+- 3 existing CSS classes enhanced (game-shine, game-stat-card, game-next-day-glow)
+- No logic, state management, or functionality changed
+- No new imports added (all changes are CSS class additions only)
+- Bangladesh green (#006a4e) and red (#f42a41) used consistently
+- All animations are smooth with professional easing curves
+- Mobile-first responsive design maintained
+- ESLint: 0 errors
+
+---
+Task ID: 14
+Agent: Main (QA & Enhancement Round)
+Task: QA testing, bug fixes, 4 new features, comprehensive styling overhaul
+
+Work Log:
+- **QA Testing**: Performed comprehensive browser testing via agent-browser
+  - Welcome screen → registration → dashboard → business creation → inventory buying → business detail (all 5 tabs) → market → bank → leaderboard → news → achievements → settings
+  - All 11 views tested successfully
+  - All API endpoints returning 200 with proper data
+
+- **Bug Fix 1 - Fake Performance Chart**:
+  - Root cause: BusinessDetail Overview tab used `Math.random()` to generate fake bar chart data
+  - Fix: Replaced with real data from game logs (PROFIT type entries, last 14 entries)
+  - Chart shows green gradient bars for profit days, red gradient bars for loss days
+  - Added proper legend, tooltip on hover showing Taka amount, and empty state message
+
+- **Bug Fix 2 - Sell Business Placeholder**:
+  - Root cause: BusinessDetail Settings tab had `toast.info('Coming soon!')` for sell business
+  - Fix: Fully implemented sell business feature (see New Feature 3 below)
+
+- **New Feature 1 - Settings Panel (Full View)**:
+  - New component: SettingsView.tsx (game-level settings, not business-level)
+  - Game Statistics section: 4 stat cards (Game Day, Businesses, Level, Total Staff) with gradient icons
+  - Auto-Play Speed control: 4 options (Off, Slow/2min, Normal/1min, Fast/30s) with localStorage persistence
+  - Sound & Effects toggle (visual toggle, functional with toast feedback)
+  - About section: version info, engine details, city count, product count
+  - Danger Zone: Reset Game button with confirmation dialog (type 'RESET' to confirm)
+  - Reset Game API (POST /api/game/reset) - deletes all businesses, employees, inventory, loans, logs, resets player to Day 1
+  - Added to Navigation (mobile bottom bar + desktop sidebar) as 'Settings' with gear icon
+  - Added 'settings' to GameView type in Zustand store and page.tsx router
+
+- **New Feature 2 - Auto-Tick System**:
+  - AutoTickSync component: Syncs auto-tick speed between SettingsView and page.tsx via localStorage
+  - Page-level useEffect timer: Automatically calls game tick API at configured interval
+  - Supports 3 speeds: Slow (120s), Normal (60s), Fast (30s)
+  - Respects isTicking state to prevent overlapping ticks
+  - Shows Daily Summary popup after each auto-tick
+  - Auto-disables when on welcome screen
+  - Settings persisted in localStorage across page reloads
+
+- **New Feature 3 - Sell Business**:
+  - New API: POST /api/businesses/[id]/sell (endpoint #25)
+  - Sell price formula: baseInvestment * level * min(0.8, 0.5 + reputation * 0.001)
+  - Inventory liquidation: all stock sold at 70% of purchase price
+  - Atomic transaction: credit cash, delete inventory, delete employees, delete logs, delete business
+  - Full sell dialog in BusinessDetail Settings tab with price breakdown
+  - Type business name to confirm (destructive action protection)
+  - After sale: navigates to businesses list, refreshes player and businesses data
+
+- **New Feature 4 - Business Performance History Chart (Real Data)**:
+  - Replaced fake random chart with real data from business game logs
+  - Filters PROFIT-type log entries, takes last 14
+  - Normalizes bar heights relative to max absolute profit/loss value
+  - Green gradient bars for profitable days, red gradient for loss days
+  - Shows count label and profit/loss legend
+  - Empty state message when no data available
+  - Tooltip on hover showing exact Taka amount
+
+- **Styling Improvements** (via frontend-styling-expert agent):
+  - 15+ new CSS animation/utility classes in globals.css
+  - Enhanced game-shine animation (0.7s → 3s for smoother effect)
+  - Dashboard: stat cards with game-stat-card + shimmer overlay + stagger animations, section headers with gradient underlines, empty state redesign, activity feed with left color bars
+  - WelcomeScreen: pulsing flag glow, animated gradient line below title, green input focus ring, button shimmer, card hover scale
+  - TopBar: auto-tick indicator dot, bell swing animation, enhanced Next Day glow
+  - Navigation: stronger backdrop blur, mobile hover tooltips, desktop gradient bar, active state scale
+  - SettingsView: animated gradient border on danger zone, game-stat-card, pulsing red glow on reset
+
+Stage Summary:
+- 2 bugs fixed (fake chart, sell placeholder)
+- 4 major new features added (Settings Panel, Auto-Tick, Sell Business, Real Performance Chart)
+- 2 new API endpoints (businesses/[id]/sell, game/reset)
+- 2 new game components (SettingsView.tsx, AutoTickSync.tsx)
+- 1 new game view (Settings)
+- 6 components enhanced with comprehensive styling
+- ESLint: 0 errors
+- All changes verified via browser testing
+
+## Current Project Status
+- **Phase**: Post-MVP Enhancement - v2.1
+- **Components**: 19 game components (17 previous + SettingsView + AutoTickSync)
+- **API Routes**: 25 endpoints (23 previous + businesses/[id]/sell + game/reset)
+- **Database Models**: 11 (10 original + Loan)
+- **Game Views**: 11 (10 previous + settings)
+- **New Features This Round**: Settings Panel, Auto-Tick System, Sell Business, Real Performance Chart
+- **Bugs Fixed This Round**: 2 (fake chart, sell placeholder)
+- **Styling**: 15+ new CSS classes, 6 components enhanced
+- **Lint**: 0 errors
+
+## Unresolved Issues / Risks
+1. Daily Summary market fetch uses /api/market?city=X which returns price data but may show too many items.
+2. Notification center bell badge count is client-side only (resets on page reload).
+3. Mobile safe-area padding on Navigation bottom bar should be tested on actual iOS devices.
+4. Auto-tick timer uses setInterval which may drift over long sessions.
+5. Sell business price estimation in the UI uses the same formula as the API, but they could diverge if the formula changes.
+
+## Priority Recommendations for Next Phase
+1. **P1**: Add sound effects for key actions (buy, sell, next day, achievement unlock)
+2. **P1**: Add business branches (multiple locations per business type)
+3. **P2**: Add player trading/auction system for inventory between players
+4. **P2**: Add seasonal events tied to real Bangladesh calendar (Pohela Boishakh, Eid, etc.)
+5. **P2**: Add multiplayer/competitive features (market manipulation, price wars)
+6. **P3**: Performance optimization - batch all business ticks into single transaction
+7. **P3**: Export game statistics (CSV/PDF report of business performance)
+8. **P3**: Add mini-map of Bangladesh showing player's business locations
