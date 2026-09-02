@@ -33,7 +33,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-green-50 via-white to-red-50">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-green-50 via-white to-red-50 game-pattern-bg">
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -45,7 +45,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
             initial={{ scale: 0.5 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 200, delay: 0.2 }}
-            className="text-6xl mb-4"
+            className="text-6xl mb-4 game-flag-glow inline-block"
           >
             🇧🇩
           </motion.div>
@@ -70,8 +70,17 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
+            transition={{ delay: 0.45 }}
+            className="text-sm font-semibold tracking-widest uppercase"
+            style={{ color: '#006a4e' }}
+          >
+            Build. Expand. Dominate.
+          </motion.p>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="text-muted-foreground text-sm md:text-base max-w-xs mx-auto"
+            className="text-muted-foreground text-sm md:text-base max-w-xs mx-auto mt-2"
           >
             Build your empire from a humble tea stall to a business conglomerate across Bangladesh!
           </motion.p>
@@ -82,7 +91,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
         >
-          <Card className="border-2 shadow-lg">
+          <Card className="border-2 shadow-lg game-glow">
             <CardContent className="p-6 space-y-5">
               <div className="space-y-2">
                 <label htmlFor="player-name" className="text-sm font-medium">
@@ -103,7 +112,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
               <Button
                 onClick={handleStart}
                 disabled={isLoading || !name.trim()}
-                className="w-full h-12 text-base font-semibold text-white"
+                className="w-full h-12 text-base font-semibold text-white game-pulse-border"
                 style={{ background: '#006a4e' }}
               >
                 {isLoading ? (
@@ -137,7 +146,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
           ].map((item) => (
             <div
               key={item.label}
-              className="flex items-center gap-2 p-3 rounded-lg bg-white/60 border"
+              className="flex items-center gap-2 p-3 rounded-lg bg-white/60 border game-pulse-border"
             >
               <span className="text-2xl">{item.icon}</span>
               <div>
@@ -146,6 +155,15 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
               </div>
             </div>
           ))}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.0 }}
+          className="mt-8 text-center text-xs text-muted-foreground"
+        >
+          A Bangladesh Business Simulation Game
         </motion.div>
       </motion.div>
     </div>

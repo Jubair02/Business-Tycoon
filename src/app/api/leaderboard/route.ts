@@ -69,7 +69,18 @@ export async function GET(request: NextRequest) {
         break;
     }
 
-    return NextResponse.json(players.slice(0, 20));
+    const formatted = players.slice(0, 20).map((p) => ({
+      playerId: p.id,
+      name: p.name,
+      netWorth: p.netWorth,
+      totalProfit: p.businesses.reduce((sum, biz) => sum + biz.totalProfit, 0),
+      businessCount: p._count.businesses,
+      maxReputation: p.businesses.length > 0
+        ? Math.max(...p.businesses.map((biz) => biz.reputation))
+        : 0,
+    }));
+
+    return NextResponse.json(formatted);
   } catch (error) {
     console.error('Get leaderboard error:', error);
     return NextResponse.json(

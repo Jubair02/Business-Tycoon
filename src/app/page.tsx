@@ -13,6 +13,7 @@ import MarketView from '@/components/game/MarketView';
 import LeaderboardView from '@/components/game/LeaderboardView';
 import NewsFeed from '@/components/game/NewsFeed';
 import Navigation from '@/components/game/Navigation';
+import HintBar from '@/components/game/HintBar';
 import { toast } from 'sonner';
 
 export default function Home() {
@@ -282,6 +283,7 @@ export default function Home() {
       {showTopBar && <TopBar onNextDay={handleNextDay} isTicking={isTicking} />}
 
       <main className={`flex-1 ${showNav ? 'md:pl-52' : ''}`}>
+        {view === 'dashboard' && <div className="mt-2"><HintBar /></div>}
         <AnimatePresence mode="wait">
           <motion.div
             key={view}

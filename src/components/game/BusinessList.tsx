@@ -59,10 +59,10 @@ export default function BusinessList() {
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">Lv.{b.level || 1}</Badge>
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                            {b.inventoryCount || 0} items
+                            {b._count?.inventories || 0} items
                           </Badge>
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                            {b.employeeCount || 0} staff
+                            {b._count?.employees || 0} staff
                           </Badge>
                         </div>
                       </div>

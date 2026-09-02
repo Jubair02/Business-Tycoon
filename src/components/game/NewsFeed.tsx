@@ -133,8 +133,8 @@ export default function NewsFeed() {
                     </Badge>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium leading-snug">{article.title}</div>
-                      {article.summary && (
-                        <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{article.summary}</div>
+                      {article.content && (
+                        <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{article.content}</div>
                       )}
                       <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground">
                         <Clock className="h-3 w-3" />

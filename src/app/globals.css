@@ -182,3 +182,63 @@
 .bd-gradient-red {
   background: linear-gradient(135deg, #f42a41 0%, #e8334a 50%, #d43d52 100%);
 }
+
+/* Game utility classes */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.game-glow {
+  box-shadow: 0 0 15px -3px rgba(0, 106, 78, 0.3);
+}
+
+.game-gradient-card {
+  background: linear-gradient(135deg, rgba(0, 106, 78, 0.03) 0%, rgba(0, 106, 78, 0.08) 100%);
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.game-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(0, 106, 78, 0.3); }
+  50% { border-color: rgba(0, 106, 78, 0.8); }
+}
+.game-pulse-border {
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes flag-glow {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(0, 106, 78, 0.4)); }
+  50% { filter: drop-shadow(0 0 20px rgba(0, 106, 78, 0.7)) drop-shadow(0 0 40px rgba(244, 42, 65, 0.3)); }
+}
+.game-flag-glow {
+  animation: flag-glow 3s ease-in-out infinite;
+}
+
+@keyframes cash-flash {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-12px); }
+}
+.cash-flash {
+  animation: cash-flash 0.8s ease-out forwards;
+  pointer-events: none;
+}
+
+/* Subtle background pattern */
+.game-pattern-bg {
+  background-image: radial-gradient(circle at 1px 1px, rgba(0, 106, 78, 0.04) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* Inventory alternating rows */
+.inventory-row:nth-child(even) {
+  background: rgba(0, 106, 78, 0.02);
+}
+.inventory-row:nth-child(odd) {
+  background: transparent;
+}

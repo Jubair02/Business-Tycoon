@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/game-store';
-import { formatTaka, formatTakaShort, BUSINESS_TYPES, CITIES, getRiskColor, getProfitColor, getDifficultyColor } from '@/lib/game-data';
+import { formatTaka, formatTakaShort, BUSINESS_TYPES, CITIES, PRODUCTS, getRiskColor, getProfitColor, getDifficultyColor } from '@/lib/game-data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRight, Check, Wallet, MapPin, Type, CreditCard, Users, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Wallet, MapPin, Type, CreditCard, Users, Zap, Package, TrendingUp, ShieldAlert } from 'lucide-react';
 
 export default function NewBusiness() {
   const { player, setView, setBusinesses, selectBusiness } = useGameStore();
@@ -25,6 +25,7 @@ export default function NewBusiness() {
   const city = CITIES.find(c => c.id === selectedCity);
   const totalCost = bt ? bt.investment : 0;
   const canAfford = (player?.cash || 0) >= totalCost;
+  const availableProducts = selectedType ? (PRODUCTS[selectedType] || []) : [];
 
   const handleCreate = async () => {
     if (!selectedType || !selectedCity || !businessName.trim()) {
@@ -92,28 +93,70 @@ export default function NewBusiness() {
           <motion.div key="step0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             <h3 className="text-sm font-semibold mb-3">Choose Business Type</h3>
             <div className="space-y-3">
-              {BUSINESS_TYPES.map((b) => (
-                <Card key={b.id} className={`game-card-interactive ${selectedType === b.id ? 'ring-2' : ''}`} style={selectedType === b.id ? { ringColor: '#006a4e', borderColor: '#006a4e' } : {}} onClick={() => setSelectedType(b.id)}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className={`text-3xl p-2 rounded-xl ${b.bgColor}`}>{b.icon}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm">{b.name}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{b.description}</div>
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          <Badge className={`text-[10px] border ${getRiskColor(b.risk)}`} variant="outline">{b.risk} Risk</Badge>
-                          <Badge variant="outline" className={`text-[10px] ${getProfitColor(b.profit)}`}>{b.profit} Profit</Badge>
-                          <Badge variant="outline" className={`text-[10px] ${getDifficultyColor(b.difficulty)}`}>{b.difficulty}</Badge>
+              {BUSINESS_TYPES.map((b) => {
+                const products = PRODUCTS[b.id] || [];
+                const isSelected = selectedType === b.id;
+                return (
+                  <Card
+                    key={b.id}
+                    className={`game-card-interactive ${isSelected ? 'ring-2 game-glow' : ''}`}
+                    style={isSelected ? { borderColor: '#006a4e' } : {}}
+                    onClick={() => setSelectedType(b.id)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <div className={`text-3xl p-2 rounded-xl ${b.bgColor}`}>{b.icon}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm">{b.name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{b.description}</div>
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            <Badge className={`text-[10px] border ${getRiskColor(b.risk)}`} variant="outline">{b.risk} Risk</Badge>
+                            <Badge variant="outline" className={`text-[10px] ${getProfitColor(b.profit)}`}>{b.profit} Profit</Badge>
+                            <Badge variant="outline" className={`text-[10px] ${getDifficultyColor(b.difficulty)}`}>{b.difficulty}</Badge>
+                          </div>
+                          <div className="text-sm font-bold mt-2" style={{ color: '#006a4e' }}>{formatTaka(b.investment)}</div>
                         </div>
-                        <div className="text-sm font-bold mt-2" style={{ color: '#006a4e' }}>{formatTaka(b.investment)}</div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                      {isSelected && (
+                          <div className="mt-3">
+                            <Separator className="mb-3" />
+                            <div className="space-y-2">
+                              <div className="text-xs font-semibold flex items-center gap-1.5">
+                                <Package className="h-3.5 w-3.5" style={{ color: '#006a4e' }} />
+                                Available Products ({products.length})
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {products.slice(0, 8).map((p) => (
+                                  <Badge key={p.name} variant="secondary" className="text-[10px]">
+                                    {p.icon} {p.name}
+                                  </Badge>
+                                ))}
+                                {products.length > 8 && (
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    +{products.length - 8} more
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <TrendingUp className="h-3 w-3 text-green-600" />
+                                  Profit potential: <span className="font-medium text-foreground">{b.profit}</span>
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <ShieldAlert className="h-3 w-3" />
+                                  Risk level: <span className="font-medium text-foreground">{b.risk}</span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
             <div className="mt-4 flex justify-end">
-              <Button onClick={() => { if (selectedType) setStep(1); else toast.error('Select a business type'); }} className="gap-1 text-white" style={{ background: '#006a4e' }}>
+              <Button onClick={() => { if (selectedType) { setStep(1); } else { toast.error('Select a business type'); } }} className="gap-1 text-white" style={{ background: '#006a4e' }}>
                 Next <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
@@ -227,5 +270,3 @@ export default function NewBusiness() {
     </div>
   );
 }
-
-

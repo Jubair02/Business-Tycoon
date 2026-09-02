@@ -111,12 +111,12 @@ export default function MarketView() {
       ) : (
         <div className="space-y-2">
           {products.map((p: any, i: number) => {
-            const trend = getPriceTrend(p.marketPrice || 0, p.basePrice || 0);
-            const demand = p.demand || 1;
+            const trend = getPriceTrend(p.currentPrice || 0, p.basePrice || 0);
+            const demand = p.currentDemand || 1;
             const bt = getBusinessType(p.category);
             return (
               <motion.div
-                key={p.productId || p.name}
+                key={p.id || p.name}
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
@@ -140,7 +140,7 @@ export default function MarketView() {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-sm font-bold">৳{(p.marketPrice || 0).toLocaleString()}</div>
+                        <div className="text-sm font-bold">৳{(p.currentPrice || 0).toLocaleString()}</div>
                         <div className={`flex items-center justify-end gap-0.5 text-xs ${
                           trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-500' : 'text-muted-foreground'
                         }`}>

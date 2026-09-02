@@ -13,8 +13,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp } from 'lucide-react';
+import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+const BUSINESS_COLORS: Record<string, string> = {
+  TEA_STALL: 'bg-amber-100 border-amber-300 text-amber-800',
+  GROCERY: 'bg-green-100 border-green-300 text-green-800',
+  CLOTHING: 'bg-purple-100 border-purple-300 text-purple-800',
+  MOBILE: 'bg-blue-100 border-blue-300 text-blue-800',
+  RESTAURANT: 'bg-red-100 border-red-300 text-red-800',
+};
 
 export default function BusinessDetail() {
   const { currentBusiness, setView, setCurrentBusiness, setBusinesses, player } = useGameStore();
@@ -30,6 +40,8 @@ export default function BusinessDetail() {
   const [upgrading, setUpgrading] = useState(false);
   const [firingId, setFiringId] = useState<string | null>(null);
   const [marketProducts, setMarketProducts] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   const fetchBusiness = useCallback(async () => {
     if (!currentBusiness?.id) return;
@@ -56,12 +68,28 @@ export default function BusinessDetail() {
     }
   }, [currentBusiness]);
 
+  const fetchLogs = useCallback(async () => {
+    if (!currentBusiness?.id) return;
+    setLogsLoading(true);
+    try {
+      const res = await fetch(`/api/businesses/${currentBusiness.id}/logs`);
+      if (res.ok) {
+        setLogs(await res.json());
+      }
+    } catch {
+      // silent
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [currentBusiness?.id]);
+
   useEffect(() => {
     if (currentBusiness?.id) {
       fetchBusiness();
       fetchMarketProducts();
+      fetchLogs();
     }
-  }, [currentBusiness?.id, fetchBusiness, fetchMarketProducts]);
+  }, [currentBusiness?.id, fetchBusiness, fetchMarketProducts, fetchLogs]);
 
   if (!currentBusiness) {
     return (
@@ -78,6 +106,9 @@ export default function BusinessDetail() {
   const inventories = currentBusiness.inventories || [];
   const employees = currentBusiness.employees || [];
   const upgradeCost = Math.round((bt?.investment || 0) * (currentBusiness.level || 1) * 0.5);
+  const bannerClass = BUSINESS_COLORS[currentBusiness.type] || 'bg-gray-100 border-gray-300';
+  const revenue = currentBusiness.dailyRevenue || 0;
+  const expenses = currentBusiness.dailyExpense || 0;
 
   const handleUpdatePrice = async (invId: string) => {
     const price = parseFloat(editPrice);
@@ -213,9 +244,10 @@ export default function BusinessDetail() {
 
   return (
     <div className="pb-24 md:pb-4">
-      <div className="sticky top-14 z-40 bg-white/90 backdrop-blur-md border-b">
-        <div className="flex items-center gap-2 px-3 md:px-4 py-2.5">
-          <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setView('businesses')}>
+      {/* Colored banner header */}
+      <div className={`sticky top-14 z-40 backdrop-blur-md border-b px-3 md:px-4 py-3 ${bannerClass}`}>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="shrink-0 hover:bg-white/50" onClick={() => setView('businesses')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
@@ -223,7 +255,7 @@ export default function BusinessDetail() {
               <span className="text-lg">{bt?.icon}</span>
               <h2 className="font-bold text-sm truncate">{currentBusiness.name}</h2>
             </div>
-            <div className="text-[10px] text-muted-foreground">{bt?.name} · {city?.name}</div>
+            <div className="text-[10px] opacity-80">{bt?.name} · {city?.name}</div>
           </div>
           <Badge variant="outline" className="text-[10px] shrink-0">Lv.{currentBusiness.level}</Badge>
         </div>
@@ -231,22 +263,23 @@ export default function BusinessDetail() {
 
       <div className="p-3 md:p-4">
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="w-full grid grid-cols-4 mb-4">
+          <TabsList className="w-full grid grid-cols-5 mb-4">
             <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
             <TabsTrigger value="employees" className="text-xs">Staff</TabsTrigger>
+            <TabsTrigger value="logs" className="text-xs">Log</TabsTrigger>
             <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <Card className="border-l-4 border-l-green-500">
+              <Card className="border-l-4 border-l-green-500 game-gradient-card">
                 <CardContent className="p-3">
                   <div className="text-[10px] text-muted-foreground uppercase">Daily Revenue</div>
-                  <div className="text-lg font-bold text-green-600">{formatTakaShort(currentBusiness.dailyRevenue || 0)}</div>
+                  <div className="text-lg font-bold text-green-600">{formatTakaShort(revenue)}</div>
                 </CardContent>
               </Card>
-              <Card className={profit >= 0 ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500'}>
+              <Card className={profit >= 0 ? 'border-l-4 border-l-green-500 game-gradient-card' : 'border-l-4 border-l-red-500 game-gradient-card'}>
                 <CardContent className="p-3">
                   <div className="text-[10px] text-muted-foreground uppercase">Daily Profit</div>
                   <div className={`text-lg font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
@@ -254,19 +287,49 @@ export default function BusinessDetail() {
                   </div>
                 </CardContent>
               </Card>
-              <Card className="border-l-4 border-l-amber-500">
+              <Card className="border-l-4 border-l-amber-500 game-gradient-card">
                 <CardContent className="p-3">
                   <div className="text-[10px] text-muted-foreground uppercase">Daily Expenses</div>
-                  <div className="text-lg font-bold text-amber-600">{formatTakaShort(currentBusiness.dailyExpenses || 0)}</div>
+                  <div className="text-lg font-bold text-amber-600">{formatTakaShort(expenses)}</div>
                 </CardContent>
               </Card>
-              <Card className="border-l-4 border-l-purple-500">
+              <Card className="border-l-4 border-l-purple-500 game-gradient-card">
                 <CardContent className="p-3">
                   <div className="text-[10px] text-muted-foreground uppercase">Reputation</div>
                   <div className="text-lg font-bold">{currentBusiness.reputation || 0}%</div>
                 </CardContent>
               </Card>
             </div>
+
+            {/* Profit Breakdown */}
+            <Card className="mb-4 game-gradient-card">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm">Profit Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-green-600" />
+                    <span className="text-muted-foreground">Revenue</span>
+                  </div>
+                  <span className="font-medium text-green-600">+{formatTakaShort(revenue)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <TrendingDown className="h-4 w-4 text-red-500" />
+                    <span className="text-muted-foreground">Expenses</span>
+                  </div>
+                  <span className="font-medium text-red-500">-{formatTakaShort(expenses)}</span>
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between text-sm font-bold">
+                  <span>Net Profit</span>
+                  <span className={profit >= 0 ? 'text-green-600' : 'text-red-500'}>
+                    {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
 
             <Card className="mb-4">
               <CardHeader className="pb-2 pt-4 px-4">
@@ -280,18 +343,32 @@ export default function BusinessDetail() {
               </CardContent>
             </Card>
 
+            {/* Business Performance mini chart (placeholder) */}
             <Card>
               <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm">Quick Stats</CardTitle>
+                <CardTitle className="text-sm">Business Performance</CardTitle>
               </CardHeader>
-              <CardContent className="px-4 pb-4 space-y-2">
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">Level</span><span className="font-medium">{currentBusiness.level || 1}</span></div>
-                <Separator />
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">Inventory Items</span><span className="font-medium">{inventories.length}</span></div>
-                <Separator />
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">Employees</span><span className="font-medium">{employees.length}/{GAME_CONFIG.maxEmployees}</span></div>
-                <Separator />
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">Total Stock</span><span className="font-medium">{inventories.reduce((s: number, i: any) => s + (i.quantity || 0), 0)}</span></div>
+              <CardContent className="px-4 pb-4">
+                <div className="h-24 flex items-end gap-1">
+                  {[...Array(14)].map((_, i) => {
+                    const h = 20 + Math.sin((i + 3) * 0.8) * 30 + Math.random() * 15;
+                    const isPositive = h > 35;
+                    return (
+                      <motion.div
+                        key={i}
+                        className="flex-1 rounded-t"
+                        style={{
+                          height: `${h}%`,
+                          background: isPositive ? 'rgba(0, 106, 78, 0.6)' : 'rgba(244, 42, 65, 0.5)',
+                        }}
+                        initial={{ height: 0 }}
+                        animate={{ height: `${h}%` }}
+                        transition={{ delay: i * 0.03, duration: 0.3 }}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="text-[10px] text-muted-foreground text-center mt-2">Last 14 days</div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -315,15 +392,15 @@ export default function BusinessDetail() {
                       <ScrollArea className="max-h-64">
                         <div className="space-y-2">
                           {marketProducts.map((p: any) => (
-                            <button key={p.productId || p.name} onClick={() => setBuyProduct(p)} className="w-full text-left p-3 rounded-lg border hover:border-green-400 transition-colors">
+                            <button key={p.id || p.name} onClick={() => setBuyProduct(p)} className="w-full text-left p-3 rounded-lg border hover:border-green-400 transition-colors">
                               <div className="flex items-center gap-2">
                                 <span className="text-lg">{p.icon}</span>
                                 <div className="flex-1 min-w-0">
                                   <div className="text-sm font-medium">{p.name}</div>
-                                  <div className="text-xs text-muted-foreground">Market: ৳{p.marketPrice?.toLocaleString() || p.basePrice?.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">Market: ৳{p.currentPrice?.toLocaleString() || p.basePrice?.toLocaleString()}</div>
                                 </div>
-                                <Badge className={`text-[10px] border ${getDemandColor(p.demand || 1)}`} variant="outline">
-                                  {getDemandLabel(p.demand || 1)}
+                                <Badge className={`text-[10px] border ${getDemandColor(p.currentDemand || 1)}`} variant="outline">
+                                  {getDemandLabel(p.currentDemand || 1)}
                                 </Badge>
                               </div>
                             </button>
@@ -336,14 +413,14 @@ export default function BusinessDetail() {
                           <span className="text-2xl">{buyProduct.icon}</span>
                           <div>
                             <div className="font-medium">{buyProduct.name}</div>
-                            <div className="text-sm text-muted-foreground">Unit price: ৳{(buyProduct.marketPrice || buyProduct.basePrice || 0).toLocaleString()}</div>
+                            <div className="text-sm text-muted-foreground">Unit price: ৳{(buyProduct.currentPrice || buyProduct.basePrice || 0).toLocaleString()}</div>
                           </div>
                         </div>
                         <div className="space-y-2">
                           <Label>Quantity</Label>
                           <Input type="number" min={1} max={buyProduct.maxStock || 100} value={buyQuantity} onChange={(e) => setBuyQuantity(Math.max(1, parseInt(e.target.value) || 1))} />
                           <div className="text-sm text-muted-foreground">
-                            Total cost: <span className="font-bold text-foreground">{formatTaka((buyProduct.marketPrice || buyProduct.basePrice || 0) * buyQuantity)}</span>
+                            Total cost: <span className="font-bold text-foreground">{formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}</span>
                           </div>
                         </div>
                       </div>
@@ -353,7 +430,7 @@ export default function BusinessDetail() {
                         <Button variant="outline" onClick={() => { setBuyProduct(null); setBuyQuantity(1); }}>Back</Button>
                       )}
                       <Button onClick={buyProduct ? handleBuy : () => setShowBuyDialog(false)} disabled={buying || (!buyProduct)} className="text-white" style={{ background: '#006a4e' }}>
-                        {buying ? 'Buying...' : buyProduct ? `Buy for ${formatTaka((buyProduct.marketPrice || buyProduct.basePrice || 0) * buyQuantity)}` : 'Close'}
+                        {buying ? 'Buying...' : buyProduct ? `Buy for ${formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}` : 'Close'}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -368,47 +445,43 @@ export default function BusinessDetail() {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5 rounded-lg overflow-hidden border">
                   {inventories.map((inv: any) => {
-                    const mp = marketProducts.find((p: any) => p.productId === inv.productId || p.name === inv.productName);
+                    const mp = marketProducts.find((p: any) => p.id === inv.productId || p.name === inv.productName);
                     return (
-                      <Card key={inv.id}>
-                        <CardContent className="p-3">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xl">{mp?.icon || inv.productName?.charAt(0)}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium truncate">{inv.productName}</div>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getDemandColor(mp?.demand || 1)}`}>
-                                  {getDemandLabel(mp?.demand || 1)} demand
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">Stock: {inv.quantity || 0}</span>
-                              </div>
-                            </div>
-                            <div className="text-right shrink-0">
-                              {isEditingPrice === inv.id ? (
-                                <div className="flex items-center gap-1">
-                                  <Input
-                                    type="number"
-                                    value={editPrice}
-                                    onChange={(e) => setEditPrice(e.target.value)}
-                                    className="w-20 h-7 text-xs"
-                                    autoFocus
-                                    onKeyDown={(e) => { if (e.key === 'Enter') handleUpdatePrice(inv.id); if (e.key === 'Escape') setIsEditingPrice(null); }}
-                                  />
-                                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleUpdatePrice(inv.id)}><Check className="h-3 w-3 text-green-600" /></Button>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
-                                </div>
-                              ) : (
-                                <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline" style={{ color: '#006a4e' }}>
-                                  ৳{(inv.sellPrice || 0).toLocaleString()}
-                                </button>
-                              )}
-                              <div className="text-[10px] text-muted-foreground">sell price</div>
-                            </div>
+                      <div key={inv.id} className="inventory-row flex items-center gap-3 p-3">
+                        <span className="text-xl">{mp?.icon || inv.productName?.charAt(0)}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{inv.productName}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getDemandColor(mp?.currentDemand || 1)}`}>
+                              {getDemandLabel(mp?.currentDemand || 1)} demand
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">Stock: {inv.quantity || 0}</span>
                           </div>
-                        </CardContent>
-                      </Card>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {isEditingPrice === inv.id ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                value={editPrice}
+                                onChange={(e) => setEditPrice(e.target.value)}
+                                className="w-20 h-7 text-xs"
+                                autoFocus
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleUpdatePrice(inv.id); if (e.key === 'Escape') setIsEditingPrice(null); }}
+                              />
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleUpdatePrice(inv.id)}><Check className="h-3 w-3 text-green-600" /></Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
+                            </div>
+                          ) : (
+                            <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline" style={{ color: '#006a4e' }}>
+                              ৳{(inv.sellPrice || 0).toLocaleString()}
+                            </button>
+                          )}
+                          <div className="text-[10px] text-muted-foreground">sell price</div>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -499,6 +572,71 @@ export default function BusinessDetail() {
             </div>
           </TabsContent>
 
+          <TabsContent value="logs">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <FileText className="h-4 w-4" style={{ color: '#006a4e' }} /> Activity Log
+                </h3>
+                <Button size="sm" variant="outline" className="text-xs" onClick={fetchLogs}>
+                  Refresh
+                </Button>
+              </div>
+
+              {logsLoading ? (
+                <div className="space-y-2">
+                  {[...Array(5)].map((_, i) => (
+                    <Card key={i}><CardContent className="p-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+                  ))}
+                </div>
+              ) : logs.length === 0 ? (
+                <Card className="border-dashed">
+                  <CardContent className="py-12 text-center">
+                    <div className="text-4xl mb-2">📋</div>
+                    <p className="text-sm text-muted-foreground">No activity yet. Advance to the next day to generate logs!</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {logs.map((log: any, i: number) => {
+                    const isProfit = log.type === 'PROFIT';
+                    return (
+                      <motion.div
+                        key={log.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.03 }}
+                      >
+                        <Card className={isProfit ? 'border-l-4 border-l-green-400 game-gradient-card' : 'border-l-4 border-l-red-400 game-gradient-card'}>
+                          <CardContent className="p-3">
+                            <div className="flex items-start gap-3">
+                              <div className={`mt-0.5 ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+                                {isProfit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm">{log.message}</div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className={`text-xs font-bold ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+                                    {isProfit ? '+' : '-'}{formatTakaShort(log.amount || 0)}
+                                  </span>
+                                  {log.createdAt && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {new Date(log.createdAt).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
           <TabsContent value="settings">
             <div className="space-y-4">
               <Card>
@@ -534,6 +672,22 @@ export default function BusinessDetail() {
                       {upgrading ? 'Upgrading...' : 'Upgrade'}
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-red-200">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm flex items-center gap-2 text-red-600"><HandCoins className="h-4 w-4" /> Sell Business</CardTitle>
+                  <CardDescription>Sell this business and recover some of your investment.</CardDescription>
+                </CardHeader>
+                <CardContent className="px-4 pb-4">
+                  <Button
+                    variant="outline"
+                    className="text-red-600 border-red-300 hover:bg-red-50"
+                    onClick={() => toast.info('Coming soon! Sell business feature is under development.')}
+                  >
+                    Sell Business
+                  </Button>
                 </CardContent>
               </Card>
             </div>
