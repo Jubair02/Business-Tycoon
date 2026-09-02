@@ -12,8 +12,11 @@ import NewBusiness from '@/components/game/NewBusiness';
 import MarketView from '@/components/game/MarketView';
 import LeaderboardView from '@/components/game/LeaderboardView';
 import NewsFeed from '@/components/game/NewsFeed';
+import AchievementsView from '@/components/game/AchievementsView';
+import BankView from '@/components/game/BankView';
 import Navigation from '@/components/game/Navigation';
 import HintBar from '@/components/game/HintBar';
+import DailySummary from '@/components/game/DailySummary';
 import { toast } from 'sonner';
 
 export default function Home() {
@@ -28,6 +31,7 @@ export default function Home() {
     setEvents,
     setNews,
     setLeaderboard,
+    setAchievements,
     setGameDay,
     setLoading,
     isLoading,
@@ -39,6 +43,8 @@ export default function Home() {
   const [isTicking, setIsTicking] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [registering, setRegistering] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [preTickBusinesses, setPreTickBusinesses] = useState<any[]>([]);
   const initDone = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -121,6 +127,15 @@ export default function Home() {
     }
   }, [setGameDay]);
 
+  const fetchAchievements = useCallback(async () => {
+    try {
+      const res = await fetch('/api/achievements');
+      if (res.ok) setAchievements(await res.json());
+    } catch {
+      // silent
+    }
+  }, [setAchievements]);
+
   const fetchAllData = useCallback(async () => {
     const pData = await fetchPlayer();
     if (pData) {
@@ -130,12 +145,13 @@ export default function Home() {
         fetchNews(),
         fetchLeaderboard(),
         fetchGameDay(),
+        fetchAchievements(),
       ]);
       if (selectedBusinessId) {
         fetchCurrentBusiness(selectedBusinessId);
       }
     }
-  }, [fetchPlayer, fetchBusinesses, fetchEvents, fetchNews, fetchLeaderboard, fetchGameDay, fetchCurrentBusiness, selectedBusinessId]);
+  }, [fetchPlayer, fetchBusinesses, fetchEvents, fetchNews, fetchLeaderboard, fetchGameDay, fetchAchievements, fetchCurrentBusiness, selectedBusinessId]);
 
   const initGame = useCallback(async () => {
     if (initDone.current) return;
@@ -160,6 +176,7 @@ export default function Home() {
           fetchNews(),
           fetchLeaderboard(),
           fetchGameDay(),
+          fetchAchievements(),
         ]);
         setInitialized(true);
       } else {
@@ -205,6 +222,7 @@ export default function Home() {
           fetchNews(),
           fetchLeaderboard(),
           fetchGameDay(),
+          fetchAchievements(),
         ]);
       } else {
         toast.error('Registration failed. Please try again.');
@@ -220,10 +238,13 @@ export default function Home() {
     if (isTicking) return;
     setIsTicking(true);
     try {
+      // Save current businesses before the tick for comparison
+      setPreTickBusinesses([...businesses]);
       const res = await fetch('/api/game/tick', { method: 'POST' });
       if (res.ok) {
-        toast.success('A new day begins!');
         await fetchAllData();
+        // Show daily summary after data refresh
+        setShowSummary(true);
       } else {
         const err = await res.json().catch(() => ({}));
         toast.error(err.error || 'Tick failed');
@@ -258,10 +279,14 @@ export default function Home() {
         return <NewBusiness />;
       case 'market':
         return <MarketView />;
+      case 'bank':
+        return <BankView />;
       case 'leaderboard':
         return <LeaderboardView />;
       case 'news':
         return <NewsFeed />;
+      case 'achievements':
+        return <AchievementsView />;
       default:
         return <Dashboard />;
     }
@@ -299,6 +324,12 @@ export default function Home() {
       </main>
 
       {showNav && <Navigation />}
+
+      <DailySummary
+        open={showSummary}
+        onClose={() => setShowSummary(false)}
+        previousBusinesses={preTickBusinesses}
+      />
     </div>
   );
 }

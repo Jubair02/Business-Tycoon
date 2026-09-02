@@ -45,6 +45,18 @@ export default function NewsFeed() {
     }
   };
 
+  const getCategoryBorderColor = (category: string) => {
+    switch (category?.toUpperCase()) {
+      case 'ECONOMY': return 'border-l-green-500';
+      case 'BUSINESS': return 'border-l-blue-500';
+      case 'WEATHER': return 'border-l-cyan-500';
+      case 'EVENT': return 'border-l-purple-500';
+      case 'POLITICS': return 'border-l-red-500';
+      case 'TRADE': return 'border-l-amber-500';
+      default: return 'border-l-gray-400';
+    }
+  };
+
   const formatTime = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
@@ -61,19 +73,28 @@ export default function NewsFeed() {
     }
   };
 
+  // Calculate age-based opacity for time-based fade effect
+  const getNewsOpacity = (dateStr: string, index: number) => {
+    // Newer items are fully opaque; older ones slightly dimmer
+    if (index < 3) return 1;
+    if (index < 8) return 0.92;
+    if (index < 15) return 0.82;
+    return 0.7;
+  };
+
   return (
     <div className="p-3 md:p-4 space-y-4 pb-24 md:pb-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold flex items-center gap-2">
+        <h2 className="text-lg font-bold flex items-center gap-2 game-gradient-text">
           <Newspaper className="h-5 w-5" style={{ color: '#006a4e' }} /> News & Events
         </h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={fetchNews} disabled={loading}>
+        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50" onClick={fetchNews} disabled={loading}>
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
 
       {events.length > 0 && (
-        <Card className="border-amber-300">
+        <Card className="border-amber-300 game-amber-pulse">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-sm flex items-center gap-2">
               <Zap className="h-4 w-4 text-amber-500" /> Active Events ({events.length})
@@ -81,14 +102,14 @@ export default function NewsFeed() {
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-2">
             {events.map((event: any) => (
-              <div key={event.id} className="p-2.5 rounded-lg bg-amber-50 border border-amber-200">
+              <div key={event.id} className="p-2.5 rounded-lg bg-gradient-to-r from-amber-50 to-orange-50/50 border border-amber-200 transition-all hover:shadow-md hover:shadow-amber-100">
                 <div className="flex items-start gap-2">
-                  <span className="text-lg shrink-0">{event.icon || '📢'}</span>
+                  <span className="text-lg shrink-0 game-float">{event.icon || '📢'}</span>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium">{event.title}</div>
+                    <div className="text-sm font-semibold">{event.title}</div>
                     <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{event.description}</div>
                     {event.endsAt && (
-                      <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-600">
+                      <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-600 font-medium">
                         <Clock className="h-3 w-3" />
                         {formatTime(event.endsAt)}
                       </div>
@@ -101,7 +122,7 @@ export default function NewsFeed() {
         </Card>
       )}
 
-      <h3 className="text-sm font-semibold">Latest News</h3>
+      <h3 className="text-sm font-semibold game-gradient-text">Latest News</h3>
 
       {loading && news.length === 0 ? (
         <div className="space-y-2">
@@ -124,8 +145,10 @@ export default function NewsFeed() {
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
+              className={`game-news-fade border-l-4 ${getCategoryBorderColor(article.category)} rounded-r-lg`}
+              style={{ opacity: getNewsOpacity(article.createdAt || article.updatedAt, i) }}
             >
-              <Card className="game-card-hover">
+              <Card className="game-card-hover rounded-tl-none border-l-0 rounded-r-lg">
                 <CardContent className="p-3">
                   <div className="flex items-start gap-2.5">
                     <Badge className={`text-[10px] border shrink-0 mt-0.5 ${getCategoryColor(article.category)}`} variant="outline">

@@ -33,12 +33,24 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-green-50 via-white to-red-50 game-pattern-bg">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-green-50 via-white to-red-50 game-pattern-bg relative overflow-hidden">
+      {/* Floating particles using pseudo-elements via wrapper divs */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+        <span className="absolute top-[15%] left-[10%] w-2 h-2 rounded-full bg-green-400/20" style={{ animation: 'particle-float-1 8s ease-in-out infinite' }} />
+        <span className="absolute top-[25%] right-[15%] w-3 h-3 rounded-full bg-red-400/15" style={{ animation: 'particle-float-2 10s ease-in-out infinite 1s' }} />
+        <span className="absolute top-[60%] left-[20%] w-2.5 h-2.5 rounded-full bg-green-500/15" style={{ animation: 'particle-float-3 9s ease-in-out infinite 2s' }} />
+        <span className="absolute top-[40%] right-[25%] w-1.5 h-1.5 rounded-full bg-red-300/20" style={{ animation: 'particle-float-1 11s ease-in-out infinite 0.5s' }} />
+        <span className="absolute top-[70%] right-[10%] w-2 h-2 rounded-full bg-green-300/18" style={{ animation: 'particle-float-2 7s ease-in-out infinite 3s' }} />
+        <span className="absolute top-[10%] left-[50%] w-1.5 h-1.5 rounded-full bg-red-400/12" style={{ animation: 'particle-float-3 12s ease-in-out infinite 1.5s' }} />
+        <span className="absolute top-[80%] left-[45%] w-2 h-2 rounded-full bg-green-400/12" style={{ animation: 'particle-float-1 9s ease-in-out infinite 4s' }} />
+        <span className="absolute top-[50%] left-[70%] w-3 h-3 rounded-full bg-red-300/10" style={{ animation: 'particle-float-2 8s ease-in-out infinite 2.5s' }} />
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        className="w-full max-w-md"
+        className="w-full max-w-md relative z-10"
       >
         <div className="text-center mb-8">
           <motion.div
@@ -53,8 +65,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            className="text-3xl md:text-4xl font-bold mb-2"
-            style={{ color: '#006a4e' }}
+            className="text-3xl md:text-4xl font-bold mb-2 game-gradient-text"
           >
             Bangladesh
           </motion.h1>
@@ -71,7 +82,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.45 }}
-            className="text-sm font-semibold tracking-widest uppercase"
+            className="text-sm font-semibold tracking-[0.25em] uppercase"
             style={{ color: '#006a4e' }}
           >
             Build. Expand. Dominate.
@@ -91,7 +102,7 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
         >
-          <Card className="border-2 shadow-lg game-glow">
+          <Card className="game-glass game-shine border-2 shadow-xl game-glow">
             <CardContent className="p-6 space-y-5">
               <div className="space-y-2">
                 <label htmlFor="player-name" className="text-sm font-medium">
@@ -112,8 +123,8 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
               <Button
                 onClick={handleStart}
                 disabled={isLoading || !name.trim()}
-                className="w-full h-12 text-base font-semibold text-white game-pulse-border"
-                style={{ background: '#006a4e' }}
+                className="w-full h-12 text-base font-semibold text-white game-start-btn-glow"
+                style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 50%, #00a86b 100%)' }}
               >
                 {isLoading ? (
                   <span className="flex items-center gap-2">
@@ -143,25 +154,36 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
             { icon: '🛒', label: 'Grocery', desc: 'Daily essentials' },
             { icon: '👕', label: 'Clothing', desc: 'Fashion retail' },
             { icon: '🍛', label: 'Restaurant', desc: 'Bangladeshi cuisine' },
-          ].map((item) => (
-            <div
+          ].map((item, idx) => (
+            <motion.div
               key={item.label}
-              className="flex items-center gap-2 p-3 rounded-lg bg-white/60 border game-pulse-border"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8 + idx * 0.08 }}
+              className="flex items-center gap-2 p-3 rounded-xl bg-white/50 backdrop-blur-sm border border-white/40 game-shine game-card-interactive cursor-default"
             >
-              <span className="text-2xl">{item.icon}</span>
+              <span className="text-2xl game-float" style={{ animationDelay: `${idx * 0.5}s` }}>{item.icon}</span>
               <div>
                 <div className="text-sm font-medium">{item.label}</div>
                 <div className="text-xs text-muted-foreground">{item.desc}</div>
               </div>
-            </div>
+            </motion.div>
           ))}
         </motion.div>
+
+        {/* Bottom wave divider SVG */}
+        <div className="mt-8 -mx-4">
+          <svg viewBox="0 0 400 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full" aria-hidden="true">
+            <path d="M0 20 Q50 5 100 20 T200 20 T300 20 T400 20 V40 H0 Z" fill="rgba(0,106,78,0.05)" />
+            <path d="M0 25 Q50 12 100 25 T200 25 T300 25 T400 25 V40 H0 Z" fill="rgba(0,106,78,0.03)" />
+          </svg>
+        </div>
 
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.0 }}
-          className="mt-8 text-center text-xs text-muted-foreground"
+          className="mt-2 text-center text-xs text-muted-foreground"
         >
           A Bangladesh Business Simulation Game
         </motion.div>

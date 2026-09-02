@@ -21,6 +21,7 @@ model Player {
 
   businesses Business[]
   gameLogs   GameLog[]
+  loans      Loan[]
 }
 
 model Business {
@@ -142,4 +143,22 @@ model GameState {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model Loan {
+  id            String   @id @default(cuid())
+  playerId      String
+  amount        Float
+  interestRate  Float    @default(0.05)
+  remainingDebt Float
+  dailyPayment  Float
+  daysRemaining Int
+  totalInterest Float    @default(0)
+  status        String   @default("ACTIVE")
+  takenAt       DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId])
 }

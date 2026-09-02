@@ -339,6 +339,57 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   }
 }
 
+// ---- Loan Payment Processing ----
+
+async function processLoanPayments(): Promise<void> {
+  const activeLoans = await db.loan.findMany({
+    where: { status: 'ACTIVE' },
+  });
+
+  if (activeLoans.length === 0) return;
+
+  for (const loan of activeLoans) {
+    const payment = loan.dailyPayment;
+
+    const isPaidOff = loan.daysRemaining - 1 <= 0;
+    const actualPayment = isPaidOff ? loan.remainingDebt : payment;
+
+    await db.$transaction(async (tx) => {
+      // Deduct payment from player cash
+      const player = await tx.player.findUnique({ where: { id: loan.playerId }, select: { cash: true } });
+      if (!player) return;
+
+      const deductAmount = Math.min(actualPayment, player.cash);
+      const newRemainingDebt = Math.max(loan.remainingDebt - deductAmount, 0);
+
+      await tx.loan.update({
+        where: { id: loan.id },
+        data: {
+          remainingDebt: newRemainingDebt,
+          daysRemaining: Math.max(loan.daysRemaining - 1, 0),
+          status: (isPaidOff || newRemainingDebt <= 0) ? 'PAID_OFF' : 'ACTIVE',
+        },
+      });
+
+      await tx.player.update({
+        where: { id: loan.playerId },
+        data: { cash: { decrement: deductAmount } },
+      });
+
+      await tx.gameLog.create({
+        data: {
+          playerId: loan.playerId,
+          type: (isPaidOff || newRemainingDebt <= 0) ? 'LOAN_PAID' : 'LOAN_PAYMENT',
+          message: (isPaidOff || newRemainingDebt <= 0)
+            ? `Loan of ৳${loan.amount.toLocaleString()} fully repaid! Final deduction: ৳${Math.round(deductAmount).toLocaleString()}`
+            : `Loan payment: ৳${Math.round(deductAmount).toLocaleString()} deducted. Remaining debt: ৳${Math.round(newRemainingDebt).toLocaleString()} (${loan.daysRemaining - 1} days left)`,
+          amount: -deductAmount,
+        },
+      });
+    });
+  }
+}
+
 // ---- Full Game Tick ----
 
 export async function gameTick(): Promise<void> {
@@ -359,6 +410,13 @@ export async function gameTick(): Promise<void> {
   const businesses = await db.business.findMany({ select: { id: true } });
   for (const business of businesses) {
     await simulateBusinessTick(business.id);
+  }
+
+  // 3.5 Process loan payments (safe - skip if model unavailable)
+  try {
+    await processLoanPayments();
+  } catch {
+    // Loan model may not be available yet
   }
 
   // 4. Simulate AI player activity

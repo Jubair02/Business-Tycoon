@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'leaderboard' | 'news';
+type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements';
 
 interface GameState {
   view: GameView;
@@ -12,6 +12,7 @@ interface GameState {
   events: any[];
   news: any[];
   leaderboard: any[];
+  achievements: any[];
   gameDay: number;
   isLoading: boolean;
   setView: (view: GameView) => void;
@@ -23,6 +24,7 @@ interface GameState {
   setEvents: (events: any[]) => void;
   setNews: (news: any[]) => void;
   setLeaderboard: (leaderboard: any[]) => void;
+  setAchievements: (achievements: any[]) => void;
   setGameDay: (day: number) => void;
   setLoading: (loading: boolean) => void;
 }
@@ -37,6 +39,7 @@ export const useGameStore = create<GameState>((set) => ({
   events: [],
   news: [],
   leaderboard: [],
+  achievements: [],
   gameDay: 1,
   isLoading: false,
   setView: (view) => set({ view }),
@@ -48,6 +51,7 @@ export const useGameStore = create<GameState>((set) => ({
   setEvents: (events) => set({ events }),
   setNews: (news) => set({ news }),
   setLeaderboard: (leaderboard) => set({ leaderboard }),
+  setAchievements: (achievements) => set({ achievements }),
   setGameDay: (gameDay) => set({ gameDay }),
   setLoading: (loading) => set({ isLoading: loading }),
 }));

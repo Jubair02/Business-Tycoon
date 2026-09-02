@@ -229,16 +229,340 @@
   pointer-events: none;
 }
 
-/* Subtle background pattern */
-.game-pattern-bg {
-  background-image: radial-gradient(circle at 1px 1px, rgba(0, 106, 78, 0.04) 1px, transparent 0);
-  background-size: 24px 24px;
+/* ============================================ */
+/* NEW ENHANCED ANIMATIONS & UTILITY CLASSES    */
+/* ============================================ */
+
+/* --- game-shine: Shimmer sweep across cards on hover --- */
+@keyframes shine-sweep {
+  0% { left: -100%; }
+  100% { left: 150%; }
+}
+.game-shine {
+  position: relative;
+  overflow: hidden;
+}
+.game-shine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    120deg,
+    transparent 0%,
+    rgba(0, 106, 78, 0.06) 30%,
+    rgba(0, 106, 78, 0.12) 50%,
+    rgba(0, 106, 78, 0.06) 70%,
+    transparent 100%
+  );
+  transition: none;
+  pointer-events: none;
+}
+.game-shine:hover::after {
+  animation: shine-sweep 0.7s ease-in-out;
 }
 
-/* Inventory alternating rows */
+/* --- game-badge-pulse: Subtle pulse for notification badges --- */
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(244, 42, 65, 0.4); }
+  50% { transform: scale(1.15); box-shadow: 0 0 0 4px rgba(244, 42, 65, 0); }
+}
+.game-badge-pulse {
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+/* --- game-slide-in-bottom: Slide up from bottom (mobile nav items) --- */
+@keyframes slide-in-bottom {
+  0% { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.game-slide-in-bottom {
+  animation: slide-in-bottom 0.35s ease-out both;
+}
+
+/* --- game-number-tick: Brief scale bump for changing values --- */
+@keyframes number-tick {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.game-number-tick {
+  animation: number-tick 0.35s ease-out;
+}
+
+/* --- game-gradient-text: Green gradient text for headings --- */
+.game-gradient-text {
+  background: linear-gradient(135deg, #004d38 0%, #006a4e 35%, #00a86b 70%, #006a4e 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* --- game-glass: Glassmorphism card effect --- */
+.game-glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 106, 78, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* --- game-border-gradient: Animated gradient border --- */
+@keyframes gradient-border-rotate {
+  0% { --border-angle: 0deg; }
+  100% { --border-angle: 360deg; }
+}
+.game-border-gradient {
+  position: relative;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.game-border-gradient::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #006a4e, #00a86b, #f42a41, #006a4e);
+  background-size: 300% 300%;
+  animation: gradient-shift 4s ease infinite;
+  z-index: -1;
+  border-radius: inherit;
+}
+
+/* --- game-stat-card: Enhanced stat card with inner glow and hover lift --- */
+.game-stat-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(0, 106, 78, 0.03) 0%, rgba(0, 106, 78, 0.08) 100%);
+  transition: all 0.25s ease;
+  box-shadow: inset 0 1px 0 0 rgba(0, 106, 78, 0.05);
+}
+.game-stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -8px rgba(0, 106, 78, 0.18), inset 0 1px 0 0 rgba(0, 106, 78, 0.08);
+}
+
+/* --- Enhanced game-pattern-bg: Bangladesh-inspired geometric pattern --- */
+.game-pattern-bg {
+  background-image:
+    linear-gradient(30deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+    linear-gradient(150deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+    linear-gradient(30deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+    linear-gradient(150deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+    linear-gradient(60deg, rgba(244, 42, 65, 0.015) 25%, transparent 25.5%, transparent 75%, rgba(244, 42, 65, 0.015) 75%, rgba(244, 42, 65, 0.015)),
+    linear-gradient(60deg, rgba(244, 42, 65, 0.015) 25%, transparent 25.5%, transparent 75%, rgba(244, 42, 65, 0.015) 75%, rgba(244, 42, 65, 0.015));
+  background-size: 40px 70px;
+  background-position: 0 0, 0 0, 20px 35px, 20px 35px, 0 0, 20px 35px;
+}
+
+/* --- gradient-shift keyframes for animated gradient backgrounds --- */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.game-animated-gradient {
+  background: linear-gradient(135deg, #006a4e, #00895e, #00a86b, #006a4e);
+  background-size: 300% 300%;
+  animation: gradient-shift 6s ease infinite;
+}
+
+/* --- game-tooltip: Custom tooltip with green theme --- */
+.game-tooltip {
+  position: relative;
+}
+.game-tooltip::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.9);
+  padding: 6px 12px;
+  background: #006a4e;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  z-index: 100;
+}
+.game-tooltip::after {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #006a4e;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  z-index: 100;
+}
+.game-tooltip:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+.game-tooltip:hover::after {
+  opacity: 1;
+}
+
+/* --- game-nav-bounce: Bounce animation for active nav indicator --- */
+@keyframes nav-bounce {
+  0%, 100% { transform: translateX(-50%) scaleX(1); }
+  40% { transform: translateX(-50%) scaleX(1.2); }
+  60% { transform: translateX(-50%) scaleX(0.95); }
+}
+.game-nav-bounce {
+ animation: nav-bounce 0.5s ease-out;
+}
+
+/* --- game-podium-gold: Golden glow for #1 leaderboard entry --- */
+@keyframes gold-glow {
+  0%, 100% { box-shadow: 0 0 8px -2px rgba(234, 179, 8, 0.3), 0 0 20px -4px rgba(234, 179, 8, 0.15); }
+  50% { box-shadow: 0 0 16px -2px rgba(234, 179, 8, 0.5), 0 0 40px -4px rgba(234, 179, 8, 0.25); }
+}
+.game-podium-gold {
+  animation: gold-glow 2.5s ease-in-out infinite;
+  background: linear-gradient(135deg, #fefce8 0%, #fef9c3 50%, #fef08a 100%) !important;
+  border-color: #eab308 !important;
+}
+
+/* --- game-podium-silver --- */
+.game-podium-silver {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%) !important;
+  border-color: #94a3b8 !important;
+}
+
+/* --- game-podium-bronze --- */
+.game-podium-bronze {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fde68a 100%) !important;
+  border-color: #d97706 !important;
+}
+
+/* --- game-next-day-glow: Pulsing glow for the Next Day button --- */
+@keyframes next-day-glow {
+  0%, 100% { box-shadow: 0 0 8px 0 rgba(0, 106, 78, 0.3); }
+  50% { box-shadow: 0 0 20px 4px rgba(0, 106, 78, 0.45); }
+}
+.game-next-day-glow {
+  animation: next-day-glow 2.5s ease-in-out infinite;
+}
+.game-next-day-glow:hover {
+  animation: none;
+  box-shadow: 0 0 24px 6px rgba(0, 106, 78, 0.5);
+}
+
+/* --- game-amber-pulse: Pulsing amber glow for events section --- */
+@keyframes amber-pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px -2px rgba(245, 158, 11, 0.2); }
+  50% { box-shadow: 0 0 20px -2px rgba(245, 158, 11, 0.4); }
+}
+.game-amber-pulse {
+  animation: amber-pulse-glow 3s ease-in-out infinite;
+}
+
+/* --- game-news-fade: Time-based fade for older news --- */
+.game-news-fade {
+  transition: opacity 0.3s ease;
+}
+
+/* --- game-sparkline-bar: CSS-only mini bar for sparklines --- */
+.game-sparkline-bar {
+  display: inline-block;
+  width: 3px;
+  border-radius: 1px;
+  min-height: 4px;
+  transition: height 0.3s ease;
+}
+
+/* --- game-hero-banner: Gradient banner for business detail hero --- */
+.game-hero-banner {
+  position: relative;
+  overflow: hidden;
+}
+.game-hero-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0, 106, 78, 0.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* --- game-price-edit: Visual feedback for editing prices --- */
+@keyframes price-edit-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 106, 78, 0.2); }
+  50% { box-shadow: 0 0 0 4px rgba(0, 106, 78, 0.15); }
+}
+.game-price-edit {
+  animation: price-edit-glow 1.5s ease-in-out infinite;
+  border-color: #006a4e !important;
+}
+
+/* --- game-start-btn-glow: Pulsing glow for the start button on welcome screen --- */
+@keyframes start-btn-glow {
+  0%, 100% { box-shadow: 0 0 12px 0 rgba(0, 106, 78, 0.3), 0 0 30px -4px rgba(0, 106, 78, 0.15); }
+  50% { box-shadow: 0 0 20px 4px rgba(0, 106, 78, 0.45), 0 0 50px -4px rgba(0, 106, 78, 0.25); }
+}
+.game-start-btn-glow {
+  animation: start-btn-glow 2s ease-in-out infinite;
+}
+.game-start-btn-glow:hover {
+  animation: none;
+  box-shadow: 0 0 28px 6px rgba(0, 106, 78, 0.55), 0 0 60px -4px rgba(0, 106, 78, 0.35);
+}
+
+/* --- game-floating-particle: CSS-only floating dots for welcome screen --- */
+@keyframes particle-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  25% { transform: translate(30px, -40px) scale(1.1); opacity: 0.6; }
+  50% { transform: translate(-20px, -80px) scale(0.9); opacity: 0.3; }
+  75% { transform: translate(40px, -50px) scale(1.05); opacity: 0.5; }
+}
+@keyframes particle-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.3; }
+  25% { transform: translate(-40px, -30px) scale(0.95); opacity: 0.5; }
+  50% { transform: translate(20px, -70px) scale(1.1); opacity: 0.35; }
+  75% { transform: translate(-30px, -45px) scale(1); opacity: 0.45; }
+}
+@keyframes particle-float-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.35; }
+  25% { transform: translate(25px, -55px) scale(1.08); opacity: 0.55; }
+  50% { transform: translate(-35px, -25px) scale(0.92); opacity: 0.3; }
+  75% { transform: translate(15px, -65px) scale(1.03); opacity: 0.5; }
+}
+
+/* --- game-border-bottom-animate: Animated gradient bottom border --- */
+@keyframes border-bottom-shift {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
+}
+.game-border-bottom-animate::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #006a4e, #00a86b, #006a4e, transparent);
+  background-size: 200% 100%;
+  animation: border-bottom-shift 4s linear infinite;
+}
+
+/* --- Inventory alternating rows (enhanced) --- */
 .inventory-row:nth-child(even) {
-  background: rgba(0, 106, 78, 0.02);
+  background: rgba(0, 106, 78, 0.03);
 }
 .inventory-row:nth-child(odd) {
   background: transparent;
+}
+.inventory-row {
+  transition: background 0.15s ease;
+}
+.inventory-row:hover {
+  background: rgba(0, 106, 78, 0.06) !important;
 }

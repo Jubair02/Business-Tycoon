@@ -244,20 +244,25 @@ export default function BusinessDetail() {
 
   return (
     <div className="pb-24 md:pb-4">
-      {/* Colored banner header */}
-      <div className={`sticky top-14 z-40 backdrop-blur-md border-b px-3 md:px-4 py-3 ${bannerClass}`}>
+      {/* Enhanced hero banner header */}
+      <div className={`sticky top-14 z-40 border-b px-3 md:px-4 py-4 md:py-5 game-hero-banner ${bannerClass}`}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="shrink-0 hover:bg-white/50" onClick={() => setView('businesses')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">{bt?.icon}</span>
-              <h2 className="font-bold text-sm truncate">{currentBusiness.name}</h2>
+            <div className="flex items-center gap-2.5">
+              <span className="text-2xl game-float">{bt?.icon}</span>
+              <div className="min-w-0">
+                <h2 className="font-bold text-base truncate">{currentBusiness.name}</h2>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <Badge variant="outline" className={`text-[10px] shrink-0 ${bannerClass}`}>{bt?.name}</Badge>
+                  <span className="text-[10px] opacity-80 flex items-center gap-1">📍 {city?.name}</span>
+                </div>
+              </div>
             </div>
-            <div className="text-[10px] opacity-80">{bt?.name} · {city?.name}</div>
           </div>
-          <Badge variant="outline" className="text-[10px] shrink-0">Lv.{currentBusiness.level}</Badge>
+          <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
         </div>
       </div>
 
@@ -273,38 +278,38 @@ export default function BusinessDetail() {
 
           <TabsContent value="overview">
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <Card className="border-l-4 border-l-green-500 game-gradient-card">
+              <Card className="border-l-4 border-l-green-500 game-stat-card game-shine">
                 <CardContent className="p-3">
-                  <div className="text-[10px] text-muted-foreground uppercase">Daily Revenue</div>
-                  <div className="text-lg font-bold text-green-600">{formatTakaShort(revenue)}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Revenue</div>
+                  <div className="text-lg font-bold text-green-600 mt-0.5">{formatTakaShort(revenue)}</div>
                 </CardContent>
               </Card>
-              <Card className={profit >= 0 ? 'border-l-4 border-l-green-500 game-gradient-card' : 'border-l-4 border-l-red-500 game-gradient-card'}>
+              <Card className={`${profit >= 0 ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500'} game-stat-card game-shine`}>
                 <CardContent className="p-3">
-                  <div className="text-[10px] text-muted-foreground uppercase">Daily Profit</div>
-                  <div className={`text-lg font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Profit</div>
+                  <div className={`text-lg font-bold mt-0.5 ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
                   </div>
                 </CardContent>
               </Card>
-              <Card className="border-l-4 border-l-amber-500 game-gradient-card">
+              <Card className="border-l-4 border-l-amber-500 game-stat-card game-shine">
                 <CardContent className="p-3">
-                  <div className="text-[10px] text-muted-foreground uppercase">Daily Expenses</div>
-                  <div className="text-lg font-bold text-amber-600">{formatTakaShort(expenses)}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Expenses</div>
+                  <div className="text-lg font-bold text-amber-600 mt-0.5">{formatTakaShort(expenses)}</div>
                 </CardContent>
               </Card>
-              <Card className="border-l-4 border-l-purple-500 game-gradient-card">
+              <Card className="border-l-4 border-l-purple-500 game-stat-card game-shine">
                 <CardContent className="p-3">
-                  <div className="text-[10px] text-muted-foreground uppercase">Reputation</div>
-                  <div className="text-lg font-bold">{currentBusiness.reputation || 0}%</div>
+                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Reputation</div>
+                  <div className="text-lg font-bold mt-0.5">{currentBusiness.reputation || 0}%</div>
                 </CardContent>
               </Card>
             </div>
 
             {/* Profit Breakdown */}
-            <Card className="mb-4 game-gradient-card">
+            <Card className="mb-4 game-gradient-card game-shine">
               <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm">Profit Breakdown</CardTitle>
+                <CardTitle className="text-sm font-semibold game-gradient-text">Profit Breakdown</CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-4 space-y-2">
                 <div className="flex items-center justify-between text-sm">
@@ -331,9 +336,9 @@ export default function BusinessDetail() {
               </CardContent>
             </Card>
 
-            <Card className="mb-4">
+            <Card className="mb-4 game-shine">
               <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm">Reputation</CardTitle>
+                <CardTitle className="text-sm font-semibold game-gradient-text">Reputation</CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 <Progress value={currentBusiness.reputation || 0} className="h-3" />
@@ -344,9 +349,9 @@ export default function BusinessDetail() {
             </Card>
 
             {/* Business Performance mini chart (placeholder) */}
-            <Card>
+            <Card className="game-shine">
               <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm">Business Performance</CardTitle>
+                <CardTitle className="text-sm font-semibold game-gradient-text">Business Performance</CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 <div className="h-24 flex items-end gap-1">
@@ -392,7 +397,7 @@ export default function BusinessDetail() {
                       <ScrollArea className="max-h-64">
                         <div className="space-y-2">
                           {marketProducts.map((p: any) => (
-                            <button key={p.id || p.name} onClick={() => setBuyProduct(p)} className="w-full text-left p-3 rounded-lg border hover:border-green-400 transition-colors">
+                            <button key={p.id || p.name} onClick={() => setBuyProduct(p)} className="w-full text-left p-3 rounded-lg border hover:border-green-400 transition-all hover:shadow-md hover:shadow-green-100 hover:-translate-y-0.5">
                               <div className="flex items-center gap-2">
                                 <span className="text-lg">{p.icon}</span>
                                 <div className="flex-1 min-w-0">
@@ -409,7 +414,7 @@ export default function BusinessDetail() {
                       </ScrollArea>
                     ) : (
                       <div className="space-y-4">
-                        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted">
+                        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50/60 border border-green-100">
                           <span className="text-2xl">{buyProduct.icon}</span>
                           <div>
                             <div className="font-medium">{buyProduct.name}</div>
@@ -429,7 +434,7 @@ export default function BusinessDetail() {
                       {buyProduct && (
                         <Button variant="outline" onClick={() => { setBuyProduct(null); setBuyQuantity(1); }}>Back</Button>
                       )}
-                      <Button onClick={buyProduct ? handleBuy : () => setShowBuyDialog(false)} disabled={buying || (!buyProduct)} className="text-white" style={{ background: '#006a4e' }}>
+                      <Button onClick={buyProduct ? handleBuy : () => setShowBuyDialog(false)} disabled={buying || (!buyProduct)} className="text-white game-shine" style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' }}>
                         {buying ? 'Buying...' : buyProduct ? `Buy for ${formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}` : 'Close'}
                       </Button>
                     </DialogFooter>
@@ -445,7 +450,7 @@ export default function BusinessDetail() {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="space-y-1.5 rounded-lg overflow-hidden border">
+                <div className="space-y-1.5 rounded-lg overflow-hidden border border-green-100/60">
                   {inventories.map((inv: any) => {
                     const mp = marketProducts.find((p: any) => p.id === inv.productId || p.name === inv.productName);
                     return (
@@ -462,7 +467,7 @@ export default function BusinessDetail() {
                         </div>
                         <div className="text-right shrink-0">
                           {isEditingPrice === inv.id ? (
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 game-price-edit rounded-md p-0.5">
                               <Input
                                 type="number"
                                 value={editPrice}
@@ -475,7 +480,7 @@ export default function BusinessDetail() {
                               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
                             </div>
                           ) : (
-                            <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline" style={{ color: '#006a4e' }}>
+                            <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline transition-colors hover:text-green-700" style={{ color: '#006a4e' }}>
                               ৳{(inv.sellPrice || 0).toLocaleString()}
                             </button>
                           )}

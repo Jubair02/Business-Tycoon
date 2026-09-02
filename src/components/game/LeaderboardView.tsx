@@ -46,9 +46,9 @@ export default function LeaderboardView() {
   }, [type, cityFilter, setLeaderboard]);
 
   const getMedal = (rank: number) => {
-    if (rank === 0) return { emoji: '🥇', bg: 'bg-yellow-50 border-yellow-300' };
-    if (rank === 1) return { emoji: '🥈', bg: 'bg-gray-50 border-gray-300' };
-    if (rank === 2) return { emoji: '🥉', bg: 'bg-amber-50 border-amber-300' };
+    if (rank === 0) return { emoji: '🥇', bg: 'game-podium-gold' };
+    if (rank === 1) return { emoji: '🥈', bg: 'game-podium-silver' };
+    if (rank === 2) return { emoji: '🥉', bg: 'game-podium-bronze' };
     return { emoji: null, bg: '' };
   };
 
@@ -64,7 +64,7 @@ export default function LeaderboardView() {
 
   return (
     <div className="p-3 md:p-4 space-y-4 pb-24 md:pb-4">
-      <h2 className="text-lg font-bold flex items-center gap-2">
+      <h2 className="text-lg font-bold flex items-center gap-2 game-gradient-text">
         <Trophy className="h-5 w-5" style={{ color: '#006a4e' }} /> Leaderboard
       </h2>
 
@@ -74,8 +74,8 @@ export default function LeaderboardView() {
             key={tab.id}
             variant={type === tab.id ? 'default' : 'outline'}
             size="sm"
-            className={`gap-1 text-xs shrink-0 ${type === tab.id ? 'text-white' : ''}`}
-            style={type === tab.id ? { background: '#006a4e' } : {}}
+            className={`gap-1 text-xs shrink-0 transition-all duration-200 ${type === tab.id ? 'text-white game-shine' : ''}`}
+            style={type === tab.id ? { background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' } : {}}
             onClick={() => setType(tab.id)}
           >
             {tab.icon} {tab.label}
@@ -119,10 +119,11 @@ export default function LeaderboardView() {
                 transition={{ delay: i * 0.04 }}
               >
                 <Card className={cn(
+                  'border transition-all duration-200 game-shine',
                   medal.bg,
-                  isMe && 'ring-2 border-green-400',
+                  isMe && 'ring-2 border-green-400 shadow-lg shadow-green-100',
                   medal.emoji ? 'border' : '',
-                )} style={isMe ? { borderColor: '#006a4e' } : {}}>
+                )} style={isMe ? { borderColor: '#006a4e', ringColor: '#006a4e' } : {}}>
                   <CardContent className="p-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 text-center shrink-0">
@@ -135,7 +136,11 @@ export default function LeaderboardView() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-sm font-medium truncate">{entry.name}</span>
-                          {isMe && <Badge className="text-[10px] text-white" style={{ background: '#006a4e' }}>You</Badge>}
+                          {isMe && (
+                            <Badge className="text-[10px] text-white font-bold px-2" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>
+                              ⭐ You
+                            </Badge>
+                          )}
                           {i === 0 && !medal.emoji && <Crown className="h-3.5 w-3.5 text-yellow-500" />}
                         </div>
                         <div className="text-[10px] text-muted-foreground mt-0.5">
