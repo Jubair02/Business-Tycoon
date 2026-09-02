@@ -1,0 +1,709 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→import { useState, useEffect, useCallback } from 'react';
+     4→     4→import { useGameStore } from '@/store/game-store';
+     5→     5→import { formatTaka, formatTakaShort, getBusinessType, getCity, getEmployeeRole, GAME_CONFIG, EMPLOYEE_ROLES } from '@/lib/game-data';
+     6→     6→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+     7→     7→import { Button } from '@/components/ui/button';
+     8→     8→import { Badge } from '@/components/ui/badge';
+     9→     9→import { Progress } from '@/components/ui/progress';
+    10→    10→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    11→    11→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+    12→    12→import { Input } from '@/components/ui/input';
+    13→    13→import { Label } from '@/components/ui/label';
+    14→    14→import { Separator } from '@/components/ui/separator';
+    15→    15→import { ScrollArea } from '@/components/ui/scroll-area';
+    16→    16→import { Skeleton } from '@/components/ui/skeleton';
+    17→    17→import { toast } from 'sonner';
+    18→    18→import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins } from 'lucide-react';
+    19→    19→import { motion } from 'framer-motion';
+    20→    20→
+    21→    21→const BUSINESS_COLORS: Record<string, string> = {
+    22→    22→  TEA_STALL: 'bg-amber-100 border-amber-300 text-amber-800',
+    23→    23→  GROCERY: 'bg-green-100 border-green-300 text-green-800',
+    24→    24→  CLOTHING: 'bg-purple-100 border-purple-300 text-purple-800',
+    25→    25→  MOBILE: 'bg-blue-100 border-blue-300 text-blue-800',
+    26→    26→  RESTAURANT: 'bg-red-100 border-red-300 text-red-800',
+    27→    27→};
+    28→    28→
+    29→    29→export default function BusinessDetail() {
+    30→    30→  const { currentBusiness, setView, setCurrentBusiness, setBusinesses, player } = useGameStore();
+    31→    31→  const [isEditingPrice, setIsEditingPrice] = useState<string | null>(null);
+    32→    32→  const [editPrice, setEditPrice] = useState('');
+    33→    33→  const [showHireDialog, setShowHireDialog] = useState(false);
+    34→    34→  const [hireRole, setHireRole] = useState('');
+    35→    35→  const [showBuyDialog, setShowBuyDialog] = useState(false);
+    36→    36→  const [buyProduct, setBuyProduct] = useState<any>(null);
+    37→    37→  const [buyQuantity, setBuyQuantity] = useState(1);
+    38→    38→  const [buying, setBuying] = useState(false);
+    39→    39→  const [hiring, setHiring] = useState(false);
+    40→    40→  const [upgrading, setUpgrading] = useState(false);
+    41→    41→  const [firingId, setFiringId] = useState<string | null>(null);
+    42→    42→  const [marketProducts, setMarketProducts] = useState<any[]>([]);
+    43→    43→  const [logs, setLogs] = useState<any[]>([]);
+    44→    44→  const [logsLoading, setLogsLoading] = useState(false);
+    45→    45→
+    46→    46→  const fetchBusiness = useCallback(async () => {
+    47→    47→    if (!currentBusiness?.id) return;
+    48→    48→    try {
+    49→    49→      const res = await fetch(`/api/businesses/${currentBusiness.id}`);
+    50→    50→      if (res.ok) {
+    51→    51→        const data = await res.json();
+    52→    52→        setCurrentBusiness(data);
+    53→    53→      }
+    54→    54→    } catch {
+    55→    55→      toast.error('Failed to load business data');
+    56→    56→    }
+    57→    57→  }, [currentBusiness?.id, setCurrentBusiness]);
+    58→    58→
+    59→    59→  const fetchMarketProducts = useCallback(async () => {
+    60→    60→    if (!currentBusiness) return;
+    61→    61→    try {
+    62→    62→      const res = await fetch(`/api/market/products?type=${currentBusiness.type}&city=${currentBusiness.city}`);
+    63→    63→      if (res.ok) {
+    64→    64→        setMarketProducts(await res.json());
+    65→    65→      }
+    66→    66→    } catch {
+    67→    67→      // silent
+    68→    68→    }
+    69→    69→  }, [currentBusiness]);
+    70→    70→
+    71→    71→  const fetchLogs = useCallback(async () => {
+    72→    72→    if (!currentBusiness?.id) return;
+    73→    73→    setLogsLoading(true);
+    74→    74→    try {
+    75→    75→      const res = await fetch(`/api/businesses/${currentBusiness.id}/logs`);
+    76→    76→      if (res.ok) {
+    77→    77→        setLogs(await res.json());
+    78→    78→      }
+    79→    79→    } catch {
+    80→    80→      // silent
+    81→    81→    } finally {
+    82→    82→      setLogsLoading(false);
+    83→    83→    }
+    84→    84→  }, [currentBusiness?.id]);
+    85→    85→
+    86→    86→  useEffect(() => {
+    87→    87→    if (currentBusiness?.id) {
+    88→    88→      fetchBusiness();
+    89→    89→      fetchMarketProducts();
+    90→    90→      fetchLogs();
+    91→    91→    }
+    92→    92→  }, [currentBusiness?.id, fetchBusiness, fetchMarketProducts, fetchLogs]);
+    93→    93→
+    94→    94→  if (!currentBusiness) {
+    95→    95→    return (
+    96→    96→      <div className="p-4 text-center">
+    97→    97→        <p className="text-muted-foreground">No business selected</p>
+    98→    98→        <Button variant="outline" className="mt-2" onClick={() => setView('businesses')}>Back to Businesses</Button>
+    99→    99→      </div>
+   100→   100→    );
+   101→   101→  }
+   102→   102→
+   103→   103→  const bt = getBusinessType(currentBusiness.type);
+   104→   104→  const city = getCity(currentBusiness.city);
+   105→   105→  const profit = currentBusiness.dailyProfit || 0;
+   106→   106→  const inventories = currentBusiness.inventories || [];
+   107→   107→  const employees = currentBusiness.employees || [];
+   108→   108→  const upgradeCost = Math.round((bt?.investment || 0) * (currentBusiness.level || 1) * 0.5);
+   109→   109→  const bannerClass = BUSINESS_COLORS[currentBusiness.type] || 'bg-gray-100 border-gray-300';
+   110→   110→  const revenue = currentBusiness.dailyRevenue || 0;
+   111→   111→  const expenses = currentBusiness.dailyExpense || 0;
+   112→   112→
+   113→   113→  const handleUpdatePrice = async (invId: string) => {
+   114→   114→    const price = parseFloat(editPrice);
+   115→   115→    if (isNaN(price) || price <= 0) {
+   116→   116→      toast.error('Enter a valid price');
+   117→   117→      return;
+   118→   118→    }
+   119→   119→    try {
+   120→   120→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/${invId}/price`, {
+   121→   121→        method: 'PATCH',
+   122→   122→        headers: { 'Content-Type': 'application/json' },
+   123→   123→        body: JSON.stringify({ sellPrice: price }),
+   124→   124→      });
+   125→   125→      if (res.ok) {
+   126→   126→        toast.success('Price updated!');
+   127→   127→        setIsEditingPrice(null);
+   128→   128→        fetchBusiness();
+   129→   129→      } else {
+   130→   130→        const err = await res.json();
+   131→   131→        toast.error(err.error || 'Failed to update price');
+   132→   132→      }
+   133→   133→    } catch {
+   134→   134→      toast.error('Failed to update price');
+   135→   135→    }
+   136→   136→  };
+   137→   137→
+   138→   138→  const handleBuy = async () => {
+   139→   139→    if (!buyProduct || buyQuantity < 1) return;
+   140→   140→    setBuying(true);
+   141→   141→    try {
+   142→   142→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/buy`, {
+   143→   143→        method: 'POST',
+   144→   144→        headers: { 'Content-Type': 'application/json' },
+   145→   145→        body: JSON.stringify({
+   146→   146→          productId: buyProduct.id || buyProduct.productId,
+   147→   147→          productName: buyProduct.name,
+   148→   148→          category: currentBusiness.type,
+   149→   149→          quantity: buyQuantity,
+   150→   150→        }),
+   151→   151→      });
+   152→   152→      if (res.ok) {
+   153→   153→        toast.success(`Bought ${buyQuantity}x ${buyProduct.name}`);
+   154→   154→        setShowBuyDialog(false);
+   155→   155→        setBuyQuantity(1);
+   156→   156→        fetchBusiness();
+   157→   157→      } else {
+   158→   158→        const err = await res.json();
+   159→   159→        toast.error(err.error || 'Purchase failed');
+   160→   160→      }
+   161→   161→    } catch {
+   162→   162→      toast.error('Purchase failed');
+   163→   163→    } finally {
+   164→   164→      setBuying(false);
+   165→   165→    }
+   166→   166→  };
+   167→   167→
+   168→   168→  const handleHire = async () => {
+   169→   169→    if (!hireRole) return;
+   170→   170→    setHiring(true);
+   171→   171→    try {
+   172→   172→      const res = await fetch(`/api/businesses/${currentBusiness.id}/employees/hire`, {
+   173→   173→        method: 'POST',
+   174→   174→        headers: { 'Content-Type': 'application/json' },
+   175→   175→        body: JSON.stringify({ role: hireRole }),
+   176→   176→      });
+   177→   177→      if (res.ok) {
+   178→   178→        toast.success('Employee hired!');
+   179→   179→        setShowHireDialog(false);
+   180→   180→        setHireRole('');
+   181→   181→        fetchBusiness();
+   182→   182→      } else {
+   183→   183→        const err = await res.json();
+   184→   184→        toast.error(err.error || 'Hiring failed');
+   185→   185→      }
+   186→   186→    } catch {
+   187→   187→      toast.error('Hiring failed');
+   188→   188→    } finally {
+   189→   189→      setHiring(false);
+   190→   190→    }
+   191→   191→  };
+   192→   192→
+   193→   193→  const handleFire = async (empId: string) => {
+   194→   194→    setFiringId(empId);
+   195→   195→    try {
+   196→   196→      const res = await fetch(`/api/businesses/${currentBusiness.id}/employees/${empId}`, { method: 'DELETE' });
+   197→   197→      if (res.ok) {
+   198→   198→        toast.success('Employee fired');
+   199→   199→        fetchBusiness();
+   200→   200→      } else {
+   201→   201→        const err = await res.json();
+   202→   202→        toast.error(err.error || 'Failed to fire employee');
+   203→   203→      }
+   204→   204→    } catch {
+   205→   205→      toast.error('Failed to fire employee');
+   206→   206→    } finally {
+   207→   207→      setFiringId(null);
+   208→   208→    }
+   209→   209→  };
+   210→   210→
+   211→   211→  const handleUpgrade = async () => {
+   212→   212→    if ((player?.cash || 0) < upgradeCost) {
+   213→   213→      toast.error('Not enough cash!');
+   214→   214→      return;
+   215→   215→    }
+   216→   216→    setUpgrading(true);
+   217→   217→    try {
+   218→   218→      const res = await fetch(`/api/businesses/${currentBusiness.id}/upgrade`, { method: 'POST' });
+   219→   219→      if (res.ok) {
+   220→   220→        toast.success('Business upgraded!');
+   221→   221→        fetchBusiness();
+   222→   222→      } else {
+   223→   223→        const err = await res.json();
+   224→   224→        toast.error(err.error || 'Upgrade failed');
+   225→   225→      }
+   226→   226→    } catch {
+   227→   227→      toast.error('Upgrade failed');
+   228→   228→    } finally {
+   229→   229→      setUpgrading(false);
+   230→   230→    }
+   231→   231→  };
+   232→   232→
+   233→   233→  const getDemandColor = (demand: number) => {
+   234→   234→    if (demand >= 1.2) return 'text-green-600 bg-green-50 border-green-200';
+   235→   235→    if (demand >= 0.8) return 'text-amber-600 bg-amber-50 border-amber-200';
+   236→   236→    return 'text-red-500 bg-red-50 border-red-200';
+   237→   237→  };
+   238→   238→
+   239→   239→  const getDemandLabel = (demand: number) => {
+   240→   240→    if (demand >= 1.2) return 'High';
+   241→   241→    if (demand >= 0.8) return 'Medium';
+   242→   242→    return 'Low';
+   243→   243→  };
+   244→   244→
+   245→   245→  return (
+   246→   246→    <div className="pb-24 md:pb-4">
+   247→   247→      <Tabs defaultValue="overview" className="w-full">
+   248→   248→      {/* Sticky header with tabs integrated */}
+   249→   249→      <div className="sticky top-14 z-40 bg-white border-b">
+   250→   250→        <div className={`px-3 md:px-4 py-3 md:py-4 game-hero-banner ${bannerClass}`}>
+   251→   251→          <div className="flex items-center gap-2">
+   252→   252→            <Button variant="ghost" size="icon" className="shrink-0 hover:bg-white/50" onClick={() => setView('businesses')}>
+   253→   253→              <ArrowLeft className="h-4 w-4" />
+   254→   254→            </Button>
+   255→   255→            <div className="flex-1 min-w-0">
+   256→   256→              <div className="flex items-center gap-2.5">
+   257→   257→                <span className="text-2xl game-float">{bt?.icon}</span>
+   258→   258→                <div className="min-w-0">
+   259→   259→                  <h2 className="font-bold text-base truncate">{currentBusiness.name}</h2>
+   260→   260→                  <div className="flex items-center gap-2 mt-0.5">
+   261→   261→                    <Badge variant="outline" className={`text-[10px] shrink-0 ${bannerClass}`}>{bt?.name}</Badge>
+   262→   262→                    <span className="text-[10px] opacity-80 flex items-center gap-1">📍 {city?.name}</span>
+   263→   263→                  </div>
+   264→   264→                </div>
+   265→   265→              </div>
+   266→   266→            </div>
+   267→   267→            <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
+   268→   268→          </div>
+   269→   269→        </div>
+   270→   270→        {/* Tabs inside the sticky block */}
+   271→   271→        <div className="px-3 md:px-4 pt-2">
+   272→   272→          <TabsList className="w-full grid grid-cols-5">
+   273→   273→            <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
+   274→   274→            <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
+   275→   275→            <TabsTrigger value="employees" className="text-xs">Staff</TabsTrigger>
+   276→   276→            <TabsTrigger value="logs" className="text-xs">Log</TabsTrigger>
+   277→   277→            <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
+   278→   278→          </TabsList>
+   279→   279→        </div>
+   280→   280→      </div>
+   281→   281→
+   282→   282→      <div className="p-3 md:p-4">
+   283→   283→
+   284→   284→          <TabsContent value="overview">
+   285→   285→            <div className="grid grid-cols-2 gap-3 mb-4">
+   286→   286→              <Card className="border-l-4 border-l-green-500 game-stat-card game-shine">
+   287→   287→                <CardContent className="p-3">
+   288→   288→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Revenue</div>
+   289→   289→                  <div className="text-lg font-bold text-green-600 mt-0.5">{formatTakaShort(revenue)}</div>
+   290→   290→                </CardContent>
+   291→   291→              </Card>
+   292→   292→              <Card className={`${profit >= 0 ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500'} game-stat-card game-shine`}>
+   293→   293→                <CardContent className="p-3">
+   294→   294→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Profit</div>
+   295→   295→                  <div className={`text-lg font-bold mt-0.5 ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   296→   296→                    {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
+   297→   297→                  </div>
+   298→   298→                </CardContent>
+   299→   299→              </Card>
+   300→   300→              <Card className="border-l-4 border-l-amber-500 game-stat-card game-shine">
+   301→   301→                <CardContent className="p-3">
+   302→   302→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Expenses</div>
+   303→   303→                  <div className="text-lg font-bold text-amber-600 mt-0.5">{formatTakaShort(expenses)}</div>
+   304→   304→                </CardContent>
+   305→   305→              </Card>
+   306→   306→              <Card className="border-l-4 border-l-purple-500 game-stat-card game-shine">
+   307→   307→                <CardContent className="p-3">
+   308→   308→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Reputation</div>
+   309→   309→                  <div className="text-lg font-bold mt-0.5">{currentBusiness.reputation || 0}%</div>
+   310→   310→                </CardContent>
+   311→   311→              </Card>
+   312→   312→            </div>
+   313→   313→
+   314→   314→            {/* Profit Breakdown */}
+   315→   315→            <Card className="mb-4 game-gradient-card game-shine">
+   316→   316→              <CardHeader className="pb-2 pt-4 px-4">
+   317→   317→                <CardTitle className="text-sm font-semibold game-gradient-text">Profit Breakdown</CardTitle>
+   318→   318→              </CardHeader>
+   319→   319→              <CardContent className="px-4 pb-4 space-y-2">
+   320→   320→                <div className="flex items-center justify-between text-sm">
+   321→   321→                  <div className="flex items-center gap-2">
+   322→   322→                    <TrendingUp className="h-4 w-4 text-green-600" />
+   323→   323→                    <span className="text-muted-foreground">Revenue</span>
+   324→   324→                  </div>
+   325→   325→                  <span className="font-medium text-green-600">+{formatTakaShort(revenue)}</span>
+   326→   326→                </div>
+   327→   327→                <div className="flex items-center justify-between text-sm">
+   328→   328→                  <div className="flex items-center gap-2">
+   329→   329→                    <TrendingDown className="h-4 w-4 text-red-500" />
+   330→   330→                    <span className="text-muted-foreground">Expenses</span>
+   331→   331→                  </div>
+   332→   332→                  <span className="font-medium text-red-500">-{formatTakaShort(expenses)}</span>
+   333→   333→                </div>
+   334→   334→                <Separator />
+   335→   335→                <div className="flex items-center justify-between text-sm font-bold">
+   336→   336→                  <span>Net Profit</span>
+   337→   337→                  <span className={profit >= 0 ? 'text-green-600' : 'text-red-500'}>
+   338→   338→                    {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
+   339→   339→                  </span>
+   340→   340→                </div>
+   341→   341→              </CardContent>
+   342→   342→            </Card>
+   343→   343→
+   344→   344→            <Card className="mb-4 game-shine">
+   345→   345→              <CardHeader className="pb-2 pt-4 px-4">
+   346→   346→                <CardTitle className="text-sm font-semibold game-gradient-text">Reputation</CardTitle>
+   347→   347→              </CardHeader>
+   348→   348→              <CardContent className="px-4 pb-4">
+   349→   349→                <Progress value={currentBusiness.reputation || 0} className="h-3" />
+   350→   350→                <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground">
+   351→   351→                  <span>Poor</span><span>Average</span><span>Excellent</span>
+   352→   352→                </div>
+   353→   353→              </CardContent>
+   354→   354→            </Card>
+   355→   355→
+   356→   356→            {/* Business Performance mini chart (placeholder) */}
+   357→   357→            <Card className="game-shine">
+   358→   358→              <CardHeader className="pb-2 pt-4 px-4">
+   359→   359→                <CardTitle className="text-sm font-semibold game-gradient-text">Business Performance</CardTitle>
+   360→   360→              </CardHeader>
+   361→   361→              <CardContent className="px-4 pb-4">
+   362→   362→                <div className="h-24 flex items-end gap-1">
+   363→   363→                  {[...Array(14)].map((_, i) => {
+   364→   364→                    const h = 20 + Math.sin((i + 3) * 0.8) * 30 + Math.random() * 15;
+   365→   365→                    const isPositive = h > 35;
+   366→   366→                    return (
+   367→   367→                      <motion.div
+   368→   368→                        key={i}
+   369→   369→                        className="flex-1 rounded-t"
+   370→   370→                        style={{
+   371→   371→                          height: `${h}%`,
+   372→   372→                          background: isPositive ? 'rgba(0, 106, 78, 0.6)' : 'rgba(244, 42, 65, 0.5)',
+   373→   373→                        }}
+   374→   374→                        initial={{ height: 0 }}
+   375→   375→                        animate={{ height: `${h}%` }}
+   376→   376→                        transition={{ delay: i * 0.03, duration: 0.3 }}
+   377→   377→                      />
+   378→   378→                    );
+   379→   379→                  })}
+   380→   380→                </div>
+   381→   381→                <div className="text-[10px] text-muted-foreground text-center mt-2">Last 14 days</div>
+   382→   382→              </CardContent>
+   383→   383→            </Card>
+   384→   384→          </TabsContent>
+   385→   385→
+   386→   386→          <TabsContent value="inventory">
+   387→   387→            <div className="space-y-3">
+   388→   388→              <div className="flex items-center justify-between">
+   389→   389→                <h3 className="text-sm font-semibold">Inventory ({inventories.length})</h3>
+   390→   390→                <Dialog open={showBuyDialog} onOpenChange={setShowBuyDialog}>
+   391→   391→                  <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => { if (marketProducts.length === 0) { fetchMarketProducts(); } }} asChild>
+   392→   392→                    <DialogTrigger asChild>
+   393→   393→                      <button><ShoppingCart className="h-3.5 w-3.5" /> Buy Stock</button>
+   394→   394→                    </DialogTrigger>
+   395→   395→                  </Button>
+   396→   396→                  <DialogContent className="max-w-md">
+   397→   397→                    <DialogHeader>
+   398→   398→                      <DialogTitle>Buy Inventory</DialogTitle>
+   399→   399→                      <DialogDescription>Choose a product and quantity to buy</DialogDescription>
+   400→   400→                    </DialogHeader>
+   401→   401→                    {!buyProduct ? (
+   402→   402→                      <ScrollArea className="max-h-64">
+   403→   403→                        <div className="space-y-2">
+   404→   404→                          {marketProducts.map((p: any) => (
+   405→   405→                            <button key={p.id || p.name} onClick={() => setBuyProduct(p)} className="w-full text-left p-3 rounded-lg border hover:border-green-400 transition-all hover:shadow-md hover:shadow-green-100 hover:-translate-y-0.5">
+   406→   406→                              <div className="flex items-center gap-2">
+   407→   407→                                <span className="text-lg">{p.icon}</span>
+   408→   408→                                <div className="flex-1 min-w-0">
+   409→   409→                                  <div className="text-sm font-medium">{p.name}</div>
+   410→   410→                                  <div className="text-xs text-muted-foreground">Market: ৳{p.currentPrice?.toLocaleString() || p.basePrice?.toLocaleString()}</div>
+   411→   411→                                </div>
+   412→   412→                                <Badge className={`text-[10px] border ${getDemandColor(p.currentDemand || 1)}`} variant="outline">
+   413→   413→                                  {getDemandLabel(p.currentDemand || 1)}
+   414→   414→                                </Badge>
+   415→   415→                              </div>
+   416→   416→                            </button>
+   417→   417→                          ))}
+   418→   418→                        </div>
+   419→   419→                      </ScrollArea>
+   420→   420→                    ) : (
+   421→   421→                      <div className="space-y-4">
+   422→   422→                        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50/60 border border-green-100">
+   423→   423→                          <span className="text-2xl">{buyProduct.icon}</span>
+   424→   424→                          <div>
+   425→   425→                            <div className="font-medium">{buyProduct.name}</div>
+   426→   426→                            <div className="text-sm text-muted-foreground">Unit price: ৳{(buyProduct.currentPrice || buyProduct.basePrice || 0).toLocaleString()}</div>
+   427→   427→                          </div>
+   428→   428→                        </div>
+   429→   429→                        <div className="space-y-2">
+   430→   430→                          <Label>Quantity</Label>
+   431→   431→                          <Input type="number" min={1} max={buyProduct.maxStock || 100} value={buyQuantity} onChange={(e) => setBuyQuantity(Math.max(1, parseInt(e.target.value) || 1))} />
+   432→   432→                          <div className="text-sm text-muted-foreground">
+   433→   433→                            Total cost: <span className="font-bold text-foreground">{formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}</span>
+   434→   434→                          </div>
+   435→   435→                        </div>
+   436→   436→                      </div>
+   437→   437→                    )}
+   438→   438→                    <DialogFooter className="gap-2">
+   439→   439→                      {buyProduct && (
+   440→   440→                        <Button variant="outline" onClick={() => { setBuyProduct(null); setBuyQuantity(1); }}>Back</Button>
+   441→   441→                      )}
+   442→   442→                      <Button onClick={buyProduct ? handleBuy : () => setShowBuyDialog(false)} disabled={buying || (!buyProduct)} className="text-white game-shine" style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' }}>
+   443→   443→                        {buying ? 'Buying...' : buyProduct ? `Buy for ${formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}` : 'Close'}
+   444→   444→                      </Button>
+   445→   445→                    </DialogFooter>
+   446→   446→                  </DialogContent>
+   447→   447→                </Dialog>
+   448→   448→              </div>
+   449→   449→
+   450→   450→              {inventories.length === 0 ? (
+   451→   451→                <Card className="border-dashed">
+   452→   452→                  <CardContent className="py-8 text-center">
+   453→   453→                    <div className="text-4xl mb-2">📦</div>
+   454→   454→                    <p className="text-sm text-muted-foreground">No inventory. Buy stock to start selling!</p>
+   455→   455→                  </CardContent>
+   456→   456→                </Card>
+   457→   457→              ) : (
+   458→   458→                <div className="space-y-1.5 rounded-lg overflow-hidden border border-green-100/60">
+   459→   459→                  {inventories.map((inv: any) => {
+   460→   460→                    const mp = marketProducts.find((p: any) => p.id === inv.productId || p.name === inv.productName);
+   461→   461→                    return (
+   462→   462→                      <div key={inv.id} className="inventory-row flex items-center gap-3 p-3">
+   463→   463→                        <span className="text-xl">{mp?.icon || inv.productName?.charAt(0)}</span>
+   464→   464→                        <div className="flex-1 min-w-0">
+   465→   465→                          <div className="text-sm font-medium truncate">{inv.productName}</div>
+   466→   466→                          <div className="flex items-center gap-2 mt-0.5">
+   467→   467→                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getDemandColor(mp?.currentDemand || 1)}`}>
+   468→   468→                              {getDemandLabel(mp?.currentDemand || 1)} demand
+   469→   469→                            </span>
+   470→   470→                            <span className="text-[10px] text-muted-foreground">Stock: {inv.quantity || 0}</span>
+   471→   471→                          </div>
+   472→   472→                        </div>
+   473→   473→                        <div className="text-right shrink-0">
+   474→   474→                          {isEditingPrice === inv.id ? (
+   475→   475→                            <div className="flex items-center gap-1 game-price-edit rounded-md p-0.5">
+   476→   476→                              <Input
+   477→   477→                                type="number"
+   478→   478→                                value={editPrice}
+   479→   479→                                onChange={(e) => setEditPrice(e.target.value)}
+   480→   480→                                className="w-20 h-7 text-xs"
+   481→   481→                                autoFocus
+   482→   482→                                onKeyDown={(e) => { if (e.key === 'Enter') handleUpdatePrice(inv.id); if (e.key === 'Escape') setIsEditingPrice(null); }}
+   483→   483→                              />
+   484→   484→                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleUpdatePrice(inv.id)}><Check className="h-3 w-3 text-green-600" /></Button>
+   485→   485→                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
+   486→   486→                            </div>
+   487→   487→                          ) : (
+   488→   488→                            <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline transition-colors hover:text-green-700" style={{ color: '#006a4e' }}>
+   489→   489→                              ৳{(inv.sellPrice || 0).toLocaleString()}
+   490→   490→                            </button>
+   491→   491→                          )}
+   492→   492→                          <div className="text-[10px] text-muted-foreground">sell price</div>
+   493→   493→                        </div>
+   494→   494→                      </div>
+   495→   495→                    );
+   496→   496→                  })}
+   497→   497→                </div>
+   498→   498→              )}
+   499→   499→            </div>
+   500→   500→          </TabsContent>
+   501→   501→
+   502→   502→          <TabsContent value="employees">
+   503→   503→            <div className="space-y-3">
+   504→   504→              <div className="flex items-center justify-between">
+   505→   505→                <h3 className="text-sm font-semibold">Staff ({employees.length}/{GAME_CONFIG.maxEmployees})</h3>
+   506→   506→                <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => setShowHireDialog(true)} disabled={employees.length >= GAME_CONFIG.maxEmployees}>
+   507→   507→                  <Users className="h-3.5 w-3.5" /> Hire
+   508→   508→                </Button>
+   509→   509→              </div>
+   510→   510→
+   511→   511→              <Dialog open={showHireDialog} onOpenChange={setShowHireDialog}>
+   512→   512→                <DialogContent className="max-w-md">
+   513→   513→                  <DialogHeader>
+   514→   514→                    <DialogTitle>Hire Employee</DialogTitle>
+   515→   515→                    <DialogDescription>Choose a role for your new employee</DialogDescription>
+   516→   516→                  </DialogHeader>
+   517→   517→                  <div className="space-y-2">
+   518→   518→                    {EMPLOYEE_ROLES.map((role) => (
+   519→   519→                      <button
+   520→   520→                        key={role.role}
+   521→   521→                        onClick={() => setHireRole(role.role)}
+   522→   522→                        className={`w-full text-left p-3 rounded-lg border transition-colors ${hireRole === role.role ? 'border-green-500 bg-green-50' : 'hover:border-green-300'}`}
+   523→   523→                      >
+   524→   524→                        <div className="flex items-center gap-2">
+   525→   525→                          <span className="text-xl">{role.icon}</span>
+   526→   526→                          <div className="flex-1">
+   527→   527→                            <div className="text-sm font-medium">{role.label}</div>
+   528→   528→                            <div className="text-xs text-muted-foreground">{role.description}</div>
+   529→   529→                            <div className="text-xs mt-0.5">Salary: ~৳{role.baseSalary.toLocaleString()}/day</div>
+   530→   530→                          </div>
+   531→   531→                        </div>
+   532→   532→                      </button>
+   533→   533→                    ))}
+   534→   534→                  </div>
+   535→   535→                  <DialogFooter>
+   536→   536→                    <Button variant="outline" onClick={() => setShowHireDialog(false)}>Cancel</Button>
+   537→   537→                    <Button onClick={handleHire} disabled={!hireRole || hiring} className="text-white" style={{ background: '#006a4e' }}>
+   538→   538→                      {hiring ? 'Hiring...' : 'Hire'}
+   539→   539→                    </Button>
+   540→   540→                  </DialogFooter>
+   541→   541→                </DialogContent>
+   542→   542→              </Dialog>
+   543→   543→
+   544→   544→              {employees.length === 0 ? (
+   545→   545→                <Card className="border-dashed">
+   546→   546→                  <CardContent className="py-8 text-center">
+   547→   547→                    <div className="text-4xl mb-2">👥</div>
+   548→   548→                    <p className="text-sm text-muted-foreground">No employees. Hire staff to boost your business!</p>
+   549→   549→                  </CardContent>
+   550→   550→                </Card>
+   551→   551→              ) : (
+   552→   552→                <div className="space-y-2">
+   553→   553→                  {employees.map((emp: any) => {
+   554→   554→                    const role = getEmployeeRole(emp.role);
+   555→   555→                    return (
+   556→   556→                      <Card key={emp.id}>
+   557→   557→                        <CardContent className="p-3">
+   558→   558→                          <div className="flex items-center gap-3">
+   559→   559→                            <div className="text-2xl p-1.5 rounded-lg bg-muted">{role?.icon || '👤'}</div>
+   560→   560→                            <div className="flex-1 min-w-0">
+   561→   561→                              <div className="text-sm font-medium truncate">{emp.name}</div>
+   562→   562→                              <div className="text-xs text-muted-foreground">{role?.label || emp.role}</div>
+   563→   563→                              <div className="flex gap-2 mt-1">
+   564→   564→                                <Badge variant="outline" className="text-[10px]">Skill: {emp.skill}/10</Badge>
+   565→   565→                                <Badge variant="outline" className="text-[10px]">Eff: {emp.efficiency || 0}%</Badge>
+   566→   566→                              </div>
+   567→   567→                            </div>
+   568→   568→                            <div className="text-right shrink-0">
+   569→   569→                              <div className="text-sm font-medium">৳{(emp.salary || 0).toLocaleString()}</div>
+   570→   570→                              <div className="text-[10px] text-muted-foreground">salary/day</div>
+   571→   571→                              <Button size="icon" variant="ghost" className="h-7 w-7 mt-1 text-red-400 hover:text-red-600" onClick={() => handleFire(emp.id)} disabled={firingId === emp.id}>
+   572→   572→                                <Trash2 className="h-3.5 w-3.5" />
+   573→   573→                              </Button>
+   574→   574→                            </div>
+   575→   575→                          </div>
+   576→   576→                        </CardContent>
+   577→   577→                      </Card>
+   578→   578→                    );
+   579→   579→                  })}
+   580→   580→                </div>
+   581→   581→              )}
+   582→   582→            </div>
+   583→   583→          </TabsContent>
+   584→   584→
+   585→   585→          <TabsContent value="logs">
+   586→   586→            <div className="space-y-3">
+   587→   587→              <div className="flex items-center justify-between">
+   588→   588→                <h3 className="text-sm font-semibold flex items-center gap-2">
+   589→   589→                  <FileText className="h-4 w-4" style={{ color: '#006a4e' }} /> Activity Log
+   590→   590→                </h3>
+   591→   591→                <Button size="sm" variant="outline" className="text-xs" onClick={fetchLogs}>
+   592→   592→                  Refresh
+   593→   593→                </Button>
+   594→   594→              </div>
+   595→   595→
+   596→   596→              {logsLoading ? (
+   597→   597→                <div className="space-y-2">
+   598→   598→                  {[...Array(5)].map((_, i) => (
+   599→   599→                    <Card key={i}><CardContent className="p-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+   600→   600→                  ))}
+   601→   601→                </div>
+   602→   602→              ) : logs.length === 0 ? (
+   603→   603→                <Card className="border-dashed">
+   604→   604→                  <CardContent className="py-12 text-center">
+   605→   605→                    <div className="text-4xl mb-2">📋</div>
+   606→   606→                    <p className="text-sm text-muted-foreground">No activity yet. Advance to the next day to generate logs!</p>
+   607→   607→                  </CardContent>
+   608→   608→                </Card>
+   609→   609→              ) : (
+   610→   610→                <div className="space-y-2">
+   611→   611→                  {logs.map((log: any, i: number) => {
+   612→   612→                    const isProfit = log.type === 'PROFIT';
+   613→   613→                    return (
+   614→   614→                      <motion.div
+   615→   615→                        key={log.id}
+   616→   616→                        initial={{ opacity: 0, x: -10 }}
+   617→   617→                        animate={{ opacity: 1, x: 0 }}
+   618→   618→                        transition={{ delay: i * 0.03 }}
+   619→   619→                      >
+   620→   620→                        <Card className={isProfit ? 'border-l-4 border-l-green-400 game-gradient-card' : 'border-l-4 border-l-red-400 game-gradient-card'}>
+   621→   621→                          <CardContent className="p-3">
+   622→   622→                            <div className="flex items-start gap-3">
+   623→   623→                              <div className={`mt-0.5 ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+   624→   624→                                {isProfit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+   625→   625→                              </div>
+   626→   626→                              <div className="flex-1 min-w-0">
+   627→   627→                                <div className="text-sm">{log.message}</div>
+   628→   628→                                <div className="flex items-center gap-2 mt-1">
+   629→   629→                                  <span className={`text-xs font-bold ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+   630→   630→                                    {isProfit ? '+' : '-'}{formatTakaShort(log.amount || 0)}
+   631→   631→                                  </span>
+   632→   632→                                  {log.createdAt && (
+   633→   633→                                    <span className="text-[10px] text-muted-foreground">
+   634→   634→                                      {new Date(log.createdAt).toLocaleDateString()}
+   635→   635→                                    </span>
+   636→   636→                                  )}
+   637→   637→                                </div>
+   638→   638→                              </div>
+   639→   639→                            </div>
+   640→   640→                          </CardContent>
+   641→   641→                        </Card>
+   642→   642→                      </motion.div>
+   643→   643→                    );
+   644→   644→                  })}
+   645→   645→                </div>
+   646→   646→              )}
+   647→   647→            </div>
+   648→   648→          </TabsContent>
+   649→   649→
+   650→   650→          <TabsContent value="settings">
+   651→   651→            <div className="space-y-4">
+   652→   652→              <Card>
+   653→   653→                <CardHeader className="pb-2 pt-4 px-4">
+   654→   654→                  <CardTitle className="text-sm">Business Info</CardTitle>
+   655→   655→                </CardHeader>
+   656→   656→                <CardContent className="px-4 pb-4 space-y-2">
+   657→   657→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Name</span><span className="font-medium">{currentBusiness.name}</span></div>
+   658→   658→                  <Separator />
+   659→   659→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Type</span><span className="font-medium">{bt?.icon} {bt?.name}</span></div>
+   660→   660→                  <Separator />
+   661→   661→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">City</span><span className="font-medium">{city?.name}</span></div>
+   662→   662→                  <Separator />
+   663→   663→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Level</span><span className="font-medium">{currentBusiness.level || 1}</span></div>
+   664→   664→                  <Separator />
+   665→   665→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Reputation</span><span className="font-medium">{currentBusiness.reputation || 0}%</span></div>
+   666→   666→                </CardContent>
+   667→   667→              </Card>
+   668→   668→
+   669→   669→              <Card>
+   670→   670→                <CardHeader className="pb-2 pt-4 px-4">
+   671→   671→                  <CardTitle className="text-sm flex items-center gap-2"><ArrowUp className="h-4 w-4" /> Upgrade Business</CardTitle>
+   672→   672→                  <CardDescription>Upgrade to level {(currentBusiness.level || 1) + 1}. Increases capacity and +5 reputation.</CardDescription>
+   673→   673→                </CardHeader>
+   674→   674→                <CardContent className="px-4 pb-4">
+   675→   675→                  <div className="flex items-center justify-between">
+   676→   676→                    <div>
+   677→   677→                      <div className="text-sm text-muted-foreground">Upgrade Cost</div>
+   678→   678→                      <div className="text-lg font-bold">{formatTaka(upgradeCost)}</div>
+   679→   679→                      <div className="text-[10px] text-muted-foreground">Your cash: {formatTaka(player?.cash || 0)}</div>
+   680→   680→                    </div>
+   681→   681→                    <Button onClick={handleUpgrade} disabled={upgrading || (player?.cash || 0) < upgradeCost} className="text-white" style={{ background: '#006a4e' }}>
+   682→   682→                      {upgrading ? 'Upgrading...' : 'Upgrade'}
+   683→   683→                    </Button>
+   684→   684→                  </div>
+   685→   685→                </CardContent>
+   686→   686→              </Card>
+   687→   687→
+   688→   688→              <Card className="border-red-200">
+   689→   689→                <CardHeader className="pb-2 pt-4 px-4">
+   690→   690→                  <CardTitle className="text-sm flex items-center gap-2 text-red-600"><HandCoins className="h-4 w-4" /> Sell Business</CardTitle>
+   691→   691→                  <CardDescription>Sell this business and recover some of your investment.</CardDescription>
+   692→   692→                </CardHeader>
+   693→   693→                <CardContent className="px-4 pb-4">
+   694→   694→                  <Button
+   695→   695→                    variant="outline"
+   696→   696→                    className="text-red-600 border-red-300 hover:bg-red-50"
+   697→   697→                    onClick={() => toast.info('Coming soon! Sell business feature is under development.')}
+   698→   698→                  >
+   699→   699→                    Sell Business
+   700→   700→                  </Button>
+   701→   701→                </CardContent>
+   702→   702→              </Card>
+   703→   703→            </div>
+   704→   704→          </TabsContent>
+   705→   705→        </div>
+   706→   706→      </Tabs>
+   707→   707→    </div>
+   708→   708→  );
+   709→   709→}

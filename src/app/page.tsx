@@ -17,6 +17,7 @@ import BankView from '@/components/game/BankView';
 import Navigation from '@/components/game/Navigation';
 import HintBar from '@/components/game/HintBar';
 import DailySummary from '@/components/game/DailySummary';
+import TutorialOverlay from '@/components/game/TutorialOverlay';
 import { toast } from 'sonner';
 
 export default function Home() {
@@ -330,6 +331,8 @@ export default function Home() {
         onClose={() => setShowSummary(false)}
         previousBusinesses={preTickBusinesses}
       />
+
+      {showTopBar && businesses.length === 0 && <TutorialOverlay />}
     </div>
   );
 }

@@ -28,7 +28,8 @@ export async function generateEvent(): Promise<void> {
   if (!selected) selected = EVENT_TEMPLATES[0];
 
   const now = new Date();
-  const endAt = new Date(now.getTime() + selected.durationDays * 24 * 60 * 60 * 1000);
+  // 1 game day = 1 real minute, so durationDays * 60 * 1000 ms
+  const endAt = new Date(now.getTime() + selected.durationDays * 60 * 1000);
 
   await db.gameEvent.create({
     data: {
@@ -393,6 +394,12 @@ async function processLoanPayments(): Promise<void> {
 // ---- Full Game Tick ----
 
 export async function gameTick(): Promise<void> {
+  // 0. Expire old events first
+  await db.gameEvent.updateMany({
+    where: { active: true, endsAt: { lt: new Date() } },
+    data: { active: false },
+  });
+
   // 1. Generate new events (20% chance)
   if (Math.random() < 0.2) {
     await generateEvent();

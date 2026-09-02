@@ -408,6 +408,10 @@ export function getProductsForBusiness(type: string): ProductDef[] {
   return PRODUCTS[type] || [];
 }
 
+export function getAllProducts(): ProductDef[] {
+  return Object.values(PRODUCTS).flat();
+}
+
 export function getEmployeeRole(role: string): EmployeeRoleDef | undefined {
   return EMPLOYEE_ROLES.find(r => r.role === role);
 }

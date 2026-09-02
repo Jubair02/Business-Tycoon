@@ -54,8 +54,11 @@ export default function Navigation() {
                 )}
                 {item.view === 'news' && activeEvents > 0 && !isActive && (
                   <span className="absolute top-0.5 right-1.5 h-4 w-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center game-badge-pulse" style={{ background: '#f42a41' }}>
-                    {activeEvents}
+                    {activeEvents > 9 ? '9+' : activeEvents}
                   </span>
+                )}
+                {item.view === 'businesses' && activeEvents > 0 && !isActive && (
+                  <span className="absolute top-0.5 right-1.5 h-2 w-2 rounded-full bg-orange-500 game-badge-pulse" />
                 )}
               </button>
             );

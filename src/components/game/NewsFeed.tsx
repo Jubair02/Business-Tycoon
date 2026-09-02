@@ -7,9 +7,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Newspaper, Zap, Clock, RefreshCw } from 'lucide-react';
-import { toast } from 'sonner';
+import { Newspaper, Zap, Clock, RefreshCw, TrendingUp, Cloud, Briefcase, Globe, Landmark } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const CATEGORY_CONFIG: Record<string, { bg: string; text: string; border: string; icon: React.ReactNode }> = {
+  ECONOMY: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-l-green-500', icon: <TrendingUp className="h-3 w-3" /> },
+  BUSINESS: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-l-amber-500', icon: <Briefcase className="h-3 w-3" /> },
+  WEATHER: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-l-cyan-500', icon: <Cloud className="h-3 w-3" /> },
+  EVENT: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-l-purple-500', icon: <Zap className="h-3 w-3" /> },
+  POLITICS: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-l-red-500', icon: <Landmark className="h-3 w-3" /> },
+  TRADE: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-l-orange-500', icon: <Globe className="h-3 w-3" /> },
+};
+
+const DEFAULT_CATEGORY = { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-l-gray-400', icon: <Newspaper className="h-3 w-3" /> };
 
 export default function NewsFeed() {
   const { news, events, setNews } = useGameStore();
@@ -33,28 +43,8 @@ export default function NewsFeed() {
     if (news.length === 0) fetchNews();
   }, []);
 
-  const getCategoryColor = (category: string) => {
-    switch (category?.toUpperCase()) {
-      case 'ECONOMY': return 'bg-green-100 text-green-700 border-green-200';
-      case 'BUSINESS': return 'bg-blue-100 text-blue-700 border-blue-200';
-      case 'WEATHER': return 'bg-cyan-100 text-cyan-700 border-cyan-200';
-      case 'EVENT': return 'bg-purple-100 text-purple-700 border-purple-200';
-      case 'POLITICS': return 'bg-red-100 text-red-700 border-red-200';
-      case 'TRADE': return 'bg-amber-100 text-amber-700 border-amber-200';
-      default: return 'bg-gray-100 text-gray-700 border-gray-200';
-    }
-  };
-
-  const getCategoryBorderColor = (category: string) => {
-    switch (category?.toUpperCase()) {
-      case 'ECONOMY': return 'border-l-green-500';
-      case 'BUSINESS': return 'border-l-blue-500';
-      case 'WEATHER': return 'border-l-cyan-500';
-      case 'EVENT': return 'border-l-purple-500';
-      case 'POLITICS': return 'border-l-red-500';
-      case 'TRADE': return 'border-l-amber-500';
-      default: return 'border-l-gray-400';
-    }
+  const getCategoryConfig = (category: string) => {
+    return CATEGORY_CONFIG[category?.toUpperCase()] || DEFAULT_CATEGORY;
   };
 
   const formatTime = (dateStr: string) => {
@@ -73,102 +63,154 @@ export default function NewsFeed() {
     }
   };
 
-  // Calculate age-based opacity for time-based fade effect
-  const getNewsOpacity = (dateStr: string, index: number) => {
-    // Newer items are fully opaque; older ones slightly dimmer
-    if (index < 3) return 1;
-    if (index < 8) return 0.92;
-    if (index < 15) return 0.82;
-    return 0.7;
+  const getFreshness = (dateStr: string, index: number) => {
+    if (index === 0) return 'fresh';
+    if (index < 3) return 'recent';
+    if (index < 10) return 'normal';
+    return 'old';
+  };
+
+  const freshnessStyles: Record<string, string> = {
+    fresh: 'opacity-100',
+    recent: 'opacity-95',
+    normal: 'opacity-85',
+    old: 'opacity-70',
+  };
+
+  const freshnessDot: Record<string, string> = {
+    fresh: 'bg-green-500 game-pulse-soft',
+    recent: 'bg-green-400',
+    normal: 'bg-gray-300',
+    old: 'bg-gray-200',
   };
 
   return (
-    <div className="p-3 md:p-4 space-y-4 pb-24 md:pb-4">
+    <div className="p-3 md:p-4 space-y-5 pb-24 md:pb-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold flex items-center gap-2 game-gradient-text">
-          <Newspaper className="h-5 w-5" style={{ color: '#006a4e' }} /> News & Events
+        <h2 className="text-lg font-bold flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
+            <Newspaper className="h-4 w-4 text-white" />
+          </div>
+          <span className="game-badge-gradient">News & Events</span>
         </h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50" onClick={fetchNews} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-green-50 transition-colors" onClick={fetchNews} disabled={loading}>
+          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
         </Button>
       </div>
 
+      {/* Active Events */}
       {events.length > 0 && (
-        <Card className="border-amber-300 game-amber-pulse">
-          <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Zap className="h-4 w-4 text-amber-500" /> Active Events ({events.length})
+        <Card className="rounded-xl border-amber-200 game-amber-pulse overflow-hidden">
+          <div className="h-1" style={{ background: 'linear-gradient(90deg, #f59e0b, #f97316, #f59e0b)' }} />
+          <CardHeader className="pb-2 pt-3.5 px-4">
+            <CardTitle className="text-sm flex items-center gap-2 font-bold">
+              <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
+                <Zap className="h-3.5 w-3.5 text-amber-600" />
+              </div>
+              Active Events
+              <Badge className="text-[10px] font-bold bg-amber-100 text-amber-700 border-amber-200 rounded-full ml-1">{events.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-3 space-y-2">
-            {events.map((event: any) => (
-              <div key={event.id} className="p-2.5 rounded-lg bg-gradient-to-r from-amber-50 to-orange-50/50 border border-amber-200 transition-all hover:shadow-md hover:shadow-amber-100">
-                <div className="flex items-start gap-2">
-                  <span className="text-lg shrink-0 game-float">{event.icon || '📢'}</span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold">{event.title}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{event.description}</div>
+          <CardContent className="px-4 pb-3.5 space-y-2.5">
+            {events.map((event: any, idx: number) => (
+              <motion.div
+                key={event.id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                className="p-3 rounded-xl bg-gradient-to-r from-amber-50/80 to-orange-50/40 border border-amber-200/80 transition-all hover:shadow-md hover:shadow-amber-100/50 hover:-translate-y-0.5"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="text-xl shrink-0 game-float mt-0.5">{event.icon || '📢'}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold leading-snug">{event.title}</div>
+                    <div className="text-xs text-muted-foreground mt-1 line-clamp-2 font-medium">{event.description}</div>
                     {event.endsAt && (
-                      <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-600 font-medium">
+                      <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-600 font-semibold">
                         <Clock className="h-3 w-3" />
                         {formatTime(event.endsAt)}
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </CardContent>
         </Card>
       )}
 
-      <h3 className="text-sm font-semibold game-gradient-text">Latest News</h3>
+      <div className="flex items-center gap-2.5">
+        <h3 className="text-sm font-bold game-badge-gradient">Latest News</h3>
+        <span className="text-[10px] text-muted-foreground font-medium">{news.length} articles</span>
+      </div>
 
       {loading && news.length === 0 ? (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {[...Array(5)].map((_, i) => (
-            <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>
+            <Card key={i} className="rounded-xl"><CardContent className="p-4"><Skeleton className="h-16 w-full rounded-lg" /></CardContent></Card>
           ))}
         </div>
       ) : news.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="py-12 text-center">
-            <div className="text-4xl mb-2">📰</div>
-            <p className="text-sm text-muted-foreground">No news yet. Advance to the next day to generate news!</p>
-          </CardContent>
-        </Card>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="border-dashed rounded-xl">
+            <CardContent className="py-12 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-3">
+                <Newspaper className="h-7 w-7" style={{ color: '#006a4e', opacity: 0.5 }} />
+              </div>
+              <p className="text-sm font-medium mb-1">No news yet</p>
+              <p className="text-xs text-muted-foreground font-medium max-w-[220px] mx-auto">Advance to the next day to generate news!</p>
+            </CardContent>
+          </Card>
+        </motion.div>
       ) : (
-        <div className="space-y-2">
-          {news.map((article: any, i: number) => (
-            <motion.div
-              key={article.id}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.03 }}
-              className={`game-news-fade border-l-4 ${getCategoryBorderColor(article.category)} rounded-r-lg`}
-              style={{ opacity: getNewsOpacity(article.createdAt || article.updatedAt, i) }}
-            >
-              <Card className="game-card-hover rounded-tl-none border-l-0 rounded-r-lg">
-                <CardContent className="p-3">
-                  <div className="flex items-start gap-2.5">
-                    <Badge className={`text-[10px] border shrink-0 mt-0.5 ${getCategoryColor(article.category)}`} variant="outline">
-                      {article.category}
-                    </Badge>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium leading-snug">{article.title}</div>
-                      {article.content && (
-                        <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{article.content}</div>
-                      )}
-                      <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        {formatTime(article.createdAt || article.updatedAt)}
+        <div className="space-y-2.5">
+          {news.map((article: any, i: number) => {
+            const catConfig = getCategoryConfig(article.category);
+            const freshness = getFreshness(article.createdAt || article.updatedAt, i);
+            return (
+              <motion.div
+                key={article.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.03 }}
+                className={cn(
+                  'border-l-[3px] rounded-r-xl transition-all hover:shadow-sm hover:-translate-y-px',
+                  catConfig.border,
+                  freshnessStyles[freshness]
+                )}
+              >
+                <Card className="rounded-tl-none border-l-0 rounded-r-xl rounded-tl-none">
+                  <CardContent className="p-3.5">
+                    <div className="flex items-start gap-3">
+                      <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5', catConfig.bg)}>
+                        <span className={catConfig.text}>{catConfig.icon}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            className={cn('text-[9px] font-semibold rounded-full px-2 py-0 shrink-0 uppercase tracking-wider border-0', catConfig.bg, catConfig.text)}
+                          >
+                            {article.category}
+                          </Badge>
+                          {freshness === 'fresh' && (
+                            <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', freshnessDot[freshness])} />
+                          )}
+                        </div>
+                        <div className="text-sm font-semibold leading-snug mt-1.5">{article.title}</div>
+                        {article.content && (
+                          <div className="text-xs text-muted-foreground mt-1 line-clamp-2 font-medium">{article.content}</div>
+                        )}
+                        <div className="flex items-center gap-1.5 mt-2 text-[10px] text-muted-foreground font-medium">
+                          <Clock className="h-3 w-3" />
+                          {formatTime(article.createdAt || article.updatedAt)}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            );
+          })}
         </div>
       )}
     </div>

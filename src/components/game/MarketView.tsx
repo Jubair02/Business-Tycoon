@@ -35,8 +35,7 @@ export default function MarketView() {
   const fetchProducts = async (city: string, type: string) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ city });
-      if (type !== 'all') params.set('type', type);
+      const params = new URLSearchParams({ city, type });
       const res = await fetch(`/api/market/products?${params}`);
       if (res.ok) {
         setProducts(await res.json());

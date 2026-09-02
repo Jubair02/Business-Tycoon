@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getProductsForBusiness } from '@/lib/game-data';
+import { getProductsForBusiness, getAllProducts, BUSINESS_TYPES } from '@/lib/game-data';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,14 +8,21 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type');
     const city = searchParams.get('city');
 
-    if (!type || !city) {
+    if (!city) {
       return NextResponse.json(
-        { error: 'type and city query parameters are required' },
+        { error: 'city query parameter is required' },
         { status: 400 }
       );
     }
 
-    const productDefs = getProductsForBusiness(type);
+    // Support "all" type or missing type to show all products
+    let productDefs;
+    if (!type || type === 'all') {
+      productDefs = getAllProducts();
+    } else {
+      productDefs = getProductsForBusiness(type);
+    }
+
     if (productDefs.length === 0) {
       return NextResponse.json(
         { error: `No products found for business type: ${type}` },

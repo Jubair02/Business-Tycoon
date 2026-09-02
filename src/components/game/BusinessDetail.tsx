@@ -15,7 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins } from 'lucide-react';
+import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const BUSINESS_COLORS: Record<string, string> = {
@@ -36,6 +36,10 @@ export default function BusinessDetail() {
   const [buyProduct, setBuyProduct] = useState<any>(null);
   const [buyQuantity, setBuyQuantity] = useState(1);
   const [buying, setBuying] = useState(false);
+  const [showSellDialog, setShowSellDialog] = useState(false);
+  const [sellInventory, setSellInventory] = useState<any>(null);
+  const [sellQuantity, setSellQuantity] = useState(1);
+  const [selling, setSelling] = useState(false);
   const [hiring, setHiring] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [firingId, setFiringId] = useState<string | null>(null);
@@ -165,6 +169,37 @@ export default function BusinessDetail() {
     }
   };
 
+  const handleSell = async () => {
+    if (!sellInventory || sellQuantity < 1) return;
+    setSelling(true);
+    try {
+      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/sell`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inventoryId: sellInventory.id,
+          quantity: sellQuantity,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const sellPricePerUnit = Math.round((sellInventory.purchasePrice || 0) * 0.7);
+        toast.success(`Sold ${sellQuantity}x ${sellInventory.productName} for ${formatTaka(sellPricePerUnit * sellQuantity)}`);
+        setShowSellDialog(false);
+        setSellInventory(null);
+        setSellQuantity(1);
+        setCurrentBusiness(data);
+      } else {
+        const err = await res.json();
+        toast.error(err.error || 'Sale failed');
+      }
+    } catch {
+      toast.error('Sale failed');
+    } finally {
+      setSelling(false);
+    }
+  };
+
   const handleHire = async () => {
     if (!hireRole) return;
     setHiring(true);
@@ -244,37 +279,42 @@ export default function BusinessDetail() {
 
   return (
     <div className="pb-24 md:pb-4">
-      {/* Enhanced hero banner header */}
-      <div className={`sticky top-14 z-40 border-b px-3 md:px-4 py-4 md:py-5 game-hero-banner ${bannerClass}`}>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="shrink-0 hover:bg-white/50" onClick={() => setView('businesses')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2.5">
-              <span className="text-2xl game-float">{bt?.icon}</span>
-              <div className="min-w-0">
-                <h2 className="font-bold text-base truncate">{currentBusiness.name}</h2>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <Badge variant="outline" className={`text-[10px] shrink-0 ${bannerClass}`}>{bt?.name}</Badge>
-                  <span className="text-[10px] opacity-80 flex items-center gap-1">📍 {city?.name}</span>
+      <Tabs defaultValue="overview" className="w-full">
+      {/* Sticky header with tabs integrated */}
+      <div className="sticky top-14 z-40 bg-white border-b">
+        <div className={`px-3 md:px-4 py-3 md:py-4 game-hero-banner ${bannerClass}`}>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="shrink-0 hover:bg-white/50" onClick={() => setView('businesses')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl game-float">{bt?.icon}</span>
+                <div className="min-w-0">
+                  <h2 className="font-bold text-base truncate">{currentBusiness.name}</h2>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Badge variant="outline" className={`text-[10px] shrink-0 ${bannerClass}`}>{bt?.name}</Badge>
+                    <span className="text-[10px] opacity-80 flex items-center gap-1">📍 {city?.name}</span>
+                  </div>
                 </div>
               </div>
             </div>
+            <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
           </div>
-          <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
         </div>
-      </div>
-
-      <div className="p-3 md:p-4">
-        <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="w-full grid grid-cols-5 mb-4">
+        {/* Tabs inside the sticky block */}
+        <div className="px-3 md:px-4 pt-2">
+          <TabsList className="w-full grid grid-cols-5">
             <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
             <TabsTrigger value="employees" className="text-xs">Staff</TabsTrigger>
             <TabsTrigger value="logs" className="text-xs">Log</TabsTrigger>
             <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
           </TabsList>
+        </div>
+      </div>
+
+      <div className="p-3 md:p-4">
 
           <TabsContent value="overview">
             <div className="grid grid-cols-2 gap-3 mb-4">
@@ -442,6 +482,51 @@ export default function BusinessDetail() {
                 </Dialog>
               </div>
 
+              <Dialog open={showSellDialog} onOpenChange={(open) => { if (!open) { setSellInventory(null); setSellQuantity(1); } setShowSellDialog(open); }}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Sell Inventory</DialogTitle>
+                    <DialogDescription>Liquidate stock at 70% of purchase price</DialogDescription>
+                  </DialogHeader>
+                  {sellInventory && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50/60 border border-amber-100">
+                        <span className="text-2xl">📦</span>
+                        <div className="flex-1">
+                          <div className="font-medium">{sellInventory.productName}</div>
+                          <div className="text-xs text-muted-foreground">In stock: {sellInventory.quantity} units</div>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Quantity</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={sellInventory.quantity}
+                          value={sellQuantity}
+                          onChange={(e) => setSellQuantity(Math.max(1, Math.min(sellInventory.quantity, parseInt(e.target.value) || 1)))}
+                        />
+                        <div className="text-sm text-muted-foreground">
+                          Purchase price: <span className="font-medium">৳{(sellInventory.purchasePrice || 0).toLocaleString()}</span>/unit
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Liquidation rate: <span className="font-medium">70%</span>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          You receive: <span className="font-bold text-amber-600">৳{(Math.round((sellInventory.purchasePrice || 0) * 0.7) * sellQuantity).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <DialogFooter className="gap-2">
+                    <Button variant="outline" onClick={() => { setShowSellDialog(false); setSellInventory(null); setSellQuantity(1); }}>Cancel</Button>
+                    <Button onClick={handleSell} disabled={selling || !sellInventory} className="text-white" style={{ background: '#d97706' }}>
+                      {selling ? 'Selling...' : sellInventory ? `Sell for ৳${(Math.round((sellInventory.purchasePrice || 0) * 0.7) * sellQuantity).toLocaleString()}` : 'Sell'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
               {inventories.length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="py-8 text-center">
@@ -453,6 +538,7 @@ export default function BusinessDetail() {
                 <div className="space-y-1.5 rounded-lg overflow-hidden border border-green-100/60">
                   {inventories.map((inv: any) => {
                     const mp = marketProducts.find((p: any) => p.id === inv.productId || p.name === inv.productName);
+                    const liquidationPrice = Math.round((inv.purchasePrice || 0) * 0.7);
                     return (
                       <div key={inv.id} className="inventory-row flex items-center gap-3 p-3">
                         <span className="text-xl">{mp?.icon || inv.productName?.charAt(0)}</span>
@@ -464,27 +550,38 @@ export default function BusinessDetail() {
                             </span>
                             <span className="text-[10px] text-muted-foreground">Stock: {inv.quantity || 0}</span>
                           </div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">Liq. price: ৳{liquidationPrice.toLocaleString()}/unit</div>
                         </div>
-                        <div className="text-right shrink-0">
-                          {isEditingPrice === inv.id ? (
-                            <div className="flex items-center gap-1 game-price-edit rounded-md p-0.5">
-                              <Input
-                                type="number"
-                                value={editPrice}
-                                onChange={(e) => setEditPrice(e.target.value)}
-                                className="w-20 h-7 text-xs"
-                                autoFocus
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleUpdatePrice(inv.id); if (e.key === 'Escape') setIsEditingPrice(null); }}
-                              />
-                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleUpdatePrice(inv.id)}><Check className="h-3 w-3 text-green-600" /></Button>
-                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
-                            </div>
-                          ) : (
-                            <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline transition-colors hover:text-green-700" style={{ color: '#006a4e' }}>
-                              ৳{(inv.sellPrice || 0).toLocaleString()}
-                            </button>
-                          )}
-                          <div className="text-[10px] text-muted-foreground">sell price</div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="text-right">
+                            {isEditingPrice === inv.id ? (
+                              <div className="flex items-center gap-1 game-price-edit rounded-md p-0.5">
+                                <Input
+                                  type="number"
+                                  value={editPrice}
+                                  onChange={(e) => setEditPrice(e.target.value)}
+                                  className="w-20 h-7 text-xs"
+                                  autoFocus
+                                  onKeyDown={(e) => { if (e.key === 'Enter') handleUpdatePrice(inv.id); if (e.key === 'Escape') setIsEditingPrice(null); }}
+                                />
+                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleUpdatePrice(inv.id)}><Check className="h-3 w-3 text-green-600" /></Button>
+                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline transition-colors hover:text-green-700" style={{ color: '#006a4e' }}>
+                                ৳{(inv.sellPrice || 0).toLocaleString()}
+                              </button>
+                            )}
+                            <div className="text-[10px] text-muted-foreground">sell price</div>
+                          </div>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 shrink-0"
+                            onClick={() => { setSellInventory(inv); setSellQuantity(Math.min(1, inv.quantity)); setShowSellDialog(true); }}
+                          >
+                            <PackageOpen className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </div>
                     );
@@ -697,8 +794,8 @@ export default function BusinessDetail() {
               </Card>
             </div>
           </TabsContent>
-        </Tabs>
-      </div>
+        </div>
+      </Tabs>
     </div>
   );
 }

@@ -144,7 +144,7 @@ export default function LeaderboardView() {
                           {i === 0 && !medal.emoji && <Crown className="h-3.5 w-3.5 text-yellow-500" />}
                         </div>
                         <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {entry.businessCount || 0} businesses
+                          {(entry.businessCount || 0) === 1 ? '1 business' : `${entry.businessCount || 0} businesses`}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
