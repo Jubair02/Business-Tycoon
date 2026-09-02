@@ -602,3 +602,87 @@ Stage Summary:
 6. **P3**: Performance optimization - batch all business ticks into single transaction
 7. **P3**: Export game statistics (CSV/PDF report of business performance)
 8. **P3**: Add mini-map of Bangladesh showing player's business locations
+
+---
+Task ID: 15
+Agent: frontend-styling-expert
+Task: Enhance MarketView, BankView, DailySummary, BusinessList styling
+
+Work Log:
+- **MarketView.tsx**: Enhanced filter bar with styled container (green gradient bg, Search icon, green focus borders). Improved sparkline visibility (4px wide bars, gradient fills, h-8 container, visible on all breakpoints). Added card hover border color change (hover:border-green-300 + shadow). Added amber pulse price alert indicator on items >5% price increase. Replaced empty state with game-empty-state class. Added category section dividers with game-section-header + game-divider-gradient when showing all types.
+- **BankView.tsx**: Added enhanced summary header with 4 game-stat-card stat cards (Cash, Total Debt, Total Paid, Available Credit). Added credit score circular SVG indicator with color-coded score (green=Excellent, amber=Fair, red=Poor) and daily payment card. Enhanced loan progress bar (h-3, gradient overlay, game-number-tick on percentage). Added interest rate APR badges on active loan cards. Improved empty state with game-empty-state class. Added game-section-header to section headings. Enhanced history cards with hover effects and interest rate badges.
+- **DailySummary.tsx**: Added total summary stat card at top (Revenue, Expenses, Profit) with colored icons and game-number-tick animation. Added gradient separator lines (game-divider-gradient) between all sections. Enhanced event badges (NEW badge with red gradient, ONGOING badge with green outline). Added contextual tip section at bottom (stockout warning, negative profit advice, expansion suggestion) with Lightbulb icon. Applied game-number-tick to all financial values. Improved market highlight items with colored pill badges. Enhanced footer button with game-btn-shimmer.
+- **BusinessList.tsx**: Added summary bar at top (3 game-stat-card items: Businesses count, Daily Profit, Total Staff). Added CSS-only mini sparkline per business card. Replaced empty state with game-empty-state class + game-empty-action button. Added quick-action button row (Inventory, Hire, Upgrade icons). Added green star "Best" performer badge on most profitable business. Enhanced card hover effects and best-performer border highlight.
+
+Stage Summary:
+- All 4 components enhanced with Bangladesh green (#006a4e) and red (#f42a41) theme
+- Leveraged existing globals.css classes: game-stat-card, game-section-header, game-empty-state, game-divider-gradient, game-number-tick, game-badge-gradient, game-card-hover, game-shine, game-card-glow-subtle, game-pulse-soft, game-amber-pulse, game-btn-shimmer, game-input-focus-green, game-sparkline-bar, game-badge-pulse
+- No logic changes - styling only
+- Lint passes cleanly
+
+---
+Task ID: 16
+Agent: Main (QA & Enhancement Round)
+Task: QA testing, pricing assistant feature, styling verification
+
+Work Log:
+- **QA Testing**: Full browser testing via agent-browser
+  - Welcome screen → registration → dashboard → business creation (Tea Stall in Rajshahi) → inventory tab → pricing assistant → market → bank → settings
+  - All 11 views tested successfully, all API endpoints returning 200
+  - Verified pricing assistant shows 5 product recommendations with demand levels, trends, suggested prices, and one-click "Apply" buttons
+  - No bugs found
+
+- **New Feature - Pricing Assistant**:
+  - New API: GET /api/businesses/[id]/pricing-advice (endpoint #26)
+  - Server-side price recommendation engine that considers:
+    - Current market demand per product (from MarketPrice table)
+    - Base product markup (from game data)
+    - Employee count and average skill level (higher skill = higher prices)
+    - Business reputation (higher rep = more pricing power)
+    - Market price trends (up/down/stable)
+  - Demand level classification (High/Medium/Low)
+  - Price ceiling (130% of suggested = "too expensive" warning)
+    - Cost floor (base price * 1.05 = "below cost" warning)
+  - Contextual reason text for each recommendation
+  - One-click "Apply" button to set sell prices via existing inventory/price API
+  - UI: Lightbulb button on Inventory tab → expands inline panel with card per product
+  - Panel shows: icon, name, demand badge, trend arrow, buy price, suggested price, markup %, reason, current price comparison
+  - Warnings: "⚠️ Overpriced!" and "⚠️ Below cost!" on problematic items
+
+- **UI Fix**: Refactored Buy Stock button from DialogTrigger pattern to direct onClick to prevent JSX nesting issues
+
+Stage Summary:
+- 1 new feature added (Pricing Assistant with API + UI)
+- 1 new API endpoint (pricing-advice)
+- 4 components styled by agent (MarketView, BankView, DailySummary, BusinessList)
+- ESLint: 0 errors
+- All changes verified via browser testing
+
+## Current Project Status
+- **Phase**: Post-MVP Enhancement - v2.2
+- **Components**: 19 game components (SettingsView, AutoTickSync unchanged)
+- **API Routes**: 26 endpoints (25 previous + businesses/[id]/pricing-advice)
+- **Database Models**: 11 (10 original + Loan)
+- **Game Views**: 11 (welcome, dashboard, businesses, business-detail, new-business, market, bank, leaderboard, news, achievements, settings)
+- **New Features This Round**: Pricing Assistant
+- **Styling**: 4 components enhanced (MarketView, BankView, DailySummary, BusinessList)
+- **Bugs Fixed This Round**: 1 (Buy Stock button JSX nesting)
+- **Lint**: 0 errors
+
+## Unresolved Issues / Risks
+1. Daily Summary market fetch uses /api/market?city=X which returns price data but may show too many items.
+2. Notification center bell badge count is client-side only (resets on page reload).
+3. Auto-tick timer uses setInterval which may drift over long sessions.
+4. Sell business price estimation in the UI uses the same formula as the API, but they could diverge if the formula changes.
+5. Pricing assistant suggestions are computed per-request (no caching) - could be slow with many simultaneous users.
+
+## Priority Recommendations for Next Phase
+1. **P1**: Add sound effects for key actions (buy, sell, next day, achievement unlock)
+2. **P1**: Add business branches (multiple locations per business type)
+3. **P1**: Add employee performance reviews and skill leveling system
+4. **P2**: Add seasonal events tied to real Bangladesh calendar (Pohela Boishakh, Eid, etc.)
+5. **P2**: Add player trading/auction system for inventory between players
+6. **P2**: Add multiplayer/competitive features (market manipulation, price wars)
+7. **P3**: Performance optimization - batch all business ticks into single transaction
+8. **P3**: Export game statistics (CSV/PDF report of business performance)
+9. **P3**: Add mini-map of Bangladesh showing player's business locations

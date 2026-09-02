@@ -1,0 +1,925 @@
+     1→@import "tailwindcss";
+     2→@import "tw-animate-css";
+     3→
+     4→@custom-variant dark (&:is(.dark *));
+     5→
+     6→@theme inline {
+     7→  --color-background: var(--background);
+     8→  --color-foreground: var(--foreground);
+     9→  --font-sans: var(--font-geist-sans);
+    10→  --font-mono: var(--font-geist-mono);
+    11→  --color-sidebar-ring: var(--sidebar-ring);
+    12→  --color-sidebar-border: var(--sidebar-border);
+    13→  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    14→  --color-sidebar-accent: var(--sidebar-accent);
+    15→  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    16→  --color-sidebar-primary: var(--sidebar-primary);
+    17→  --color-sidebar-foreground: var(--sidebar-foreground);
+    18→  --color-sidebar: var(--sidebar);
+    19→  --color-chart-5: var(--chart-5);
+    20→  --color-chart-4: var(--chart-4);
+    21→  --color-chart-3: var(--chart-3);
+    22→  --color-chart-2: var(--chart-2);
+    23→  --color-chart-1: var(--chart-1);
+    24→  --color-ring: var(--ring);
+    25→  --color-input: var(--input);
+    26→  --color-border: var(--border);
+    27→  --color-destructive: var(--destructive);
+    28→  --color-accent-foreground: var(--accent-foreground);
+    29→  --color-accent: var(--accent);
+    30→  --color-muted-foreground: var(--muted-foreground);
+    31→  --color-muted: var(--muted);
+    32→  --color-secondary-foreground: var(--secondary-foreground);
+    33→  --color-secondary: var(--secondary);
+    34→  --color-primary-foreground: var(--primary-foreground);
+    35→  --color-primary: var(--primary);
+    36→  --color-popover-foreground: var(--popover-foreground);
+    37→  --color-popover: var(--popover);
+    38→  --color-card-foreground: var(--card-foreground);
+    39→  --color-card: var(--card);
+    40→  --radius-sm: calc(var(--radius) - 4px);
+    41→  --radius-md: calc(var(--radius) - 2px);
+    42→  --radius-lg: var(--radius);
+    43→  --radius-xl: calc(var(--radius) + 4px);
+    44→  --color-bd-green: #006a4e;
+    45→  --color-bd-red: #f42a41;
+    46→}
+    47→
+    48→:root {
+    49→  --radius: 0.625rem;
+    50→  --background: oklch(0.985 0.002 155);
+    51→  --foreground: oklch(0.145 0.01 155);
+    52→  --card: oklch(1 0 0);
+    53→  --card-foreground: oklch(0.145 0.01 155);
+    54→  --popover: oklch(1 0 0);
+    55→  --popover-foreground: oklch(0.145 0.01 155);
+    56→  --primary: oklch(0.45 0.15 160);
+    57→  --primary-foreground: oklch(1 0 0);
+    58→  --secondary: oklch(0.96 0.01 155);
+    59→  --secondary-foreground: oklch(0.25 0.03 155);
+    60→  --muted: oklch(0.965 0.005 155);
+    61→  --muted-foreground: oklch(0.5 0.02 155);
+    62→  --accent: oklch(0.95 0.02 155);
+    63→  --accent-foreground: oklch(0.25 0.03 155);
+    64→  --destructive: oklch(0.577 0.245 27.325);
+    65→  --border: oklch(0.91 0.01 155);
+    66→  --input: oklch(0.91 0.01 155);
+    67→  --ring: oklch(0.45 0.15 160);
+    68→  --chart-1: oklch(0.45 0.15 160);
+    69→  --chart-2: oklch(0.6 0.118 184.704);
+    70→  --chart-3: oklch(0.65 0.18 60);
+    71→  --chart-4: oklch(0.55 0.12 30);
+    72→  --chart-5: oklch(0.7 0.1 240);
+    73→  --sidebar: oklch(0.97 0.01 155);
+    74→  --sidebar-foreground: oklch(0.145 0.01 155);
+    75→  --sidebar-primary: oklch(0.45 0.15 160);
+    76→  --sidebar-primary-foreground: oklch(1 0 0);
+    77→  --sidebar-accent: oklch(0.95 0.02 155);
+    78→  --sidebar-accent-foreground: oklch(0.25 0.03 155);
+    79→  --sidebar-border: oklch(0.91 0.01 155);
+    80→  --sidebar-ring: oklch(0.45 0.15 160);
+    81→}
+    82→
+    83→.dark {
+    84→  --background: oklch(0.13 0.01 155);
+    85→  --foreground: oklch(0.985 0.005 155);
+    86→  --card: oklch(0.18 0.015 155);
+    87→  --card-foreground: oklch(0.985 0.005 155);
+    88→  --popover: oklch(0.18 0.015 155);
+    89→  --popover-foreground: oklch(0.985 0.005 155);
+    90→  --primary: oklch(0.65 0.18 160);
+    91→  --primary-foreground: oklch(0.15 0 0);
+    92→  --secondary: oklch(0.22 0.02 155);
+    93→  --secondary-foreground: oklch(0.985 0.005 155);
+    94→  --muted: oklch(0.22 0.02 155);
+    95→  --muted-foreground: oklch(0.65 0.02 155);
+    96→  --accent: oklch(0.22 0.02 155);
+    97→  --accent-foreground: oklch(0.985 0.005 155);
+    98→  --destructive: oklch(0.704 0.191 22.216);
+    99→  --border: oklch(1 0 0 / 10%);
+   100→  --input: oklch(1 0 0 / 15%);
+   101→  --ring: oklch(0.65 0.18 160);
+   102→  --chart-1: oklch(0.65 0.18 160);
+   103→  --chart-2: oklch(0.696 0.17 162.48);
+   104→  --chart-3: oklch(0.769 0.188 70.08);
+   105→  --chart-4: oklch(0.627 0.265 303.9);
+   106→  --chart-5: oklch(0.645 0.246 16.439);
+   107→  --sidebar: oklch(0.18 0.015 155);
+   108→  --sidebar-foreground: oklch(0.985 0.005 155);
+   109→  --sidebar-primary: oklch(0.65 0.18 160);
+   110→  --sidebar-primary-foreground: oklch(0.15 0 0);
+   111→  --sidebar-accent: oklch(0.22 0.02 155);
+   112→  --sidebar-accent-foreground: oklch(0.985 0.005 155);
+   113→  --sidebar-border: oklch(1 0 0 / 10%);
+   114→  --sidebar-ring: oklch(0.65 0.18 160);
+   115→}
+   116→
+   117→@layer base {
+   118→  * {
+   119→    @apply border-border outline-ring/50;
+   120→  }
+   121→  body {
+   122→    @apply bg-background text-foreground;
+   123→  }
+   124→}
+   125→
+   126→/* Custom scrollbar styling - refined */
+   127→.game-scrollbar::-webkit-scrollbar {
+   128→  width: 5px;
+   129→}
+   130→.game-scrollbar::-webkit-scrollbar-track {
+   131→  background: transparent;
+   132→  border-radius: 10px;
+   133→}
+   134→.game-scrollbar::-webkit-scrollbar-thumb {
+   135→  background: oklch(0.78 0.03 160);
+   136→  border-radius: 10px;
+   137→  transition: background 0.2s ease;
+   138→}
+   139→.game-scrollbar::-webkit-scrollbar-thumb:hover {
+   140→  background: oklch(0.55 0.12 160);
+   141→}
+   142→.game-scrollbar {
+   143→  scrollbar-width: thin;
+   144→  scrollbar-color: oklch(0.78 0.03 160) transparent;
+   145→}
+   146→
+   147→/* Game-specific animations */
+   148→@keyframes pulse-green {
+   149→  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 106, 78, 0.3); }
+   150→  50% { box-shadow: 0 0 0 8px rgba(0, 106, 78, 0); }
+   151→}
+   152→
+   153→@keyframes shimmer {
+   154→  0% { background-position: -200% 0; }
+   155→  100% { background-position: 200% 0; }
+   156→}
+   157→
+   158→.game-card-hover {
+   159→  transition: all 0.2s ease;
+   160→}
+   161→.game-card-hover:hover {
+   162→  transform: translateY(-2px);
+   163→  box-shadow: 0 8px 25px -5px rgba(0, 106, 78, 0.15);
+   164→}
+   165→
+   166→.game-card-interactive {
+   167→  cursor: pointer;
+   168→  transition: all 0.2s ease;
+   169→}
+   170→.game-card-interactive:hover {
+   171→  transform: translateY(-2px);
+   172→  box-shadow: 0 8px 25px -5px rgba(0, 106, 78, 0.15);
+   173→  border-color: #006a4e;
+   174→}
+   175→
+   176→.profit-positive {
+   177→  color: #006a4e;
+   178→}
+   179→
+   180→.profit-negative {
+   181→  color: #f42a41;
+   182→}
+   183→
+   184→.bd-gradient {
+   185→  background: linear-gradient(135deg, #006a4e 0%, #00895e 50%, #00a86b 100%);
+   186→}
+   187→
+   188→.bd-gradient-red {
+   189→  background: linear-gradient(135deg, #f42a41 0%, #e8334a 50%, #d43d52 100%);
+   190→}
+   191→
+   192→/* Game utility classes */
+   193→.safe-area-pb {
+   194→  padding-bottom: env(safe-area-inset-bottom, 0px);
+   195→}
+   196→
+   197→.game-glow {
+   198→  box-shadow: 0 0 15px -3px rgba(0, 106, 78, 0.3);
+   199→}
+   200→
+   201→.game-gradient-card {
+   202→  background: linear-gradient(135deg, rgba(0, 106, 78, 0.03) 0%, rgba(0, 106, 78, 0.08) 100%);
+   203→}
+   204→
+   205→@keyframes float {
+   206→  0%, 100% { transform: translateY(0); }
+   207→  50% { transform: translateY(-6px); }
+   208→}
+   209→.game-float {
+   210→  animation: float 3s ease-in-out infinite;
+   211→}
+   212→
+   213→@keyframes pulse-border {
+   214→  0%, 100% { border-color: rgba(0, 106, 78, 0.3); }
+   215→  50% { border-color: rgba(0, 106, 78, 0.8); }
+   216→}
+   217→.game-pulse-border {
+   218→  animation: pulse-border 2s ease-in-out infinite;
+   219→}
+   220→
+   221→@keyframes flag-glow {
+   222→  0%, 100% { filter: drop-shadow(0 0 8px rgba(0, 106, 78, 0.4)); }
+   223→  50% { filter: drop-shadow(0 0 20px rgba(0, 106, 78, 0.7)) drop-shadow(0 0 40px rgba(244, 42, 65, 0.3)); }
+   224→}
+   225→.game-flag-glow {
+   226→  animation: flag-glow 3s ease-in-out infinite;
+   227→}
+   228→
+   229→@keyframes cash-flash {
+   230→  0% { opacity: 1; transform: translateY(0); }
+   231→  100% { opacity: 0; transform: translateY(-12px); }
+   232→}
+   233→.cash-flash {
+   234→  animation: cash-flash 0.8s ease-out forwards;
+   235→  pointer-events: none;
+   236→}
+   237→
+   238→/* ============================================ */
+   239→/* NEW ENHANCED ANIMATIONS & UTILITY CLASSES    */
+   240→/* ============================================ */
+   241→
+   242→/* --- game-shine: Shimmer sweep across cards on hover --- */
+   243→@keyframes shine-sweep {
+   244→  0% { left: -100%; }
+   245→  100% { left: 150%; }
+   246→}
+   247→.game-shine {
+   248→  position: relative;
+   249→  overflow: hidden;
+   250→}
+   251→.game-shine::after {
+   252→  content: '';
+   253→  position: absolute;
+   254→  top: 0;
+   255→  left: -100%;
+   256→  width: 60%;
+   257→  height: 100%;
+   258→  background: linear-gradient(
+   259→    120deg,
+   260→    transparent 0%,
+   261→    rgba(0, 106, 78, 0.06) 30%,
+   262→    rgba(0, 106, 78, 0.12) 50%,
+   263→    rgba(0, 106, 78, 0.06) 70%,
+   264→    transparent 100%
+   265→  );
+   266→  transition: none;
+   267→  pointer-events: none;
+   268→}
+   269→.game-shine:hover::after {
+   270→  animation: shine-sweep 3s ease-in-out;
+   271→}
+   272→
+   273→/* --- game-badge-pulse: Subtle pulse for notification badges --- */
+   274→@keyframes badge-pulse {
+   275→  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(244, 42, 65, 0.4); }
+   276→  50% { transform: scale(1.15); box-shadow: 0 0 0 4px rgba(244, 42, 65, 0); }
+   277→}
+   278→.game-badge-pulse {
+   279→  animation: badge-pulse 2s ease-in-out infinite;
+   280→}
+   281→
+   282→/* --- game-slide-in-bottom: Slide up from bottom (mobile nav items) --- */
+   283→@keyframes slide-in-bottom {
+   284→  0% { opacity: 0; transform: translateY(16px); }
+   285→  100% { opacity: 1; transform: translateY(0); }
+   286→}
+   287→.game-slide-in-bottom {
+   288→  animation: slide-in-bottom 0.35s ease-out both;
+   289→}
+   290→
+   291→/* --- game-number-tick: Brief scale bump for changing values --- */
+   292→@keyframes number-tick {
+   293→  0% { transform: scale(1); }
+   294→  30% { transform: scale(1.12); }
+   295→  100% { transform: scale(1); }
+   296→}
+   297→.game-number-tick {
+   298→  animation: number-tick 0.35s ease-out;
+   299→}
+   300→
+   301→/* --- game-gradient-text: Green gradient text for headings --- */
+   302→.game-gradient-text {
+   303→  background: linear-gradient(135deg, #004d38 0%, #006a4e 35%, #00a86b 70%, #006a4e 100%);
+   304→  -webkit-background-clip: text;
+   305→  -webkit-text-fill-color: transparent;
+   306→  background-clip: text;
+   307→}
+   308→
+   309→/* --- game-glass: Glassmorphism card effect --- */
+   310→.game-glass {
+   311→  background: rgba(255, 255, 255, 0.55);
+   312→  backdrop-filter: blur(16px);
+   313→  -webkit-backdrop-filter: blur(16px);
+   314→  border: 1px solid rgba(255, 255, 255, 0.3);
+   315→  box-shadow: 0 8px 32px rgba(0, 106, 78, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+   316→}
+   317→
+   318→/* --- game-border-gradient: Animated gradient border --- */
+   319→@keyframes gradient-border-rotate {
+   320→  0% { --border-angle: 0deg; }
+   321→  100% { --border-angle: 360deg; }
+   322→}
+   323→.game-border-gradient {
+   324→  position: relative;
+   325→  border: 2px solid transparent;
+   326→  background-clip: padding-box;
+   327→}
+   328→.game-border-gradient::before {
+   329→  content: '';
+   330→  position: absolute;
+   331→  inset: -2px;
+   332→  border-radius: inherit;
+   333→  background: linear-gradient(135deg, #006a4e, #00a86b, #f42a41, #006a4e);
+   334→  background-size: 300% 300%;
+   335→  animation: gradient-shift 4s ease infinite;
+   336→  z-index: -1;
+   337→  border-radius: inherit;
+   338→}
+   339→
+   340→/* --- game-stat-card: Enhanced stat card with left color bar, gradient bg, hover lift --- */
+   341→.game-stat-card {
+   342→  position: relative;
+   343→  background: linear-gradient(135deg, rgba(0, 106, 78, 0.03) 0%, rgba(0, 106, 78, 0.08) 100%);
+   344→  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+   345→  box-shadow: inset 0 1px 0 0 rgba(0, 106, 78, 0.05), inset 3px 0 0 0 #006a4e;
+   346→  border-radius: 0.75rem;
+   347→}
+   348→.game-stat-card:hover {
+   349→  transform: translateY(-3px);
+   350→  box-shadow: 0 12px 28px -8px rgba(0, 106, 78, 0.18), inset 0 1px 0 0 rgba(0, 106, 78, 0.08), inset 3px 0 0 0 #006a4e;
+   351→}
+   352→
+   353→/* --- Enhanced game-pattern-bg: Bangladesh-inspired geometric pattern --- */
+   354→.game-pattern-bg {
+   355→  background-image:
+   356→    linear-gradient(30deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+   357→    linear-gradient(150deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+   358→    linear-gradient(30deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+   359→    linear-gradient(150deg, rgba(0, 106, 78, 0.03) 12%, transparent 12.5%, transparent 87%, rgba(0, 106, 78, 0.03) 87.5%, rgba(0, 106, 78, 0.03)),
+   360→    linear-gradient(60deg, rgba(244, 42, 65, 0.015) 25%, transparent 25.5%, transparent 75%, rgba(244, 42, 65, 0.015) 75%, rgba(244, 42, 65, 0.015)),
+   361→    linear-gradient(60deg, rgba(244, 42, 65, 0.015) 25%, transparent 25.5%, transparent 75%, rgba(244, 42, 65, 0.015) 75%, rgba(244, 42, 65, 0.015));
+   362→  background-size: 40px 70px;
+   363→  background-position: 0 0, 0 0, 20px 35px, 20px 35px, 0 0, 20px 35px;
+   364→}
+   365→
+   366→/* --- gradient-shift keyframes for animated gradient backgrounds --- */
+   367→@keyframes gradient-shift {
+   368→  0% { background-position: 0% 50%; }
+   369→  50% { background-position: 100% 50%; }
+   370→  100% { background-position: 0% 50%; }
+   371→}
+   372→.game-animated-gradient {
+   373→  background: linear-gradient(135deg, #006a4e, #00895e, #00a86b, #006a4e);
+   374→  background-size: 300% 300%;
+   375→  animation: gradient-shift 6s ease infinite;
+   376→}
+   377→
+   378→/* --- game-tooltip: Custom tooltip with green theme --- */
+   379→.game-tooltip {
+   380→  position: relative;
+   381→}
+   382→.game-tooltip::before {
+   383→  content: attr(data-tooltip);
+   384→  position: absolute;
+   385→  bottom: calc(100% + 8px);
+   386→  left: 50%;
+   387→  transform: translateX(-50%) scale(0.9);
+   388→  padding: 6px 12px;
+   389→  background: #006a4e;
+   390→  color: white;
+   391→  font-size: 12px;
+   392→  font-weight: 500;
+   393→  border-radius: 6px;
+   394→  white-space: nowrap;
+   395→  opacity: 0;
+   396→  pointer-events: none;
+   397→  transition: all 0.2s ease;
+   398→  z-index: 100;
+   399→}
+   400→.game-tooltip::after {
+   401→  content: '';
+   402→  position: absolute;
+   403→  bottom: calc(100% + 2px);
+   404→  left: 50%;
+   405→  transform: translateX(-50%);
+   406→  border: 5px solid transparent;
+   407→  border-top-color: #006a4e;
+   408→  opacity: 0;
+   409→  pointer-events: none;
+   410→  transition: all 0.2s ease;
+   411→  z-index: 100;
+   412→}
+   413→.game-tooltip:hover::before {
+   414→  opacity: 1;
+   415→  transform: translateX(-50%) scale(1);
+   416→}
+   417→.game-tooltip:hover::after {
+   418→  opacity: 1;
+   419→}
+   420→
+   421→/* --- game-nav-bounce: Bounce animation for active nav indicator --- */
+   422→@keyframes nav-bounce {
+   423→  0%, 100% { transform: translateX(-50%) scaleX(1); }
+   424→  40% { transform: translateX(-50%) scaleX(1.2); }
+   425→  60% { transform: translateX(-50%) scaleX(0.95); }
+   426→}
+   427→.game-nav-bounce {
+   428→ animation: nav-bounce 0.5s ease-out;
+   429→}
+   430→
+   431→/* --- game-podium-gold: Golden glow for #1 leaderboard entry --- */
+   432→@keyframes gold-glow {
+   433→  0%, 100% { box-shadow: 0 0 8px -2px rgba(234, 179, 8, 0.3), 0 0 20px -4px rgba(234, 179, 8, 0.15); }
+   434→  50% { box-shadow: 0 0 16px -2px rgba(234, 179, 8, 0.5), 0 0 40px -4px rgba(234, 179, 8, 0.25); }
+   435→}
+   436→.game-podium-gold {
+   437→  animation: gold-glow 2.5s ease-in-out infinite;
+   438→  background: linear-gradient(135deg, #fefce8 0%, #fef9c3 50%, #fef08a 100%) !important;
+   439→  border-color: #eab308 !important;
+   440→}
+   441→
+   442→/* --- game-podium-silver --- */
+   443→.game-podium-silver {
+   444→  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%) !important;
+   445→  border-color: #94a3b8 !important;
+   446→}
+   447→
+   448→/* --- game-podium-bronze --- */
+   449→.game-podium-bronze {
+   450→  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fde68a 100%) !important;
+   451→  border-color: #d97706 !important;
+   452→}
+   453→
+   454→/* --- game-next-day-glow: Pulsing glow for the Next Day button --- */
+   455→@keyframes next-day-glow {
+   456→  0%, 100% { box-shadow: 0 0 8px 0 rgba(0, 106, 78, 0.3); }
+   457→  50% { box-shadow: 0 0 20px 4px rgba(0, 106, 78, 0.45); }
+   458→}
+   459→.game-next-day-glow {
+   460→  animation: next-day-glow 2.5s ease-in-out infinite;
+   461→}
+   462→.game-next-day-glow:hover {
+   463→  animation: none;
+   464→  box-shadow: 0 0 28px 8px rgba(0, 106, 78, 0.55), 0 0 60px -4px rgba(0, 106, 78, 0.35);
+   465→  transform: scale(1.03);
+   466→  transition: all 0.2s ease;
+   467→}
+   468→
+   469→/* --- game-amber-pulse: Pulsing amber glow for events section --- */
+   470→@keyframes amber-pulse-glow {
+   471→  0%, 100% { box-shadow: 0 0 8px -2px rgba(245, 158, 11, 0.2); }
+   472→  50% { box-shadow: 0 0 20px -2px rgba(245, 158, 11, 0.4); }
+   473→}
+   474→.game-amber-pulse {
+   475→  animation: amber-pulse-glow 3s ease-in-out infinite;
+   476→}
+   477→
+   478→/* --- game-news-fade: Time-based fade for older news --- */
+   479→.game-news-fade {
+   480→  transition: opacity 0.3s ease;
+   481→}
+   482→
+   483→/* --- game-sparkline-bar: CSS-only mini bar for sparklines --- */
+   484→.game-sparkline-bar {
+   485→  display: inline-block;
+   486→  width: 3px;
+   487→  border-radius: 1px;
+   488→  min-height: 4px;
+   489→  transition: height 0.3s ease;
+   490→}
+   491→
+   492→/* --- game-hero-banner: Gradient banner for business detail hero --- */
+   493→.game-hero-banner {
+   494→  position: relative;
+   495→  overflow: hidden;
+   496→}
+   497→.game-hero-banner::before {
+   498→  content: '';
+   499→  position: absolute;
+   500→  inset: 0;
+   501→  background: linear-gradient(135deg, rgba(0, 106, 78, 0.08) 0%, transparent 60%);
+   502→  pointer-events: none;
+   503→}
+   504→
+   505→/* --- game-price-edit: Visual feedback for editing prices --- */
+   506→@keyframes price-edit-glow {
+   507→  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 106, 78, 0.2); }
+   508→  50% { box-shadow: 0 0 0 4px rgba(0, 106, 78, 0.15); }
+   509→}
+   510→.game-price-edit {
+   511→  animation: price-edit-glow 1.5s ease-in-out infinite;
+   512→  border-color: #006a4e !important;
+   513→}
+   514→
+   515→/* --- game-start-btn-glow: Pulsing glow for the start button on welcome screen --- */
+   516→@keyframes start-btn-glow {
+   517→  0%, 100% { box-shadow: 0 0 12px 0 rgba(0, 106, 78, 0.3), 0 0 30px -4px rgba(0, 106, 78, 0.15); }
+   518→  50% { box-shadow: 0 0 20px 4px rgba(0, 106, 78, 0.45), 0 0 50px -4px rgba(0, 106, 78, 0.25); }
+   519→}
+   520→.game-start-btn-glow {
+   521→  animation: start-btn-glow 2s ease-in-out infinite;
+   522→}
+   523→.game-start-btn-glow:hover {
+   524→  animation: none;
+   525→  box-shadow: 0 0 28px 6px rgba(0, 106, 78, 0.55), 0 0 60px -4px rgba(0, 106, 78, 0.35);
+   526→}
+   527→
+   528→/* --- game-floating-particle: CSS-only floating dots for welcome screen --- */
+   529→@keyframes particle-float-1 {
+   530→  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+   531→  25% { transform: translate(30px, -40px) scale(1.1); opacity: 0.6; }
+   532→  50% { transform: translate(-20px, -80px) scale(0.9); opacity: 0.3; }
+   533→  75% { transform: translate(40px, -50px) scale(1.05); opacity: 0.5; }
+   534→}
+   535→@keyframes particle-float-2 {
+   536→  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.3; }
+   537→  25% { transform: translate(-40px, -30px) scale(0.95); opacity: 0.5; }
+   538→  50% { transform: translate(20px, -70px) scale(1.1); opacity: 0.35; }
+   539→  75% { transform: translate(-30px, -45px) scale(1); opacity: 0.45; }
+   540→}
+   541→@keyframes particle-float-3 {
+   542→  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.35; }
+   543→  25% { transform: translate(25px, -55px) scale(1.08); opacity: 0.55; }
+   544→  50% { transform: translate(-35px, -25px) scale(0.92); opacity: 0.3; }
+   545→  75% { transform: translate(15px, -65px) scale(1.03); opacity: 0.5; }
+   546→}
+   547→
+   548→/* --- game-border-bottom-animate: Animated gradient bottom border --- */
+   549→@keyframes border-bottom-shift {
+   550→  0% { background-position: 0% 0%; }
+   551→  100% { background-position: 200% 0%; }
+   552→}
+   553→.game-border-bottom-animate::after {
+   554→  content: '';
+   555→  position: absolute;
+   556→  bottom: 0;
+   557→  left: 0;
+   558→  right: 0;
+   559→  height: 2px;
+   560→  background: linear-gradient(90deg, transparent, #006a4e, #00a86b, #006a4e, transparent);
+   561→  background-size: 200% 100%;
+   562→  animation: border-bottom-shift 4s linear infinite;
+   563→}
+   564→
+   565→/* --- Inventory alternating rows (enhanced) --- */
+   566→.inventory-row:nth-child(even) {
+   567→  background: rgba(0, 106, 78, 0.03);
+   568→}
+   569→.inventory-row:nth-child(odd) {
+   570→  background: transparent;
+   571→}
+   572→.inventory-row {
+   573→  transition: background 0.15s ease;
+   574→}
+   575→.inventory-row:hover {
+   576→  background: rgba(0, 106, 78, 0.06) !important;
+   577→}
+   578→
+   579→/* ============================================ */
+   580→/* TASK 11 - NEW STYLING ANIMATION CLASSES       */
+   581→/* ============================================ */
+   582→
+   583→/* --- game-card-glow-subtle: Very subtle green glow on hover for cards --- */
+   584→.game-card-glow-subtle {
+   585→  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+   586→}
+   587→.game-card-glow-subtle:hover {
+   588→  box-shadow: 0 0 0 1px rgba(0, 106, 78, 0.08),
+   589→              0 4px 16px -2px rgba(0, 106, 78, 0.12),
+   590→              0 0 24px -4px rgba(0, 106, 78, 0.06);
+   591→  transform: translateY(-1px);
+   592→}
+   593→
+   594→/* --- game-badge-gradient: Gradient text for key labels --- */
+   595→.game-badge-gradient {
+   596→  background: linear-gradient(135deg, #004d38 0%, #006a4e 40%, #00a86b 100%);
+   597→  -webkit-background-clip: text;
+   598→  -webkit-text-fill-color: transparent;
+   599→  background-clip: text;
+   600→}
+   601→
+   602→/* --- game-divider-gradient: Gradient line dividers --- */
+   603→.game-divider-gradient {
+   604→  height: 1px;
+   605→  border: none;
+   606→  background: linear-gradient(90deg, transparent 0%, rgba(0, 106, 78, 0.2) 20%, rgba(0, 106, 78, 0.35) 50%, rgba(0, 106, 78, 0.2) 80%, transparent 100%);
+   607→}
+   608→
+   609→/* --- game-pulse-soft: Soft pulsing animation for active elements --- */
+   610→@keyframes soft-pulse {
+   611→  0%, 100% { opacity: 1; }
+   612→  50% { opacity: 0.7; }
+   613→}
+   614→.game-pulse-soft {
+   615→  animation: soft-pulse 2.5s ease-in-out infinite;
+   616→}
+   617→
+   618→/* --- game-slide-up-fade: Slide up + fade in animation --- */
+   619→@keyframes slide-up-fade {
+   620→  0% { opacity: 0; transform: translateY(12px); }
+   621→  100% { opacity: 1; transform: translateY(0); }
+   622→}
+   623→.game-slide-up-fade {
+   624→  animation: slide-up-fade 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+   625→}
+   626→
+   627→/* ============================================ */
+   628→/* TASK 8 - NEW STYLING ANIMATION CLASSES       */
+   629→/* ============================================ */
+   630→
+   631→/* --- game-shimmer-overlay: Moving shimmer/gradient overlay for cards on hover --- */
+   632→@keyframes shimmer-overlay-move {
+   633→  0% { background-position: -300% 0; }
+   634→  100% { background-position: 300% 0; }
+   635→}
+   636→.game-shimmer-overlay {
+   637→  position: relative;
+   638→  overflow: hidden;
+   639→}
+   640→.game-shimmer-overlay::before {
+   641→  content: '';
+   642→  position: absolute;
+   643→  inset: 0;
+   644→  background: linear-gradient(
+   645→    110deg,
+   646→    transparent 25%,
+   647→    rgba(0, 106, 78, 0.04) 35%,
+   648→    rgba(0, 106, 78, 0.09) 50%,
+   649→    rgba(0, 106, 78, 0.04) 65%,
+   650→    transparent 75%
+   651→  );
+   652→  background-size: 200% 100%;
+   653→  opacity: 0;
+   654→  transition: opacity 0.4s ease;
+   655→  pointer-events: none;
+   656→  z-index: 1;
+   657→  border-radius: inherit;
+   658→}
+   659→.game-shimmer-overlay:hover::before {
+   660→  opacity: 1;
+   661→  animation: shimmer-overlay-move 4s ease-in-out infinite;
+   662→}
+   663→
+   664→/* --- game-section-header: Section heading with gradient underline decoration --- */
+   665→.game-section-header {
+   666→  position: relative;
+   667→  display: inline-block;
+   668→  padding-bottom: 6px;
+   669→}
+   670→.game-section-header::after {
+   671→  content: '';
+   672→  position: absolute;
+   673→  bottom: 0;
+   674→  left: 0;
+   675→  width: 100%;
+   676→  height: 2px;
+   677→  background: linear-gradient(90deg, #006a4e, #00a86b, rgba(0, 168, 107, 0.2));
+   678→  border-radius: 1px;
+   679→}
+   680→
+   681→/* --- game-empty-state: Empty state with large faded icon and centered layout --- */
+   682→.game-empty-state {
+   683→  display: flex;
+   684→  flex-direction: column;
+   685→  align-items: center;
+   686→  justify-content: center;
+   687→  padding: 2.5rem 1.5rem;
+   688→  text-align: center;
+   689→}
+   690→.game-empty-state .game-empty-icon {
+   691→  font-size: 3rem;
+   692→  opacity: 0.35;
+   693→  margin-bottom: 0.75rem;
+   694→  filter: grayscale(0.3);
+   695→}
+   696→.game-empty-state .game-empty-title {
+   697→  font-weight: 600;
+   698→  font-size: 0.875rem;
+   699→  color: var(--foreground);
+   700→  margin-bottom: 0.25rem;
+   701→}
+   702→.game-empty-state .game-empty-desc {
+   703→  font-size: 0.75rem;
+   704→  color: var(--muted-foreground);
+   705→  max-width: 16rem;
+   706→  margin: 0 auto 1rem;
+   707→  line-height: 1.5;
+   708→}
+   709→.game-empty-state .game-empty-action {
+   710→  background: linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%);
+   711→  color: white;
+   712→  padding: 0.5rem 1.25rem;
+   713→  border-radius: 0.5rem;
+   714→  font-size: 0.75rem;
+   715→  font-weight: 600;
+   716→  border: none;
+   717→  cursor: pointer;
+   718→  transition: all 0.2s ease;
+   719→  box-shadow: 0 2px 8px rgba(0, 106, 78, 0.25);
+   720→}
+   721→.game-empty-state .game-empty-action:hover {
+   722→  box-shadow: 0 4px 16px rgba(0, 106, 78, 0.35);
+   723→  transform: translateY(-1px);
+   724→}
+   725→
+   726→/* --- game-tooltip-bubble: Small tooltip bubble for chart bars --- */
+   727→.game-tooltip-bubble {
+   728→  position: absolute;
+   729→  padding: 4px 10px;
+   730→  background: #006a4e;
+   731→  color: white;
+   732→  font-size: 11px;
+   733→  font-weight: 600;
+   734→  border-radius: 6px;
+   735→  white-space: nowrap;
+   736→  pointer-events: none;
+   737→  opacity: 0;
+   738→  transform: translateX(-50%) translateY(4px);
+   739→  transition: all 0.2s ease;
+   740→  z-index: 50;
+   741→}
+   742→.game-tooltip-bubble::after {
+   743→  content: '';
+   744→  position: absolute;
+   745→  top: 100%;
+   746→  left: 50%;
+   747→  transform: translateX(-50%);
+   748→  border: 4px solid transparent;
+   749→  border-top-color: #006a4e;
+   750→}
+   751→
+   752→/* --- game-stagger-1 through game-stagger-4: Animation delay utilities --- */
+   753→.game-stagger-1 { animation-delay: 0.05s; }
+   754→.game-stagger-2 { animation-delay: 0.1s; }
+   755→.game-stagger-3 { animation-delay: 0.15s; }
+   756→.game-stagger-4 { animation-delay: 0.2s; }
+   757→
+   758→/* --- game-gradient-border: Animated gradient border effect --- */
+   759→@keyframes gradient-border-spin {
+   760→  0% { --angle: 0deg; }
+   761→  100% { --angle: 360deg; }
+   762→}
+   763→@property --angle {
+   764→  syntax: '<angle>';
+   765→  initial-value: 0deg;
+   766→  inherits: false;
+   767→}
+   768→.game-gradient-border {
+   769→  position: relative;
+   770→  border: none;
+   771→}
+   772→.game-gradient-border::before {
+   773→  content: '';
+   774→  position: absolute;
+   775→  inset: -2px;
+   776→  border-radius: inherit;
+   777→  background: conic-gradient(from var(--angle), #006a4e, #00a86b, #f42a41, #f42a41, #006a4e);
+   778→  animation: gradient-border-spin 4s linear infinite;
+   779→  z-index: -1;
+   780→}
+   781→.game-gradient-border::after {
+   782→  content: '';
+   783→  position: absolute;
+   784→  inset: 0;
+   785→  border-radius: inherit;
+   786→  background: white;
+   787→  z-index: -1;
+   788→}
+   789→
+   790→/* --- game-fade-up: Smooth fade-up animation (opacity 0→1, translateY 10px→0) --- */
+   791→@keyframes fade-up {
+   792→  0% { opacity: 0; transform: translateY(10px); }
+   793→  100% { opacity: 1; transform: translateY(0); }
+   794→}
+   795→.game-fade-up {
+   796→  animation: fade-up 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+   797→}
+   798→
+   799→/* --- bell-swing: Gentle swing animation for notification bell --- */
+   800→@keyframes bell-swing {
+   801→  0%, 100% { transform: rotate(0deg); }
+   802→  15% { transform: rotate(8deg); }
+   803→  30% { transform: rotate(-6deg); }
+   804→  45% { transform: rotate(4deg); }
+   805→  60% { transform: rotate(-2deg); }
+   806→  75% { transform: rotate(0deg); }
+   807→}
+   808→.game-bell-swing {
+   809→  animation: bell-swing 2s ease-in-out infinite;
+   810→  transform-origin: top center;
+   811→}
+   812→
+   813→/* --- game-pulse-red: Pulsing red glow for danger/reset buttons --- */
+   814→@keyframes pulse-red-glow {
+   815→  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 42, 65, 0.3); }
+   816→  50% { box-shadow: 0 0 12px 2px rgba(244, 42, 65, 0.15); }
+   817→}
+   818→.game-pulse-red {
+   819→  animation: pulse-red-glow 2.5s ease-in-out infinite;
+   820→}
+   821→
+   822→/* --- game-input-focus-green: Green focus ring animation for input fields --- */
+   823→.game-input-focus-green:focus {
+   824→  border-color: #006a4e;
+   825→  box-shadow: 0 0 0 3px rgba(0, 106, 78, 0.12), 0 0 0 1px #006a4e;
+   826→  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+   827→}
+   828→
+   829→/* --- game-btn-shimmer: Subtle shimmer on enabled start button --- */
+   830→.game-btn-shimmer {
+   831→  position: relative;
+   832→  overflow: hidden;
+   833→}
+   834→.game-btn-shimmer::before {
+   835→  content: '';
+   836→  position: absolute;
+   837→  top: 0;
+   838→  left: -100%;
+   839→  width: 80%;
+   840→  height: 100%;
+   841→  background: linear-gradient(
+   842→    120deg,
+   843→    transparent 0%,
+   844→    rgba(255, 255, 255, 0.08) 30%,
+   845→    rgba(255, 255, 255, 0.18) 50%,
+   846→    rgba(255, 255, 255, 0.08) 70%,
+   847→    transparent 100%
+   848→  );
+   849→  pointer-events: none;
+   850→  z-index: 1;
+   851→}
+   852→.game-btn-shimmer:not(:disabled)::before {
+   853→  animation: shine-sweep 3s ease-in-out infinite;
+   854→}
+   855→.game-btn-shimmer:disabled::before {
+   856→  display: none;
+   857→}
+   858→
+   859→/* --- game-mobile-nav-tooltip: Hover tooltip for mobile nav items --- */
+   860→.game-mobile-nav-tooltip {
+   861→  position: relative;
+   862→}
+   863→.game-mobile-nav-tooltip::before {
+   864→  content: attr(data-label);
+   865→  position: absolute;
+   866→  bottom: calc(100% + 6px);
+   867→  left: 50%;
+   868→  transform: translateX(-50%) translateY(4px);
+   869→  padding: 3px 8px;
+   870→  background: rgba(0, 106, 78, 0.9);
+   871→  color: white;
+   872→  font-size: 10px;
+   873→  font-weight: 600;
+   874→  border-radius: 4px;
+   875→  white-space: nowrap;
+   876→  opacity: 0;
+   877→  pointer-events: none;
+   878→  transition: all 0.2s ease;
+   879→  z-index: 100;
+   880→}
+   881→.game-mobile-nav-tooltip:hover::before {
+   882→  opacity: 1;
+   883→  transform: translateX(-50%) translateY(0);
+   884→}
+   885→
+   886→/* --- game-activity-item: Left color bar + transition for activity feed items --- */
+   887→.game-activity-item {
+   888→  position: relative;
+   889→  padding-left: 12px;
+   890→  transition: background-color 0.2s ease, transform 0.15s ease;
+   891→}
+   892→.game-activity-item::before {
+   893→  content: '';
+   894→  position: absolute;
+   895→  left: 0;
+   896→  top: 6px;
+   897→  bottom: 6px;
+   898→  width: 3px;
+   899→  border-radius: 2px;
+   900→  background: linear-gradient(180deg, #006a4e, #00a86b);
+   901→  opacity: 0.6;
+   902→  transition: opacity 0.2s ease;
+   903→}
+   904→.game-activity-item:hover {
+   905→  background-color: rgba(0, 106, 78, 0.04);
+   906→}
+   907→.game-activity-item:hover::before {
+   908→  opacity: 1;
+   909→}
+   910→
+   911→/* --- game-sidebar-gradient-bar: Gradient indicator bar at top of sidebar --- */
+   912→.game-sidebar-gradient-bar {
+   913→  position: relative;
+   914→}
+   915→.game-sidebar-gradient-bar::before {
+   916→  content: '';
+   917→  position: absolute;
+   918→  top: 0;
+   919→  left: 0;
+   920→  right: 0;
+   921→  height: 3px;
+   922→  background: linear-gradient(90deg, #006a4e, #00a86b, #f42a41);
+   923→  border-radius: 0 0 2px 2px;
+   924→}
+   925→

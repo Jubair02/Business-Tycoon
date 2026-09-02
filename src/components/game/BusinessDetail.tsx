@@ -15,7 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3, Lightbulb, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const BUSINESS_COLORS: Record<string, string> = {
@@ -49,6 +49,9 @@ export default function BusinessDetail() {
   const [showSellBusinessDialog, setShowSellBusinessDialog] = useState(false);
   const [sellingBusiness, setSellingBusiness] = useState(false);
   const [sellBusinessConfirm, setSellBusinessConfirm] = useState('');
+  const [pricingAdvice, setPricingAdvice] = useState<any>(null);
+  const [loadingPricing, setLoadingPricing] = useState(false);
+  const [showPricingPanel, setShowPricingPanel] = useState(false);
 
   const fetchBusiness = useCallback(async () => {
     if (!currentBusiness?.id) return;
@@ -89,6 +92,44 @@ export default function BusinessDetail() {
       setLogsLoading(false);
     }
   }, [currentBusiness?.id]);
+
+  const handleFetchPricingAdvice = async () => {
+    if (!currentBusiness?.id) return;
+    setLoadingPricing(true);
+    try {
+      const res = await fetch(`/api/businesses/${currentBusiness.id}/pricing-advice`);
+      if (res.ok) {
+        const data = await res.json();
+        setPricingAdvice(data);
+        setShowPricingPanel(true);
+      } else {
+        toast.error('Failed to get pricing advice');
+      }
+    } catch { toast.error('Network error'); }
+    finally { setLoadingPricing(false); }
+  };
+
+  const handleApplyPricing = async (productName: string, price: number) => {
+    const inv = inventories.find((i: any) => i.productName === productName);
+    if (!inv) {
+      toast.error('No inventory for this product. Buy stock first.');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/${inv.id}/price`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sellPrice: price }),
+      });
+      if (res.ok) {
+        toast.success(`${productName}: price set to ${formatTaka(price)}`);
+        fetchBusiness();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || 'Failed to set price');
+      }
+    } catch { toast.error('Network error'); }
+  };
 
   useEffect(() => {
     if (currentBusiness?.id) {
@@ -460,12 +501,17 @@ export default function BusinessDetail() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">Inventory ({inventories.length})</h3>
-                <Dialog open={showBuyDialog} onOpenChange={setShowBuyDialog}>
-                  <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => { if (marketProducts.length === 0) { fetchMarketProducts(); } }} asChild>
-                    <DialogTrigger asChild>
-                      <button><ShoppingCart className="h-3.5 w-3.5" /> Buy Stock</button>
-                    </DialogTrigger>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={handleFetchPricingAdvice} disabled={loadingPricing}>
+                    <Lightbulb className="h-3.5 w-3.5" /> {loadingPricing ? '...' : 'Pricing'}
                   </Button>
+                  <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => { if (marketProducts.length === 0) { fetchMarketProducts(); } setShowBuyDialog(true); }}>
+                    <ShoppingCart className="h-3.5 w-3.5" /> Buy Stock
+                  </Button>
+                </div>
+              </div>
+
+              <Dialog open={showBuyDialog} onOpenChange={setShowBuyDialog}>
                   <DialogContent className="max-w-md">
                     <DialogHeader>
                       <DialogTitle>Buy Inventory</DialogTitle>
@@ -518,9 +564,8 @@ export default function BusinessDetail() {
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
-              </div>
 
-              <Dialog open={showSellDialog} onOpenChange={(open) => { if (!open) { setSellInventory(null); setSellQuantity(1); } setShowSellDialog(open); }}>
+                <Dialog open={showSellDialog} onOpenChange={(open) => { if (!open) { setSellInventory(null); setSellQuantity(1); } setShowSellDialog(open); }}>
                 <DialogContent className="max-w-md">
                   <DialogHeader>
                     <DialogTitle>Sell Inventory</DialogTitle>
@@ -625,6 +670,67 @@ export default function BusinessDetail() {
                     );
                   })}
                 </div>
+              )}
+
+              {/* Pricing Advice Panel */}
+              {showPricingPanel && pricingAdvice && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <Card className="border-green-200/60 bg-gradient-to-br from-green-50/40 to-white">
+                    <CardHeader className="pb-2 pt-3 px-4">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                          <Lightbulb className="h-4 w-4 text-amber-500" /> Pricing Assistant
+                        </CardTitle>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowPricingPanel(false)}><X className="h-3 w-3" /></Button>
+                      </div>
+                      <CardDescription className="text-xs">AI-powered pricing recommendations based on market demand, reputation & staff</CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4">
+                      <div className="space-y-2">
+                        {pricingAdvice.advice.map((item: any, i: number) => (
+                          <div key={item.productName} className="flex items-start gap-2.5 p-2.5 rounded-lg border border-green-100/50 bg-white/60">
+                            <span className="text-lg mt-0.5 shrink-0">{item.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold truncate">{item.productName}</span>
+                                <Badge variant="outline" className={`text-[9px] ${item.demandLevel === 'High' ? 'border-green-300 text-green-700' : item.demandLevel === 'Low' ? 'border-red-300 text-red-600' : 'border-amber-200 text-amber-700'}`}>
+                                  {item.demandLevel}
+                                </Badge>
+                                {item.weeklyTrend === 'up' && <TrendingUp className="h-3 w-3 text-green-600" />}
+                                {item.weeklyTrend === 'down' && <TrendingDown className="h-3 w-3 text-red-500" />}
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-[10px]">
+                                <span className="text-muted-foreground">Buy: <span className="text-foreground font-medium">৳{item.purchasePrice.toLocaleString()}</span></span>
+                                <span className="text-muted-foreground">Suggest: <span className="font-bold" style={{ color: '#006a4e' }}>৳{item.suggestedPrice.toLocaleString()}</span></span>
+                                <span className="text-muted-foreground">Markup: <span className="font-medium">{item.suggestedMarkup}%</span></span>
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-0.5 italic">💡 {item.reason}</div>
+                              {item.currentSellPrice && (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[10px] text-muted-foreground">Current: ৳{item.currentSellPrice.toLocaleString()}</span>
+                                  {item.currentSellPrice > item.maxPrice && <span className="text-[9px] text-red-600 font-medium">⚠️ Overpriced!</span>}
+                                  {item.currentSellPrice < item.minPrice && <span className="text-[9px] text-red-600 font-medium">⚠️ Below cost!</span>}
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-[10px] gap-1 shrink-0 border-green-300 text-green-700 hover:bg-green-50"
+                              onClick={() => handleApplyPricing(item.productName, item.suggestedPrice)}
+                            >
+                              <Sparkles className="h-3 w-3" /> Apply
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
               )}
             </div>
           </TabsContent>

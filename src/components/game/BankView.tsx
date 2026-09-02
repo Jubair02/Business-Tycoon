@@ -18,7 +18,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Landmark, Plus, Wallet, CreditCard, Clock, CheckCircle2, XCircle, AlertTriangle, ArrowDownToLine, ShieldCheck, Percent } from 'lucide-react';
+import { Landmark, Plus, Wallet, CreditCard, Clock, CheckCircle2, XCircle, AlertTriangle, ArrowDownToLine, ShieldCheck, Percent, TrendingUp, Award, Banknote } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -97,6 +97,22 @@ export default function BankView() {
   const totalDebt = activeLoans.reduce((sum, l) => sum + l.remainingDebt, 0);
   const totalDailyPayment = activeLoans.reduce((sum, l) => sum + l.dailyPayment, 0);
   const maxLoan = player ? player.level * 200000 : 200000;
+
+  // Additional computed values for enhanced summary
+  const totalPaidActive = activeLoans.reduce((sum, l) => {
+    const original = l.amount + l.totalInterest;
+    return sum + (original - l.remainingDebt);
+  }, 0);
+  const totalPaidHistory = historyLoans.filter(l => l.status === 'PAID_OFF').reduce((sum, l) => sum + l.amount + l.totalInterest, 0);
+  const totalPaid = totalPaidActive + totalPaidHistory;
+  const availableCredit = Math.max(0, maxLoan - totalDebt);
+
+  // Credit score: base 70, +10 per paid-off loan, -15 per default
+  const creditScore = Math.min(100, Math.max(0,
+    70 + (historyLoans.filter(l => l.status === 'PAID_OFF').length * 10) - (historyLoans.filter(l => l.status === 'DEFAULTED').length * 15)
+  ));
+  const creditScoreColor = creditScore >= 80 ? '#006a4e' : creditScore >= 50 ? '#d97706' : '#f42a41';
+  const creditScoreLabel = creditScore >= 80 ? 'Excellent' : creditScore >= 50 ? 'Fair' : 'Poor';
 
   // Calculated loan preview
   const previewInterest = loanAmount * INTEREST_RATE;
@@ -183,10 +199,10 @@ export default function BankView() {
         )}
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Header - Stat Cards Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-          <Card className="game-card-glow-subtle rounded-xl">
+          <Card className="game-stat-card rounded-xl">
             <CardContent className="p-3.5">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center">
@@ -201,7 +217,7 @@ export default function BankView() {
           </Card>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="game-card-glow-subtle rounded-xl">
+          <Card className="game-stat-card rounded-xl" style={{ '--stat-color': '#f42a41' } as React.CSSProperties}>
             <CardContent className="p-3.5">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center">
@@ -216,33 +232,80 @@ export default function BankView() {
           </Card>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="game-card-glow-subtle rounded-xl">
+          <Card className="game-stat-card rounded-xl">
             <CardContent className="p-3.5">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
-                  <Clock className="h-3 w-3 text-amber-600" />
+                  <TrendingUp className="h-3 w-3 text-amber-600" />
                 </div>
-                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Daily Payment</span>
+                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Paid</span>
               </div>
-              <p className="text-sm font-bold text-orange-600">
-                {formatTaka(totalDailyPayment)}
+              <p className="text-sm font-bold text-amber-700">
+                {formatTaka(totalPaid)}
               </p>
             </CardContent>
           </Card>
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <Card className="game-card-glow-subtle rounded-xl">
+          <Card className="game-stat-card rounded-xl">
             <CardContent className="p-3.5">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center">
-                  <Landmark className="h-3 w-3" style={{ color: '#006a4e' }} />
+                  <Banknote className="h-3 w-3" style={{ color: '#006a4e' }} />
                 </div>
-                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Active Loans</span>
+                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Available Credit</span>
               </div>
-              <p className="text-sm font-bold">
-                <span style={{ color: '#006a4e' }}>{activeLoans.length}</span>
-                <span className="text-muted-foreground font-normal">/{MAX_ACTIVE_LOANS}</span>
+              <p className="text-sm font-bold" style={{ color: '#006a4e' }}>
+                {formatTaka(availableCredit)}
               </p>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* Credit Score + Daily Payment Row */}
+      <div className="grid grid-cols-2 gap-3">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <Card className="game-card-glow-subtle rounded-xl">
+            <CardContent className="p-3.5 flex items-center gap-3">
+              {/* Credit score circular indicator */}
+              <div className="relative w-12 h-12 shrink-0">
+                <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48">
+                  <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/40" />
+                  <circle
+                    cx="24" cy="24" r="20" fill="none"
+                    stroke={creditScoreColor}
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeDasharray={`${(creditScore / 100) * 125.6} 125.6`}
+                    style={{ transition: 'stroke-dasharray 0.8s ease' }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-[10px] font-bold" style={{ color: creditScoreColor }}>{creditScore}</span>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Credit Score</p>
+                <p className="text-sm font-bold flex items-center gap-1" style={{ color: creditScoreColor }}>
+                  <Award className="h-3.5 w-3.5" />
+                  {creditScoreLabel}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <Card className="game-card-glow-subtle rounded-xl">
+            <CardContent className="p-3.5 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.08), rgba(0,168,107,0.14))' }}>
+                <Clock className="h-5 w-5" style={{ color: '#006a4e' }} />
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Daily Payment</p>
+                <p className="text-sm font-bold text-orange-600">{formatTaka(totalDailyPayment)}</p>
+                <p className="text-[10px] text-muted-foreground"><span style={{ color: '#006a4e' }}>{activeLoans.length}</span>/{MAX_ACTIVE_LOANS} loans</p>
+              </div>
             </CardContent>
           </Card>
         </motion.div>
@@ -250,7 +313,7 @@ export default function BankView() {
 
       {/* Active Loans */}
       <div>
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2.5">
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2.5 game-section-header">
           <div className="w-1.5 h-5 rounded-full" style={{ background: 'linear-gradient(180deg, #006a4e, #00a86b)' }} />
           <span>Active Loans</span>
           {activeLoans.length > 0 && (
@@ -270,13 +333,13 @@ export default function BankView() {
           </div>
         ) : activeLoans.length === 0 ? (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-            <Card className="border-dashed rounded-xl">
-              <CardContent className="py-10 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-3">
+            <Card className="rounded-xl">
+              <CardContent className="game-empty-state">
+                <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-2">
                   <Landmark className="h-7 w-7" style={{ color: '#006a4e', opacity: 0.6 }} />
                 </div>
-                <p className="text-sm font-medium text-foreground mb-1">No active loans</p>
-                <p className="text-xs text-muted-foreground font-medium max-w-[200px] mx-auto">Take a loan to expand your business empire!</p>
+                <p className="game-empty-title">No Active Loans</p>
+                <p className="game-empty-desc">Take a loan to expand your business empire with extra capital!</p>
               </CardContent>
             </Card>
           </motion.div>
@@ -294,7 +357,7 @@ export default function BankView() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.06 }}
                 >
-                  <Card className="rounded-xl overflow-hidden game-card-glow-subtle">
+                  <Card className="rounded-xl overflow-hidden game-card-glow-subtle transition-all duration-300 hover:border-green-300">
                     <div
                       className="h-1"
                       style={{
@@ -314,21 +377,33 @@ export default function BankView() {
                             </p>
                           </div>
                         </div>
-                        <Badge className="text-[10px] font-semibold text-white rounded-full px-2.5 py-0.5" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-300 mr-1.5 inline-block game-pulse-soft" />
-                          Active
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1.5">
+                          <Badge className="text-[10px] font-semibold text-white rounded-full px-2.5 py-0.5" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-300 mr-1.5 inline-block game-pulse-soft" />
+                            Active
+                          </Badge>
+                          {/* Interest rate badge */}
+                          <Badge className="text-[9px] font-semibold rounded-full px-2 py-0 bg-amber-50 text-amber-700 border border-amber-200" variant="outline">
+                            <Percent className="h-2.5 w-2.5 mr-0.5" />
+                            {(loan.interestRate * 100).toFixed(0)}% APR
+                          </Badge>
+                        </div>
                       </div>
 
-                      {/* Progress */}
-                      <div className="bg-muted/40 rounded-lg p-3">
+                      {/* Enhanced Progress Bar */}
+                      <div className="rounded-lg p-3" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.03), rgba(0,168,107,0.05))' }}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[11px] text-muted-foreground font-medium">Repayment Progress</span>
-                          <span className="text-xs font-bold" style={{ color: '#006a4e' }}>
+                          <span className="text-xs font-bold game-number-tick" style={{ color: '#006a4e' }}>
                             {Math.round(progressPercent)}%
                           </span>
                         </div>
-                        <Progress value={progressPercent} className="h-2 rounded-full" />
+                        <div className="relative">
+                          <Progress value={progressPercent} className="h-3 rounded-full" />
+                          <div className="absolute inset-0 h-3 rounded-full overflow-hidden pointer-events-none">
+                            <div className="h-full rounded-full" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, #006a4e, #00a86b)', opacity: 0.3, transition: 'width 0.6s ease' }} />
+                          </div>
+                        </div>
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-[10px] text-muted-foreground font-medium">
                             Remaining: <span className="text-foreground font-semibold">{formatTaka(loan.remainingDebt)}</span>
@@ -379,9 +454,9 @@ export default function BankView() {
       {/* Loan History */}
       {historyLoans.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2.5">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2.5 game-section-header">
             <div className="w-1.5 h-5 rounded-full bg-gray-300" />
-            History
+            Loan History
           </h3>
           <div className="space-y-2 max-h-64 overflow-y-auto game-scrollbar">
             {historyLoans.map((loan, i) => (
@@ -391,7 +466,7 @@ export default function BankView() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}
               >
-                <Card className="rounded-xl opacity-75 hover:opacity-100 transition-opacity">
+                <Card className="rounded-xl opacity-75 hover:opacity-100 transition-all duration-200 hover:shadow-sm hover:border-green-200">
                   <CardContent className="p-3.5 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div
@@ -413,15 +488,23 @@ export default function BankView() {
                         </p>
                       </div>
                     </div>
-                    <Badge
-                      variant="secondary"
-                      className={cn(
-                        'text-[10px] font-semibold rounded-full px-2.5',
-                        loan.status === 'PAID_OFF' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                      )}
-                    >
-                      {loan.status === 'PAID_OFF' ? 'Paid Off' : 'Defaulted'}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] font-medium rounded-full px-1.5 py-0 bg-muted/50 text-muted-foreground border-transparent"
+                      >
+                        {(loan.interestRate * 100).toFixed(0)}%
+                      </Badge>
+                      <Badge
+                        variant="secondary"
+                        className={cn(
+                          'text-[10px] font-semibold rounded-full px-2.5',
+                          loan.status === 'PAID_OFF' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                        )}
+                      >
+                        {loan.status === 'PAID_OFF' ? 'Paid Off' : 'Defaulted'}
+                      </Badge>
+                    </div>
                   </CardContent>
                 </Card>
               </motion.div>
