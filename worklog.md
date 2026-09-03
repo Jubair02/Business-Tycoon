@@ -686,3 +686,80 @@ Stage Summary:
 7. **P3**: Performance optimization - batch all business ticks into single transaction
 8. **P3**: Export game statistics (CSV/PDF report of business performance)
 9. **P3**: Add mini-map of Bangladesh showing player's business locations
+
+---
+Task ID: 17
+Agent: Main (Verification & Bug Fix Round)
+Task: Review all previously assigned tasks, identify incompletions, and fix remaining bugs
+
+Work Log:
+- **Comprehensive QA Testing**: Full browser testing via agent-browser
+  - Welcome screen → registration (TestPlayer) → dashboard → business creation (Tea Stall in Rajshahi named "RajTea") → business detail (all 5 tabs) → settings (auto-tick, sound, reset) → businesses list → market → bank → leaderboard → news → achievements
+  - All 11 views tested and confirmed functional
+  - All interactive elements verified (nav, tabs, buttons, dialogs, forms)
+
+- **Verified Working Features (from Tasks 14-16)**:
+  - ✅ Settings Panel: game stats, auto-play speed (Off/Slow/Normal/Fast), sound toggle, about section, reset game
+  - ✅ Auto-Tick System: localStorage sync, timer intervals, Daily Summary popup
+  - ✅ Sell Business: price breakdown dialog (Business Value + Inventory Liquidation), name confirmation, API call
+  - ✅ Pricing Assistant: inline panel with demand levels, trend arrows, one-click Apply buttons
+  - ✅ Real Performance History Chart: bar chart with green (profit) / red (loss) gradient bars
+  - ✅ Buy Stock dialog, inventory management, business creation flow
+  - ✅ Daily Summary popup after Next Day tick (Revenue/Expenses/Profit, Events, Market Highlights)
+  - ✅ Leaderboard with filter tabs (Net Worth/Profit/Businesses/Reputation)
+  - ✅ Bank with loans, news feed, achievements with category filters
+  - ✅ All styling enhancements (game-stat-card, shimmer, stagger animations, gradient borders, etc.)
+
+- **Bug Found & Fixed #1 - Performance Chart Missing LOSS Data**:
+  - Root cause: BusinessDetail Overview tab chart filtered `l.type === 'PROFIT'` only, but game engine creates `'LOSS'` type logs when profit is negative (line 319 of game-engine.ts)
+  - Impact: Chart showed "No profit data yet" for any business that was losing money (which is common for new businesses)
+  - Fix: Changed filter to `l.type === 'PROFIT' || l.type === 'LOSS'` in BusinessDetail.tsx line 444
+  - Verified: 2 red bars now render correctly for LOSS entries
+
+- **Bug Found & Fixed #2 - Double-Negative in Log Tab Amounts**:
+  - Root cause: Log tab used `formatTakaShort(log.amount)` where LOSS amounts are already negative (-4987.65), and the code prepended `'-'`, resulting in `--5.0K`
+  - Impact: LOSS entries showed `--5.0K` instead of `-5.0K`
+  - Fix: Changed to `formatTakaShort(Math.abs(log.amount || 0))` in BusinessDetail.tsx line 866
+  - Verified: Log tab now shows `-৳5.0K` correctly
+
+- **Other Findings (No Action Required)**:
+  - 401 responses on initial page load are expected (no cookie before registration)
+  - agent-browser spinbutton fill is unreliable (documented limitation, not an app bug)
+  - VLM has difficulty seeing small chart bars against white backgrounds (cosmetic, not functional)
+  - LOAN_PAID/LOAN_PAYMENT log types display with red styling in Log tab (minor, not breaking)
+  - ESLint: 0 errors after fixes
+
+Stage Summary:
+- 2 bugs found and fixed (chart LOSS filter, double-negative amounts)
+- All 11 views verified working
+- All previously assigned features (Tasks 14-16) confirmed complete and functional
+- No incomplete tasks from previous rounds
+- ESLint: 0 errors
+
+## Current Project Status
+- **Phase**: Post-MVP Enhancement - v2.2 (patched)
+- **Components**: 19 game components
+- **API Routes**: 26 endpoints
+- **Database Models**: 11
+- **Game Views**: 11
+- **Bugs Fixed This Round**: 2 (chart LOSS filter, log double-negative)
+- **Lint**: 0 errors
+
+## Unresolved Issues / Risks
+1. Daily Summary market fetch may show too many items for some cities.
+2. Notification center badge count is client-side only (resets on page reload).
+3. Auto-tick timer uses setInterval which may drift over long sessions.
+4. Sell business price estimation in UI uses same formula as API (could diverge).
+5. Pricing assistant has no server-side caching.
+6. LOAN_PAID/LOAN_PAYMENT log entries get red "loss" styling in Log tab (minor).
+
+## Priority Recommendations for Next Phase
+1. **P1**: Add sound effects for key actions (buy, sell, next day, achievement)
+2. **P1**: Add business branches (multiple locations per business type)
+3. **P1**: Add employee performance reviews and skill leveling
+4. **P2**: Add seasonal events tied to real Bangladesh calendar
+5. **P2**: Add player trading/auction system
+6. **P2**: Add multiplayer/competitive features
+7. **P3**: Performance optimization - batch business ticks
+8. **P3**: Export game statistics (CSV/PDF)
+9. **P3**: Add mini-map of Bangladesh

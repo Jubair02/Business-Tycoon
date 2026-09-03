@@ -441,7 +441,7 @@ export default function BusinessDetail() {
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 {logs.length > 0 ? (() => {
-                  const profitLogs = logs.filter((l: any) => l.type === 'PROFIT').slice(-14);
+                  const profitLogs = logs.filter((l: any) => l.type === 'PROFIT' || l.type === 'LOSS').slice(-14);
                   if (profitLogs.length === 0) return (
                     <div className="h-24 flex items-center justify-center">
                       <div className="text-center">
@@ -863,7 +863,7 @@ export default function BusinessDetail() {
                                 <div className="text-sm">{log.message}</div>
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className={`text-xs font-bold ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
-                                    {isProfit ? '+' : '-'}{formatTakaShort(log.amount || 0)}
+                                    {isProfit ? '+' : '-'}{formatTakaShort(Math.abs(log.amount || 0))}
                                   </span>
                                   {log.createdAt && (
                                     <span className="text-[10px] text-muted-foreground">
