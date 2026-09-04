@@ -350,7 +350,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col bg-background">
       {showTopBar && <TopBar onNextDay={handleNextDay} isTicking={isTicking} />}
 
-      <main className={`flex-1 ${showNav ? 'md:pl-52' : ''}`}>
+      <main className={`flex-1 ${showNav ? 'pb-16 md:pb-0 md:pl-52' : ''}`}>
         {view === 'dashboard' && <div className="mt-2"><HintBar /></div>}
         <AnimatePresence mode="wait">
           <motion.div

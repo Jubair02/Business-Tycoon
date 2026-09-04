@@ -910,7 +910,9 @@
 
 /* --- game-sidebar-gradient-bar: Gradient indicator bar at top of sidebar --- */
 .game-sidebar-gradient-bar {
-  position: relative;
+  /* position: relative removed — Tailwind 'fixed' must not be overridden;
+     the ::before pseudo-element uses 'position: absolute' which works
+     because 'fixed' elements establish a containing block for absolute children. */
 }
 .game-sidebar-gradient-bar::before {
   content: '';

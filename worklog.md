@@ -804,3 +804,22 @@ Work Log:
 2. Hiring has no upfront cost (may be intentional)
 3. sellPrice not recalculated on inventory merge (intentional)
 4. selectBusiness implicitly changes view (design choice)
+
+---
+Task ID: navbar-fix
+Agent: Main
+Task: Fix navbar issues (sidebar position, separator height, mobile overflow)
+
+Work Log:
+- Investigated navbar using agent-browser - found 3 issues
+- CRITICAL FIX #1: Removed `position: relative` from `.game-sidebar-gradient-bar` CSS class in globals.css that was overriding Tailwind's `fixed` class on the sidebar, causing the sidebar to render at the bottom of the page instead of fixed on the left
+- CRITICAL FIX #2: Fixed Separator component in separator.tsx - removed unconditional `data-[orientation=vertical]:h-full` that was overriding explicit `h-8` height classes, making vertical separators 0px tall in the TopBar. Now only applies h-full when no explicit height is passed
+- MODERATE FIX #3: Fixed mobile bottom nav overflow - added `overflow-x-auto` with hidden scrollbar, reduced item min-width from 56px to 44px, added `flex-shrink-0`, and used shorter mobile labels (Home, Biz, Awards, More) instead of full labels (Dashboard, Businesses, Achievements, Settings)
+- Added `pb-16 md:pb-0` to main content area in page.tsx so mobile content doesn't hide behind the fixed bottom nav
+- Verified all fixes with agent-browser on both desktop (1440x900) and mobile (375x812) viewports
+
+Stage Summary:
+- Desktop sidebar is now properly position:fixed on the left side
+- Vertical separators between Cash/Net Worth/Day in the top bar are visible (1px wide x 32px tall)
+- Mobile bottom nav shows all 8 items with no overflow, even on 375px width
+- Content properly padded to not overlap with fixed bottom nav on mobile

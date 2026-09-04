@@ -7,18 +7,19 @@ import { cn } from '@/lib/utils';
 type NavItem = {
   view: 'dashboard' | 'businesses' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
   label: string;
+  mobileLabel: string;
   icon: React.ReactNode;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { view: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
-  { view: 'businesses', label: 'Businesses', icon: <Store className="h-5 w-5" /> },
-  { view: 'market', label: 'Market', icon: <TrendingUp className="h-5 w-5" /> },
-  { view: 'bank', label: 'Bank', icon: <Landmark className="h-5 w-5" /> },
-  { view: 'leaderboard', label: 'Ranks', icon: <Trophy className="h-5 w-5" /> },
-  { view: 'news', label: 'News', icon: <Newspaper className="h-5 w-5" /> },
-  { view: 'achievements', label: 'Achievements', icon: <Medal className="h-5 w-5" /> },
-  { view: 'settings', label: 'Settings', icon: <Settings className="h-5 w-5" /> },
+  { view: 'dashboard', label: 'Dashboard', mobileLabel: 'Home', icon: <LayoutDashboard className="h-5 w-5" /> },
+  { view: 'businesses', label: 'Businesses', mobileLabel: 'Biz', icon: <Store className="h-5 w-5" /> },
+  { view: 'market', label: 'Market', mobileLabel: 'Market', icon: <TrendingUp className="h-5 w-5" /> },
+  { view: 'bank', label: 'Bank', mobileLabel: 'Bank', icon: <Landmark className="h-5 w-5" /> },
+  { view: 'leaderboard', label: 'Ranks', mobileLabel: 'Ranks', icon: <Trophy className="h-5 w-5" /> },
+  { view: 'news', label: 'News', mobileLabel: 'News', icon: <Newspaper className="h-5 w-5" /> },
+  { view: 'achievements', label: 'Achievements', mobileLabel: 'Awards', icon: <Medal className="h-5 w-5" /> },
+  { view: 'settings', label: 'Settings', mobileLabel: 'More', icon: <Settings className="h-5 w-5" /> },
 ];
 
 export default function Navigation() {
@@ -31,7 +32,7 @@ export default function Navigation() {
     <>
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-white/95 via-white/90 to-white/80 backdrop-blur-xl border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
-        <div className="flex items-center justify-around h-16 safe-area-pb">
+        <div className="flex items-center justify-around h-16 safe-area-pb overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
           {NAV_ITEMS.map((item, idx) => {
             const isActive = currentView === item.view;
             return (
@@ -39,7 +40,7 @@ export default function Navigation() {
                 key={item.view}
                 onClick={() => setView(item.view)}
                 className={cn(
-                  'relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl transition-all duration-200 min-w-[56px] game-slide-in-bottom game-mobile-nav-tooltip',
+                  'relative flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 rounded-xl transition-all duration-200 min-w-[44px] flex-shrink-0 game-slide-in-bottom game-mobile-nav-tooltip',
                   isActive
                     ? 'text-green-700 scale-105 shadow-md shadow-green-200/40'
                     : 'text-muted-foreground hover:text-foreground hover:scale-105'
@@ -50,7 +51,7 @@ export default function Navigation() {
                 <div className={cn('transition-colors duration-200', isActive ? '' : 'opacity-60')}>
                   {item.icon}
                 </div>
-                <span className="text-[10px] font-semibold">{item.label}</span>
+                <span className="text-[10px] font-semibold leading-tight">{item.mobileLabel}</span>
                 {isActive && (
                   <div className="absolute bottom-1 w-5 h-0.5 rounded-full game-nav-bounce" style={{ background: 'linear-gradient(90deg, #006a4e, #00a86b)', boxShadow: '0 0 8px rgba(0,106,78,0.3)' }} />
                 )}
