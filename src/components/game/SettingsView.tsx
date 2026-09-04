@@ -32,6 +32,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 export default function SettingsView() {
@@ -43,7 +44,7 @@ export default function SettingsView() {
     }
     return 'off';
   });
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('bd-tycoon-sound') !== 'false');
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetConfirm, setResetConfirm] = useState('');
@@ -195,6 +196,7 @@ export default function SettingsView() {
             </div>
             <button
               onClick={() => {
+                localStorage.setItem('bd-tycoon-sound', String(!soundEnabled));
                 setSoundEnabled(!soundEnabled);
                 toast.success(soundEnabled ? 'Sound muted' : 'Sound enabled');
               }}
@@ -289,12 +291,12 @@ export default function SettingsView() {
             </div>
             <div>
               <label className="text-sm font-medium">Type &quot;RESET&quot; to confirm:</label>
-              <input
+              <Input
                 type="text"
                 value={resetConfirm}
                 onChange={(e) => setResetConfirm(e.target.value)}
                 placeholder="RESET"
-                className="mt-1 w-full h-10 px-3 rounded-lg border border-red-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                className="mt-1 border-red-300 focus-visible:ring-red-400"
                 autoFocus
               />
             </div>

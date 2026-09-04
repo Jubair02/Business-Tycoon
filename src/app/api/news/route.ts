@@ -4,11 +4,12 @@ import { db } from '@/lib/db';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const parsed = parseInt(searchParams.get('limit') || '10', 10);
+    const limit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 50) : 10;
 
     const news = await db.newsArticle.findMany({
       orderBy: { createdAt: 'desc' },
-      take: Math.min(limit, 50),
+      take: limit,
     });
 
     return NextResponse.json(news);

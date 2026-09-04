@@ -1,0 +1,1039 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback } from 'react';
+     4→import { useGameStore } from '@/store/game-store';
+     5→import { formatTaka, formatTakaShort, getBusinessType, getCity, getEmployeeRole, GAME_CONFIG, EMPLOYEE_ROLES } from '@/lib/game-data';
+     6→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+     7→import { Button } from '@/components/ui/button';
+     8→import { Badge } from '@/components/ui/badge';
+     9→import { Progress } from '@/components/ui/progress';
+    10→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    11→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+    12→import { Input } from '@/components/ui/input';
+    13→import { Label } from '@/components/ui/label';
+    14→import { Separator } from '@/components/ui/separator';
+    15→import { ScrollArea } from '@/components/ui/scroll-area';
+    16→import { Skeleton } from '@/components/ui/skeleton';
+    17→import { toast } from 'sonner';
+    18→import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3, Lightbulb, Sparkles } from 'lucide-react';
+    19→import { motion } from 'framer-motion';
+    20→
+    21→const BUSINESS_COLORS: Record<string, string> = {
+    22→  TEA_STALL: 'bg-amber-100 border-amber-300 text-amber-800',
+    23→  GROCERY: 'bg-green-100 border-green-300 text-green-800',
+    24→  CLOTHING: 'bg-purple-100 border-purple-300 text-purple-800',
+    25→  MOBILE: 'bg-blue-100 border-blue-300 text-blue-800',
+    26→  RESTAURANT: 'bg-red-100 border-red-300 text-red-800',
+    27→};
+    28→
+    29→export default function BusinessDetail() {
+    30→  const { currentBusiness, setView, setCurrentBusiness, setBusinesses, player } = useGameStore();
+    31→  const [isEditingPrice, setIsEditingPrice] = useState<string | null>(null);
+    32→  const [editPrice, setEditPrice] = useState('');
+    33→  const [showHireDialog, setShowHireDialog] = useState(false);
+    34→  const [hireRole, setHireRole] = useState('');
+    35→  const [showBuyDialog, setShowBuyDialog] = useState(false);
+    36→  const [buyProduct, setBuyProduct] = useState<any>(null);
+    37→  const [buyQuantity, setBuyQuantity] = useState(1);
+    38→  const [buying, setBuying] = useState(false);
+    39→  const [showSellDialog, setShowSellDialog] = useState(false);
+    40→  const [sellInventory, setSellInventory] = useState<any>(null);
+    41→  const [sellQuantity, setSellQuantity] = useState(1);
+    42→  const [selling, setSelling] = useState(false);
+    43→  const [hiring, setHiring] = useState(false);
+    44→  const [upgrading, setUpgrading] = useState(false);
+    45→  const [firingId, setFiringId] = useState<string | null>(null);
+    46→  const [marketProducts, setMarketProducts] = useState<any[]>([]);
+    47→  const [logs, setLogs] = useState<any[]>([]);
+    48→  const [logsLoading, setLogsLoading] = useState(false);
+    49→  const [showSellBusinessDialog, setShowSellBusinessDialog] = useState(false);
+    50→  const [sellingBusiness, setSellingBusiness] = useState(false);
+    51→  const [sellBusinessConfirm, setSellBusinessConfirm] = useState('');
+    52→  const [pricingAdvice, setPricingAdvice] = useState<any>(null);
+    53→  const [loadingPricing, setLoadingPricing] = useState(false);
+    54→  const [showPricingPanel, setShowPricingPanel] = useState(false);
+    55→
+    56→  const fetchBusiness = useCallback(async () => {
+    57→    if (!currentBusiness?.id) return;
+    58→    try {
+    59→      const res = await fetch(`/api/businesses/${currentBusiness.id}`);
+    60→      if (res.ok) {
+    61→        const data = await res.json();
+    62→        setCurrentBusiness(data);
+    63→      }
+    64→    } catch {
+    65→      toast.error('Failed to load business data');
+    66→    }
+    67→  }, [currentBusiness?.id, setCurrentBusiness]);
+    68→
+    69→  const refreshPlayer = useCallback(async () => {
+    70→    try {
+    71→      const res = await fetch('/api/player');
+    72→      if (res.ok) {
+    73→        const data = await res.json();
+    74→        useGameStore.getState().setPlayer(data);
+    75→      }
+    76→    } catch { /* silent */ }
+    77→  }, []);
+    78→
+    79→  const fetchMarketProducts = useCallback(async () => {
+    80→    if (!currentBusiness) return;
+    81→    try {
+    82→      const res = await fetch(`/api/market/products?type=${currentBusiness.type}&city=${currentBusiness.city}`);
+    83→      if (res.ok) {
+    84→        setMarketProducts(await res.json());
+    85→      }
+    86→    } catch {
+    87→      // silent
+    88→    }
+    89→  }, [currentBusiness?.type, currentBusiness?.city]);
+    90→
+    91→  const fetchLogs = useCallback(async () => {
+    92→    if (!currentBusiness?.id) return;
+    93→    setLogsLoading(true);
+    94→    try {
+    95→      const res = await fetch(`/api/businesses/${currentBusiness.id}/logs`);
+    96→      if (res.ok) {
+    97→        setLogs(await res.json());
+    98→      }
+    99→    } catch {
+   100→      // silent
+   101→    } finally {
+   102→      setLogsLoading(false);
+   103→    }
+   104→  }, [currentBusiness?.id]);
+   105→
+   106→  const handleFetchPricingAdvice = async () => {
+   107→    if (!currentBusiness?.id) return;
+   108→    setLoadingPricing(true);
+   109→    try {
+   110→      const res = await fetch(`/api/businesses/${currentBusiness.id}/pricing-advice`);
+   111→      if (res.ok) {
+   112→        const data = await res.json();
+   113→        setPricingAdvice(data);
+   114→        setShowPricingPanel(true);
+   115→      } else {
+   116→        toast.error('Failed to get pricing advice');
+   117→      }
+   118→    } catch { toast.error('Network error'); }
+   119→    finally { setLoadingPricing(false); }
+   120→  };
+   121→
+   122→  const handleApplyPricing = async (productName: string, price: number) => {
+   123→    const inv = inventories.find((i: any) => i.productName === productName);
+   124→    if (!inv) {
+   125→      toast.error('No inventory for this product. Buy stock first.');
+   126→      return;
+   127→    }
+   128→    try {
+   129→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/${inv.id}/price`, {
+   130→        method: 'PATCH',
+   131→        headers: { 'Content-Type': 'application/json' },
+   132→        body: JSON.stringify({ sellPrice: price }),
+   133→      });
+   134→      if (res.ok) {
+   135→        toast.success(`${productName}: price set to ${formatTaka(price)}`);
+   136→        fetchBusiness();
+   137→        refreshPlayer();
+   138→      } else {
+   139→        const err = await res.json();
+   140→        toast.error(err.error || 'Failed to set price');
+   141→      }
+   142→    } catch { toast.error('Network error'); }
+   143→  };
+   144→
+   145→  useEffect(() => {
+   146→    if (currentBusiness?.id) {
+   147→      fetchBusiness();
+   148→      fetchMarketProducts();
+   149→      fetchLogs();
+   150→    }
+   151→  }, [currentBusiness?.id, fetchBusiness, fetchMarketProducts, fetchLogs]);
+   152→
+   153→  if (!currentBusiness) {
+   154→    return (
+   155→      <div className="p-4 text-center">
+   156→        <p className="text-muted-foreground">No business selected</p>
+   157→        <Button variant="outline" className="mt-2" onClick={() => setView('businesses')}>Back to Businesses</Button>
+   158→      </div>
+   159→    );
+   160→  }
+   161→
+   162→  const bt = getBusinessType(currentBusiness.type);
+   163→  const city = getCity(currentBusiness.city);
+   164→  const profit = currentBusiness.dailyProfit || 0;
+   165→  const inventories = currentBusiness.inventories || [];
+   166→  const employees = currentBusiness.employees || [];
+   167→  const upgradeCost = Math.round((bt?.investment || 0) * (currentBusiness.level || 1) * 0.5);
+   168→  const bannerClass = BUSINESS_COLORS[currentBusiness.type] || 'bg-gray-100 border-gray-300';
+   169→  const revenue = currentBusiness.dailyRevenue || 0;
+   170→  const expenses = currentBusiness.dailyExpense || 0;
+   171→
+   172→  const handleUpdatePrice = async (invId: string) => {
+   173→    const price = parseFloat(editPrice);
+   174→    if (isNaN(price) || price <= 0) {
+   175→      toast.error('Enter a valid price');
+   176→      return;
+   177→    }
+   178→    try {
+   179→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/${invId}/price`, {
+   180→        method: 'PATCH',
+   181→        headers: { 'Content-Type': 'application/json' },
+   182→        body: JSON.stringify({ sellPrice: price }),
+   183→      });
+   184→      if (res.ok) {
+   185→        toast.success('Price updated!');
+   186→        setIsEditingPrice(null);
+   187→        fetchBusiness();
+   188→        refreshPlayer();
+   189→      } else {
+   190→        const err = await res.json();
+   191→        toast.error(err.error || 'Failed to update price');
+   192→      }
+   193→    } catch {
+   194→      toast.error('Failed to update price');
+   195→    }
+   196→  };
+   197→
+   198→  const handleBuy = async () => {
+   199→    if (!buyProduct || buyQuantity < 1) return;
+   200→    setBuying(true);
+   201→    try {
+   202→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/buy`, {
+   203→        method: 'POST',
+   204→        headers: { 'Content-Type': 'application/json' },
+   205→        body: JSON.stringify({
+   206→          productId: buyProduct.id || buyProduct.productId,
+   207→          productName: buyProduct.name,
+   208→          category: currentBusiness.type,
+   209→          quantity: buyQuantity,
+   210→        }),
+   211→      });
+   212→      if (res.ok) {
+   213→        toast.success(`Bought ${buyQuantity}x ${buyProduct.name}`);
+   214→        setShowBuyDialog(false);
+   215→        setBuyQuantity(1);
+   216→        fetchBusiness();
+   217→        refreshPlayer();
+   218→      } else {
+   219→        const err = await res.json();
+   220→        toast.error(err.error || 'Purchase failed');
+   221→      }
+   222→    } catch {
+   223→      toast.error('Purchase failed');
+   224→    } finally {
+   225→      setBuying(false);
+   226→    }
+   227→  };
+   228→
+   229→  const handleSell = async () => {
+   230→    if (!sellInventory || sellQuantity < 1) return;
+   231→    setSelling(true);
+   232→    try {
+   233→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/sell`, {
+   234→        method: 'POST',
+   235→        headers: { 'Content-Type': 'application/json' },
+   236→        body: JSON.stringify({
+   237→          inventoryId: sellInventory.id,
+   238→          quantity: sellQuantity,
+   239→        }),
+   240→      });
+   241→      if (res.ok) {
+   242→        const data = await res.json();
+   243→        const sellPricePerUnit = Math.round((sellInventory.purchasePrice || 0) * 0.7);
+   244→        toast.success(`Sold ${sellQuantity}x ${sellInventory.productName} for ${formatTaka(sellPricePerUnit * sellQuantity)}`);
+   245→        setShowSellDialog(false);
+   246→        setSellInventory(null);
+   247→        setSellQuantity(1);
+   248→        setCurrentBusiness(data);
+   249→        refreshPlayer();
+   250→      } else {
+   251→        const err = await res.json();
+   252→        toast.error(err.error || 'Sale failed');
+   253→      }
+   254→    } catch {
+   255→      toast.error('Sale failed');
+   256→    } finally {
+   257→      setSelling(false);
+   258→    }
+   259→  };
+   260→
+   261→  const handleHire = async () => {
+   262→    if (!hireRole) return;
+   263→    setHiring(true);
+   264→    try {
+   265→      const res = await fetch(`/api/businesses/${currentBusiness.id}/employees/hire`, {
+   266→        method: 'POST',
+   267→        headers: { 'Content-Type': 'application/json' },
+   268→        body: JSON.stringify({ role: hireRole }),
+   269→      });
+   270→      if (res.ok) {
+   271→        toast.success('Employee hired!');
+   272→        setShowHireDialog(false);
+   273→        setHireRole('');
+   274→        fetchBusiness();
+   275→        refreshPlayer();
+   276→      } else {
+   277→        const err = await res.json();
+   278→        toast.error(err.error || 'Hiring failed');
+   279→      }
+   280→    } catch {
+   281→      toast.error('Hiring failed');
+   282→    } finally {
+   283→      setHiring(false);
+   284→    }
+   285→  };
+   286→
+   287→  const handleFire = async (empId: string) => {
+   288→    setFiringId(empId);
+   289→    try {
+   290→      const res = await fetch(`/api/businesses/${currentBusiness.id}/employees/${empId}`, { method: 'DELETE' });
+   291→      if (res.ok) {
+   292→        toast.success('Employee fired');
+   293→        fetchBusiness();
+   294→        refreshPlayer();
+   295→      } else {
+   296→        const err = await res.json();
+   297→        toast.error(err.error || 'Failed to fire employee');
+   298→      }
+   299→    } catch {
+   300→      toast.error('Failed to fire employee');
+   301→    } finally {
+   302→      setFiringId(null);
+   303→    }
+   304→  };
+   305→
+   306→  const handleUpgrade = async () => {
+   307→    if ((player?.cash || 0) < upgradeCost) {
+   308→      toast.error('Not enough cash!');
+   309→      return;
+   310→    }
+   311→    setUpgrading(true);
+   312→    try {
+   313→      const res = await fetch(`/api/businesses/${currentBusiness.id}/upgrade`, { method: 'POST' });
+   314→      if (res.ok) {
+   315→        toast.success('Business upgraded!');
+   316→        fetchBusiness();
+   317→        refreshPlayer();
+   318→      } else {
+   319→        const err = await res.json();
+   320→        toast.error(err.error || 'Upgrade failed');
+   321→      }
+   322→    } catch {
+   323→      toast.error('Upgrade failed');
+   324→    } finally {
+   325→      setUpgrading(false);
+   326→    }
+   327→  };
+   328→
+   329→  const getDemandColor = (demand: number) => {
+   330→    if (demand >= 1.2) return 'text-green-600 bg-green-50 border-green-200';
+   331→    if (demand >= 0.8) return 'text-amber-600 bg-amber-50 border-amber-200';
+   332→    return 'text-red-500 bg-red-50 border-red-200';
+   333→  };
+   334→
+   335→  const getDemandLabel = (demand: number) => {
+   336→    if (demand >= 1.2) return 'High';
+   337→    if (demand >= 0.8) return 'Medium';
+   338→    return 'Low';
+   339→  };
+   340→
+   341→  return (
+   342→    <div className="pb-24 md:pb-4">
+   343→      <Tabs defaultValue="overview" className="w-full">
+   344→      {/* Sticky header with tabs integrated */}
+   345→      <div className="sticky top-14 z-40 bg-white border-b">
+   346→        <div className={`px-3 md:px-4 py-3 md:py-4 game-hero-banner ${bannerClass}`}>
+   347→          <div className="flex items-center gap-2">
+   348→            <Button variant="ghost" size="icon" className="shrink-0 hover:bg-white/50" onClick={() => setView('businesses')}>
+   349→              <ArrowLeft className="h-4 w-4" />
+   350→            </Button>
+   351→            <div className="flex-1 min-w-0">
+   352→              <div className="flex items-center gap-2.5">
+   353→                <span className="text-2xl game-float">{bt?.icon}</span>
+   354→                <div className="min-w-0">
+   355→                  <h2 className="font-bold text-base truncate">{currentBusiness.name}</h2>
+   356→                  <div className="flex items-center gap-2 mt-0.5">
+   357→                    <Badge variant="outline" className={`text-[10px] shrink-0 ${bannerClass}`}>{bt?.name}</Badge>
+   358→                    <span className="text-[10px] opacity-80 flex items-center gap-1">📍 {city?.name}</span>
+   359→                  </div>
+   360→                </div>
+   361→              </div>
+   362→            </div>
+   363→            <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
+   364→          </div>
+   365→        </div>
+   366→        {/* Tabs inside the sticky block */}
+   367→        <div className="px-3 md:px-4 pt-2">
+   368→          <TabsList className="w-full grid grid-cols-5">
+   369→            <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
+   370→            <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
+   371→            <TabsTrigger value="employees" className="text-xs">Staff</TabsTrigger>
+   372→            <TabsTrigger value="logs" className="text-xs">Log</TabsTrigger>
+   373→            <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
+   374→          </TabsList>
+   375→        </div>
+   376→      </div>
+   377→
+   378→      <div className="p-3 md:p-4">
+   379→
+   380→          <TabsContent value="overview">
+   381→            <div className="grid grid-cols-2 gap-3 mb-4">
+   382→              <Card className="border-l-4 border-l-green-500 game-stat-card game-shine">
+   383→                <CardContent className="p-3">
+   384→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Revenue</div>
+   385→                  <div className="text-lg font-bold text-green-600 mt-0.5">{formatTakaShort(revenue)}</div>
+   386→                </CardContent>
+   387→              </Card>
+   388→              <Card className={`${profit >= 0 ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500'} game-stat-card game-shine`}>
+   389→                <CardContent className="p-3">
+   390→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Profit</div>
+   391→                  <div className={`text-lg font-bold mt-0.5 ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   392→                    {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
+   393→                  </div>
+   394→                </CardContent>
+   395→              </Card>
+   396→              <Card className="border-l-4 border-l-amber-500 game-stat-card game-shine">
+   397→                <CardContent className="p-3">
+   398→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Expenses</div>
+   399→                  <div className="text-lg font-bold text-amber-600 mt-0.5">{formatTakaShort(expenses)}</div>
+   400→                </CardContent>
+   401→              </Card>
+   402→              <Card className="border-l-4 border-l-purple-500 game-stat-card game-shine">
+   403→                <CardContent className="p-3">
+   404→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Reputation</div>
+   405→                  <div className="text-lg font-bold mt-0.5">{currentBusiness.reputation || 0}%</div>
+   406→                </CardContent>
+   407→              </Card>
+   408→            </div>
+   409→
+   410→            {/* Profit Breakdown */}
+   411→            <Card className="mb-4 game-gradient-card game-shine">
+   412→              <CardHeader className="pb-2 pt-4 px-4">
+   413→                <CardTitle className="text-sm font-semibold game-gradient-text">Profit Breakdown</CardTitle>
+   414→              </CardHeader>
+   415→              <CardContent className="px-4 pb-4 space-y-2">
+   416→                <div className="flex items-center justify-between text-sm">
+   417→                  <div className="flex items-center gap-2">
+   418→                    <TrendingUp className="h-4 w-4 text-green-600" />
+   419→                    <span className="text-muted-foreground">Revenue</span>
+   420→                  </div>
+   421→                  <span className="font-medium text-green-600">+{formatTakaShort(revenue)}</span>
+   422→                </div>
+   423→                <div className="flex items-center justify-between text-sm">
+   424→                  <div className="flex items-center gap-2">
+   425→                    <TrendingDown className="h-4 w-4 text-red-500" />
+   426→                    <span className="text-muted-foreground">Expenses</span>
+   427→                  </div>
+   428→                  <span className="font-medium text-red-500">-{formatTakaShort(expenses)}</span>
+   429→                </div>
+   430→                <Separator />
+   431→                <div className="flex items-center justify-between text-sm font-bold">
+   432→                  <span>Net Profit</span>
+   433→                  <span className={profit >= 0 ? 'text-green-600' : 'text-red-500'}>
+   434→                    {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
+   435→                  </span>
+   436→                </div>
+   437→              </CardContent>
+   438→            </Card>
+   439→
+   440→            <Card className="mb-4 game-shine">
+   441→              <CardHeader className="pb-2 pt-4 px-4">
+   442→                <CardTitle className="text-sm font-semibold game-gradient-text">Reputation</CardTitle>
+   443→              </CardHeader>
+   444→              <CardContent className="px-4 pb-4">
+   445→                <Progress value={currentBusiness.reputation || 0} className="h-3" />
+   446→                <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground">
+   447→                  <span>Poor</span><span>Average</span><span>Excellent</span>
+   448→                </div>
+   449→              </CardContent>
+   450→            </Card>
+   451→
+   452→            {/* Business Performance chart from logs */}
+   453→            <Card className="game-shine">
+   454→              <CardHeader className="pb-2 pt-4 px-4">
+   455→                <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+   456→                  <BarChart3 className="h-4 w-4" /> Performance History
+   457→                </CardTitle>
+   458→              </CardHeader>
+   459→              <CardContent className="px-4 pb-4">
+   460→                {logs.length > 0 ? (() => {
+   461→                  const profitLogs = logs.filter((l: any) => l.type === 'PROFIT' || l.type === 'LOSS').slice(-14);
+   462→                  if (profitLogs.length === 0) return (
+   463→                    <div className="h-24 flex items-center justify-center">
+   464→                      <div className="text-center">
+   465→                        <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+   466→                        <p className="text-xs text-muted-foreground">No profit data yet. Advance days to see your chart.</p>
+   467→                      </div>
+   468→                    </div>
+   469→                  );
+   470→                  const maxAbs = Math.max(...profitLogs.map((l: any) => Math.abs(l.amount || 0)), 1);
+   471→                  return (
+   472→                    <div className="space-y-0.5">
+   473→                      <div className="h-24 flex items-end gap-[3px]">
+   474→                        {profitLogs.map((log: any, i: number) => {
+   475→                          const amount = log.amount || 0;
+   476→                          const h = Math.max(5, (Math.abs(amount) / maxAbs) * 85 + 10);
+   477→                          const isPositive = amount >= 0;
+   478→                          return (
+   479→                            <motion.div
+   480→                              key={log.id || i}
+   481→                              className="flex-1 rounded-t"
+   482→                              style={{
+   483→                                height: `${h}%`,
+   484→                                background: isPositive
+   485→                                  ? 'linear-gradient(to top, rgba(0, 106, 78, 0.7), rgba(0, 168, 107, 0.4))'
+   486→                                  : 'linear-gradient(to top, rgba(244, 42, 65, 0.6), rgba(244, 42, 65, 0.3))',
+   487→                              }}
+   488→                              initial={{ height: 0 }}
+   489→                              animate={{ height: `${h}%` }}
+   490→                              transition={{ delay: i * 0.03, duration: 0.3 }}
+   491→                              title={`${formatTaka(amount)}`}
+   492→                            />
+   493→                          );
+   494→                        })}
+   495→                      </div>
+   496→                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5">
+   497→                        <span>Last {profitLogs.length} days</span>
+   498→                        <div className="flex items-center gap-2">
+   499→                          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-green-600/60 inline-block" /> Profit</span>
+   500→                          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-red-500/60 inline-block" /> Loss</span>
+   501→                        </div>
+   502→                      </div>
+   503→                    </div>
+   504→                  );
+   505→                })() : (
+   506→                  <div className="h-24 flex items-center justify-center">
+   507→                    <div className="text-center">
+   508→                      <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+   509→                      <p className="text-xs text-muted-foreground">No data yet. Advance days to see your chart.</p>
+   510→                    </div>
+   511→                  </div>
+   512→                )}
+   513→              </CardContent>
+   514→            </Card>
+   515→          </TabsContent>
+   516→
+   517→          <TabsContent value="inventory">
+   518→            <div className="space-y-3">
+   519→              <div className="flex items-center justify-between">
+   520→                <h3 className="text-sm font-semibold">Inventory ({inventories.length})</h3>
+   521→                <div className="flex items-center gap-1.5">
+   522→                  <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={handleFetchPricingAdvice} disabled={loadingPricing}>
+   523→                    <Lightbulb className="h-3.5 w-3.5" /> {loadingPricing ? '...' : 'Pricing'}
+   524→                  </Button>
+   525→                  <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => { if (marketProducts.length === 0) { fetchMarketProducts(); } setShowBuyDialog(true); }}>
+   526→                    <ShoppingCart className="h-3.5 w-3.5" /> Buy Stock
+   527→                  </Button>
+   528→                </div>
+   529→              </div>
+   530→
+   531→              <Dialog open={showBuyDialog} onOpenChange={setShowBuyDialog}>
+   532→                  <DialogContent className="max-w-md">
+   533→                    <DialogHeader>
+   534→                      <DialogTitle>Buy Inventory</DialogTitle>
+   535→                      <DialogDescription>Choose a product and quantity to buy</DialogDescription>
+   536→                    </DialogHeader>
+   537→                    {!buyProduct ? (
+   538→                      <ScrollArea className="max-h-64">
+   539→                        <div className="space-y-2">
+   540→                          {marketProducts.map((p: any) => (
+   541→                            <button key={p.id || p.name} onClick={() => setBuyProduct(p)} className="w-full text-left p-3 rounded-lg border hover:border-green-400 transition-all hover:shadow-md hover:shadow-green-100 hover:-translate-y-0.5">
+   542→                              <div className="flex items-center gap-2">
+   543→                                <span className="text-lg">{p.icon}</span>
+   544→                                <div className="flex-1 min-w-0">
+   545→                                  <div className="text-sm font-medium">{p.name}</div>
+   546→                                  <div className="text-xs text-muted-foreground">Market: ৳{p.currentPrice?.toLocaleString() || p.basePrice?.toLocaleString()}</div>
+   547→                                </div>
+   548→                                <Badge className={`text-[10px] border ${getDemandColor(p.currentDemand || 1)}`} variant="outline">
+   549→                                  {getDemandLabel(p.currentDemand || 1)}
+   550→                                </Badge>
+   551→                              </div>
+   552→                            </button>
+   553→                          ))}
+   554→                        </div>
+   555→                      </ScrollArea>
+   556→                    ) : (
+   557→                      <div className="space-y-4">
+   558→                        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50/60 border border-green-100">
+   559→                          <span className="text-2xl">{buyProduct.icon}</span>
+   560→                          <div>
+   561→                            <div className="font-medium">{buyProduct.name}</div>
+   562→                            <div className="text-sm text-muted-foreground">Unit price: ৳{(buyProduct.currentPrice || buyProduct.basePrice || 0).toLocaleString()}</div>
+   563→                          </div>
+   564→                        </div>
+   565→                        <div className="space-y-2">
+   566→                          <Label>Quantity</Label>
+   567→                          <Input type="number" min={1} max={buyProduct.maxStock || 100} value={buyQuantity} onChange={(e) => setBuyQuantity(Math.max(1, parseInt(e.target.value) || 1))} />
+   568→                          <div className="text-sm text-muted-foreground">
+   569→                            Total cost: <span className="font-bold text-foreground">{formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}</span>
+   570→                          </div>
+   571→                        </div>
+   572→                      </div>
+   573→                    )}
+   574→                    <DialogFooter className="gap-2">
+   575→                      {buyProduct && (
+   576→                        <Button variant="outline" onClick={() => { setBuyProduct(null); setBuyQuantity(1); }}>Back</Button>
+   577→                      )}
+   578→                      <Button onClick={buyProduct ? handleBuy : () => setShowBuyDialog(false)} disabled={buying || (!buyProduct)} className="text-white game-shine" style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' }}>
+   579→                        {buying ? 'Buying...' : buyProduct ? `Buy for ${formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}` : 'Close'}
+   580→                      </Button>
+   581→                    </DialogFooter>
+   582→                  </DialogContent>
+   583→                </Dialog>
+   584→
+   585→                <Dialog open={showSellDialog} onOpenChange={(open) => { if (!open) { setSellInventory(null); setSellQuantity(1); } setShowSellDialog(open); }}>
+   586→                <DialogContent className="max-w-md">
+   587→                  <DialogHeader>
+   588→                    <DialogTitle>Sell Inventory</DialogTitle>
+   589→                    <DialogDescription>Liquidate stock at 70% of purchase price</DialogDescription>
+   590→                  </DialogHeader>
+   591→                  {sellInventory && (
+   592→                    <div className="space-y-4">
+   593→                      <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50/60 border border-amber-100">
+   594→                        <span className="text-2xl">📦</span>
+   595→                        <div className="flex-1">
+   596→                          <div className="font-medium">{sellInventory.productName}</div>
+   597→                          <div className="text-xs text-muted-foreground">In stock: {sellInventory.quantity} units</div>
+   598→                        </div>
+   599→                      </div>
+   600→                      <div className="space-y-2">
+   601→                        <Label>Quantity</Label>
+   602→                        <Input
+   603→                          type="number"
+   604→                          min={1}
+   605→                          max={sellInventory.quantity}
+   606→                          value={sellQuantity}
+   607→                          onChange={(e) => setSellQuantity(Math.max(1, Math.min(sellInventory.quantity, parseInt(e.target.value) || 1)))}
+   608→                        />
+   609→                        <div className="text-sm text-muted-foreground">
+   610→                          Purchase price: <span className="font-medium">৳{(sellInventory.purchasePrice || 0).toLocaleString()}</span>/unit
+   611→                        </div>
+   612→                        <div className="text-sm text-muted-foreground">
+   613→                          Liquidation rate: <span className="font-medium">70%</span>
+   614→                        </div>
+   615→                        <div className="text-sm text-muted-foreground">
+   616→                          You receive: <span className="font-bold text-amber-600">৳{(Math.round((sellInventory.purchasePrice || 0) * 0.7) * sellQuantity).toLocaleString()}</span>
+   617→                        </div>
+   618→                      </div>
+   619→                    </div>
+   620→                  )}
+   621→                  <DialogFooter className="gap-2">
+   622→                    <Button variant="outline" onClick={() => { setShowSellDialog(false); setSellInventory(null); setSellQuantity(1); }}>Cancel</Button>
+   623→                    <Button onClick={handleSell} disabled={selling || !sellInventory} className="text-white" style={{ background: '#d97706' }}>
+   624→                      {selling ? 'Selling...' : sellInventory ? `Sell for ৳${(Math.round((sellInventory.purchasePrice || 0) * 0.7) * sellQuantity).toLocaleString()}` : 'Sell'}
+   625→                    </Button>
+   626→                  </DialogFooter>
+   627→                </DialogContent>
+   628→              </Dialog>
+   629→
+   630→              {inventories.length === 0 ? (
+   631→                <Card className="border-dashed">
+   632→                  <CardContent className="py-8 text-center">
+   633→                    <div className="text-4xl mb-2">📦</div>
+   634→                    <p className="text-sm text-muted-foreground">No inventory. Buy stock to start selling!</p>
+   635→                  </CardContent>
+   636→                </Card>
+   637→              ) : (
+   638→                <div className="space-y-1.5 rounded-lg overflow-hidden border border-green-100/60">
+   639→                  {inventories.map((inv: any) => {
+   640→                    const mp = marketProducts.find((p: any) => p.id === inv.productId || p.name === inv.productName);
+   641→                    const liquidationPrice = Math.round((inv.purchasePrice || 0) * 0.7);
+   642→                    return (
+   643→                      <div key={inv.id} className="inventory-row flex items-center gap-3 p-3">
+   644→                        <span className="text-xl">{mp?.icon || inv.productName?.charAt(0)}</span>
+   645→                        <div className="flex-1 min-w-0">
+   646→                          <div className="text-sm font-medium truncate">{inv.productName}</div>
+   647→                          <div className="flex items-center gap-2 mt-0.5">
+   648→                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getDemandColor(mp?.currentDemand || 1)}`}>
+   649→                              {getDemandLabel(mp?.currentDemand || 1)} demand
+   650→                            </span>
+   651→                            <span className="text-[10px] text-muted-foreground">Stock: {inv.quantity || 0}</span>
+   652→                          </div>
+   653→                          <div className="text-[10px] text-muted-foreground mt-0.5">Liq. price: ৳{liquidationPrice.toLocaleString()}/unit</div>
+   654→                        </div>
+   655→                        <div className="flex items-center gap-1.5 shrink-0">
+   656→                          <div className="text-right">
+   657→                            {isEditingPrice === inv.id ? (
+   658→                              <div className="flex items-center gap-1 game-price-edit rounded-md p-0.5">
+   659→                                <Input
+   660→                                  type="number"
+   661→                                  value={editPrice}
+   662→                                  onChange={(e) => setEditPrice(e.target.value)}
+   663→                                  className="w-20 h-7 text-xs"
+   664→                                  autoFocus
+   665→                                  onKeyDown={(e) => { if (e.key === 'Enter') handleUpdatePrice(inv.id); if (e.key === 'Escape') setIsEditingPrice(null); }}
+   666→                                />
+   667→                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleUpdatePrice(inv.id)}><Check className="h-3 w-3 text-green-600" /></Button>
+   668→                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
+   669→                              </div>
+   670→                            ) : (
+   671→                              <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline transition-colors hover:text-green-700" style={{ color: '#006a4e' }}>
+   672→                                ৳{(inv.sellPrice || 0).toLocaleString()}
+   673→                              </button>
+   674→                            )}
+   675→                            <div className="text-[10px] text-muted-foreground">sell price</div>
+   676→                          </div>
+   677→                          <Button
+   678→                            size="icon"
+   679→                            variant="ghost"
+   680→                            className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 shrink-0"
+   681→                            onClick={() => { setSellInventory(inv); setSellQuantity(Math.min(1, inv.quantity)); setShowSellDialog(true); }}
+   682→                          >
+   683→                            <PackageOpen className="h-3.5 w-3.5" />
+   684→                          </Button>
+   685→                        </div>
+   686→                      </div>
+   687→                    );
+   688→                  })}
+   689→                </div>
+   690→              )}
+   691→
+   692→              {/* Pricing Advice Panel */}
+   693→              {showPricingPanel && pricingAdvice && (
+   694→                <motion.div
+   695→                  initial={{ opacity: 0, height: 0 }}
+   696→                  animate={{ opacity: 1, height: 'auto' }}
+   697→                  exit={{ opacity: 0, height: 0 }}
+   698→                >
+   699→                  <Card className="border-green-200/60 bg-gradient-to-br from-green-50/40 to-white">
+   700→                    <CardHeader className="pb-2 pt-3 px-4">
+   701→                      <div className="flex items-center justify-between">
+   702→                        <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+   703→                          <Lightbulb className="h-4 w-4 text-amber-500" /> Pricing Assistant
+   704→                        </CardTitle>
+   705→                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowPricingPanel(false)}><X className="h-3 w-3" /></Button>
+   706→                      </div>
+   707→                      <CardDescription className="text-xs">AI-powered pricing recommendations based on market demand, reputation & staff</CardDescription>
+   708→                    </CardHeader>
+   709→                    <CardContent className="px-4 pb-4">
+   710→                      <div className="space-y-2">
+   711→                        {pricingAdvice.advice.map((item: any, i: number) => (
+   712→                          <div key={item.productName} className="flex items-start gap-2.5 p-2.5 rounded-lg border border-green-100/50 bg-white/60">
+   713→                            <span className="text-lg mt-0.5 shrink-0">{item.icon}</span>
+   714→                            <div className="flex-1 min-w-0">
+   715→                              <div className="flex items-center gap-1.5">
+   716→                                <span className="text-xs font-semibold truncate">{item.productName}</span>
+   717→                                <Badge variant="outline" className={`text-[9px] ${item.demandLevel === 'High' ? 'border-green-300 text-green-700' : item.demandLevel === 'Low' ? 'border-red-300 text-red-600' : 'border-amber-200 text-amber-700'}`}>
+   718→                                  {item.demandLevel}
+   719→                                </Badge>
+   720→                                {item.weeklyTrend === 'up' && <TrendingUp className="h-3 w-3 text-green-600" />}
+   721→                                {item.weeklyTrend === 'down' && <TrendingDown className="h-3 w-3 text-red-500" />}
+   722→                              </div>
+   723→                              <div className="flex items-center gap-3 mt-1 text-[10px]">
+   724→                                <span className="text-muted-foreground">Buy: <span className="text-foreground font-medium">৳{item.purchasePrice.toLocaleString()}</span></span>
+   725→                                <span className="text-muted-foreground">Suggest: <span className="font-bold" style={{ color: '#006a4e' }}>৳{item.suggestedPrice.toLocaleString()}</span></span>
+   726→                                <span className="text-muted-foreground">Markup: <span className="font-medium">{item.suggestedMarkup}%</span></span>
+   727→                              </div>
+   728→                              <div className="text-[10px] text-muted-foreground mt-0.5 italic">💡 {item.reason}</div>
+   729→                              {item.currentSellPrice && (
+   730→                                <div className="flex items-center gap-2 mt-1">
+   731→                                  <span className="text-[10px] text-muted-foreground">Current: ৳{item.currentSellPrice.toLocaleString()}</span>
+   732→                                  {item.currentSellPrice > item.maxPrice && <span className="text-[9px] text-red-600 font-medium">⚠️ Overpriced!</span>}
+   733→                                  {item.currentSellPrice < item.minPrice && <span className="text-[9px] text-red-600 font-medium">⚠️ Below cost!</span>}
+   734→                                </div>
+   735→                              )}
+   736→                            </div>
+   737→                            <Button
+   738→                              size="sm"
+   739→                              variant="outline"
+   740→                              className="h-7 text-[10px] gap-1 shrink-0 border-green-300 text-green-700 hover:bg-green-50"
+   741→                              onClick={() => handleApplyPricing(item.productName, item.suggestedPrice)}
+   742→                            >
+   743→                              <Sparkles className="h-3 w-3" /> Apply
+   744→                            </Button>
+   745→                          </div>
+   746→                        ))}
+   747→                      </div>
+   748→                    </CardContent>
+   749→                  </Card>
+   750→                </motion.div>
+   751→              )}
+   752→            </div>
+   753→          </TabsContent>
+   754→
+   755→          <TabsContent value="employees">
+   756→            <div className="space-y-3">
+   757→              <div className="flex items-center justify-between">
+   758→                <h3 className="text-sm font-semibold">Staff ({employees.length}/{GAME_CONFIG.maxEmployees})</h3>
+   759→                <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => setShowHireDialog(true)} disabled={employees.length >= GAME_CONFIG.maxEmployees}>
+   760→                  <Users className="h-3.5 w-3.5" /> Hire
+   761→                </Button>
+   762→              </div>
+   763→
+   764→              <Dialog open={showHireDialog} onOpenChange={setShowHireDialog}>
+   765→                <DialogContent className="max-w-md">
+   766→                  <DialogHeader>
+   767→                    <DialogTitle>Hire Employee</DialogTitle>
+   768→                    <DialogDescription>Choose a role for your new employee</DialogDescription>
+   769→                  </DialogHeader>
+   770→                  <div className="space-y-2">
+   771→                    {EMPLOYEE_ROLES.map((role) => (
+   772→                      <button
+   773→                        key={role.role}
+   774→                        onClick={() => setHireRole(role.role)}
+   775→                        className={`w-full text-left p-3 rounded-lg border transition-colors ${hireRole === role.role ? 'border-green-500 bg-green-50' : 'hover:border-green-300'}`}
+   776→                      >
+   777→                        <div className="flex items-center gap-2">
+   778→                          <span className="text-xl">{role.icon}</span>
+   779→                          <div className="flex-1">
+   780→                            <div className="text-sm font-medium">{role.label}</div>
+   781→                            <div className="text-xs text-muted-foreground">{role.description}</div>
+   782→                            <div className="text-xs mt-0.5">Salary: ~৳{role.baseSalary.toLocaleString()}/day</div>
+   783→                          </div>
+   784→                        </div>
+   785→                      </button>
+   786→                    ))}
+   787→                  </div>
+   788→                  <DialogFooter>
+   789→                    <Button variant="outline" onClick={() => setShowHireDialog(false)}>Cancel</Button>
+   790→                    <Button onClick={handleHire} disabled={!hireRole || hiring} className="text-white" style={{ background: '#006a4e' }}>
+   791→                      {hiring ? 'Hiring...' : 'Hire'}
+   792→                    </Button>
+   793→                  </DialogFooter>
+   794→                </DialogContent>
+   795→              </Dialog>
+   796→
+   797→              {employees.length === 0 ? (
+   798→                <Card className="border-dashed">
+   799→                  <CardContent className="py-8 text-center">
+   800→                    <div className="text-4xl mb-2">👥</div>
+   801→                    <p className="text-sm text-muted-foreground">No employees. Hire staff to boost your business!</p>
+   802→                  </CardContent>
+   803→                </Card>
+   804→              ) : (
+   805→                <div className="space-y-2">
+   806→                  {employees.map((emp: any) => {
+   807→                    const role = getEmployeeRole(emp.role);
+   808→                    return (
+   809→                      <Card key={emp.id}>
+   810→                        <CardContent className="p-3">
+   811→                          <div className="flex items-center gap-3">
+   812→                            <div className="text-2xl p-1.5 rounded-lg bg-muted">{role?.icon || '👤'}</div>
+   813→                            <div className="flex-1 min-w-0">
+   814→                              <div className="text-sm font-medium truncate">{emp.name}</div>
+   815→                              <div className="text-xs text-muted-foreground">{role?.label || emp.role}</div>
+   816→                              <div className="flex gap-2 mt-1">
+   817→                                <Badge variant="outline" className="text-[10px]">Skill: {emp.skill}/10</Badge>
+   818→                                <Badge variant="outline" className="text-[10px]">Eff: {emp.efficiency || 0}%</Badge>
+   819→                              </div>
+   820→                            </div>
+   821→                            <div className="text-right shrink-0">
+   822→                              <div className="text-sm font-medium">৳{(emp.salary || 0).toLocaleString()}</div>
+   823→                              <div className="text-[10px] text-muted-foreground">salary/day</div>
+   824→                              <Button size="icon" variant="ghost" className="h-7 w-7 mt-1 text-red-400 hover:text-red-600" onClick={() => handleFire(emp.id)} disabled={firingId === emp.id}>
+   825→                                <Trash2 className="h-3.5 w-3.5" />
+   826→                              </Button>
+   827→                            </div>
+   828→                          </div>
+   829→                        </CardContent>
+   830→                      </Card>
+   831→                    );
+   832→                  })}
+   833→                </div>
+   834→              )}
+   835→            </div>
+   836→          </TabsContent>
+   837→
+   838→          <TabsContent value="logs">
+   839→            <div className="space-y-3">
+   840→              <div className="flex items-center justify-between">
+   841→                <h3 className="text-sm font-semibold flex items-center gap-2">
+   842→                  <FileText className="h-4 w-4" style={{ color: '#006a4e' }} /> Activity Log
+   843→                </h3>
+   844→                <Button size="sm" variant="outline" className="text-xs" onClick={fetchLogs}>
+   845→                  Refresh
+   846→                </Button>
+   847→              </div>
+   848→
+   849→              {logsLoading ? (
+   850→                <div className="space-y-2">
+   851→                  {[...Array(5)].map((_, i) => (
+   852→                    <Card key={i}><CardContent className="p-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+   853→                  ))}
+   854→                </div>
+   855→              ) : logs.length === 0 ? (
+   856→                <Card className="border-dashed">
+   857→                  <CardContent className="py-12 text-center">
+   858→                    <div className="text-4xl mb-2">📋</div>
+   859→                    <p className="text-sm text-muted-foreground">No activity yet. Advance to the next day to generate logs!</p>
+   860→                  </CardContent>
+   861→                </Card>
+   862→              ) : (
+   863→                <div className="space-y-2">
+   864→                  {logs.map((log: any, i: number) => {
+   865→                    const isProfit = log.type === 'PROFIT';
+   866→                    return (
+   867→                      <motion.div
+   868→                        key={log.id}
+   869→                        initial={{ opacity: 0, x: -10 }}
+   870→                        animate={{ opacity: 1, x: 0 }}
+   871→                        transition={{ delay: i * 0.03 }}
+   872→                      >
+   873→                        <Card className={isProfit ? 'border-l-4 border-l-green-400 game-gradient-card' : 'border-l-4 border-l-red-400 game-gradient-card'}>
+   874→                          <CardContent className="p-3">
+   875→                            <div className="flex items-start gap-3">
+   876→                              <div className={`mt-0.5 ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+   877→                                {isProfit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+   878→                              </div>
+   879→                              <div className="flex-1 min-w-0">
+   880→                                <div className="text-sm">{log.message}</div>
+   881→                                <div className="flex items-center gap-2 mt-1">
+   882→                                  <span className={`text-xs font-bold ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+   883→                                    {isProfit ? '+' : '-'}{formatTakaShort(Math.abs(log.amount || 0))}
+   884→                                  </span>
+   885→                                  {log.createdAt && (
+   886→                                    <span className="text-[10px] text-muted-foreground">
+   887→                                      {new Date(log.createdAt).toLocaleDateString()}
+   888→                                    </span>
+   889→                                  )}
+   890→                                </div>
+   891→                              </div>
+   892→                            </div>
+   893→                          </CardContent>
+   894→                        </Card>
+   895→                      </motion.div>
+   896→                    );
+   897→                  })}
+   898→                </div>
+   899→              )}
+   900→            </div>
+   901→          </TabsContent>
+   902→
+   903→          <TabsContent value="settings">
+   904→            <div className="space-y-4">
+   905→              <Card>
+   906→                <CardHeader className="pb-2 pt-4 px-4">
+   907→                  <CardTitle className="text-sm">Business Info</CardTitle>
+   908→                </CardHeader>
+   909→                <CardContent className="px-4 pb-4 space-y-2">
+   910→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Name</span><span className="font-medium">{currentBusiness.name}</span></div>
+   911→                  <Separator />
+   912→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Type</span><span className="font-medium">{bt?.icon} {bt?.name}</span></div>
+   913→                  <Separator />
+   914→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">City</span><span className="font-medium">{city?.name}</span></div>
+   915→                  <Separator />
+   916→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Level</span><span className="font-medium">{currentBusiness.level || 1}</span></div>
+   917→                  <Separator />
+   918→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Reputation</span><span className="font-medium">{currentBusiness.reputation || 0}%</span></div>
+   919→                </CardContent>
+   920→              </Card>
+   921→
+   922→              <Card>
+   923→                <CardHeader className="pb-2 pt-4 px-4">
+   924→                  <CardTitle className="text-sm flex items-center gap-2"><ArrowUp className="h-4 w-4" /> Upgrade Business</CardTitle>
+   925→                  <CardDescription>Upgrade to level {(currentBusiness.level || 1) + 1}. Increases capacity and +5 reputation.</CardDescription>
+   926→                </CardHeader>
+   927→                <CardContent className="px-4 pb-4">
+   928→                  <div className="flex items-center justify-between">
+   929→                    <div>
+   930→                      <div className="text-sm text-muted-foreground">Upgrade Cost</div>
+   931→                      <div className="text-lg font-bold">{formatTaka(upgradeCost)}</div>
+   932→                      <div className="text-[10px] text-muted-foreground">Your cash: {formatTaka(player?.cash || 0)}</div>
+   933→                    </div>
+   934→                    <Button onClick={handleUpgrade} disabled={upgrading || (player?.cash || 0) < upgradeCost} className="text-white" style={{ background: '#006a4e' }}>
+   935→                      {upgrading ? 'Upgrading...' : 'Upgrade'}
+   936→                    </Button>
+   937→                  </div>
+   938→                </CardContent>
+   939→              </Card>
+   940→
+   941→              <Card className="border-red-200/60">
+   942→                <CardHeader className="pb-2 pt-4 px-4">
+   943→                  <CardTitle className="text-sm flex items-center gap-2 text-red-600"><HandCoins className="h-4 w-4" /> Sell Business</CardTitle>
+   944→                  <CardDescription>Sell and recover a portion of your investment based on reputation.</CardDescription>
+   945→                </CardHeader>
+   946→                <CardContent className="px-4 pb-4">
+   947→                  <div className="flex items-center justify-between">
+   948→                    <div>
+   949→                      <div className="text-xs text-muted-foreground">Estimated Value</div>
+   950→                      <div className="text-lg font-bold">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</div>
+   951→                    </div>
+   952→                    <Button
+   953→                      variant="outline"
+   954→                      className="text-red-600 border-red-300 hover:bg-red-50 gap-1.5"
+   955→                      onClick={() => { setSellBusinessConfirm(''); setShowSellBusinessDialog(true); }}
+   956→                    >
+   957→                      <HandCoins className="h-4 w-4" />
+   958→                      Sell
+   959→                    </Button>
+   960→                  </div>
+   961→                </CardContent>
+   962→              </Card>
+   963→
+   964→              <Dialog open={showSellBusinessDialog} onOpenChange={setShowSellBusinessDialog}>
+   965→                <DialogContent className="sm:max-w-md">
+   966→                  <DialogHeader>
+   967→                    <DialogTitle className="flex items-center gap-2 text-red-600">
+   968→                      <HandCoins className="h-5 w-5" />
+   969→                      Sell Business
+   970→                    </DialogTitle>
+   971→                    <DialogDescription>
+   972→                      Permanently remove this business, all inventory, and all staff.
+   973→                    </DialogDescription>
+   974→                  </DialogHeader>
+   975→                  <div className="space-y-3 py-2">
+   976→                    <div className="rounded-lg bg-red-50 border border-red-200 p-3 space-y-2">
+   977→                      <div className="flex justify-between text-sm">
+   978→                        <span className="text-muted-foreground">Business Value</span>
+   979→                        <span className="font-medium">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</span>
+   980→                      </div>
+   981→                      <div className="flex justify-between text-sm">
+   982→                        <span className="text-muted-foreground">Inventory Liquidation</span>
+   983→                        <span className="font-medium">{formatTaka(inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+   984→                      </div>
+   985→                      <Separator />
+   986→                      <div className="flex justify-between text-sm font-bold">
+   987→                        <span>Total You Receive</span>
+   988→                        <span className="text-green-700">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)) + inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+   989→                      </div>
+   990→                    </div>
+   991→                    <div>
+   992→                      <label className="text-sm font-medium">Type business name to confirm:</label>
+   993→                      <input
+   994→                        type="text"
+   995→                        value={sellBusinessConfirm}
+   996→                        onChange={(e) => setSellBusinessConfirm(e.target.value)}
+   997→                        placeholder={currentBusiness.name}
+   998→                        className="mt-1 w-full h-10 px-3 rounded-lg border border-red-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+   999→                      />
+  1000→                    </div>
+  1001→                  </div>
+  1002→                  <DialogFooter className="gap-2">
+  1003→                    <Button variant="outline" onClick={() => setShowSellBusinessDialog(false)}>Cancel</Button>
+  1004→                    <Button
+  1005→                      onClick={async () => {
+  1006→                        if (sellBusinessConfirm !== currentBusiness.name) return;
+  1007→                        setSellingBusiness(true);
+  1008→                        try {
+  1009→                          const res = await fetch(`/api/businesses/${currentBusiness.id}/sell`, { method: 'POST' });
+  1010→                          if (res.ok) {
+  1011→                            const data = await res.json();
+  1012→                            toast.success(`Sold for ${formatTaka(data.totalReceived)}`);
+  1013→                            setView('businesses');
+  1014→                            const bRes = await fetch('/api/businesses');
+  1015→                            if (bRes.ok) useGameStore.getState().setBusinesses(await bRes.json());
+  1016→                            const pRes = await fetch('/api/player');
+  1017→                            if (pRes.ok) useGameStore.getState().setPlayer(await pRes.json());
+  1018→                          } else {
+  1019→                            const err = await res.json();
+  1020→                            toast.error(err.error || 'Failed to sell');
+  1021→                          }
+  1022→                        } catch { toast.error('Network error'); }
+  1023→                        finally { setSellingBusiness(false); }
+  1024→                      }}
+  1025→                      disabled={sellingBusiness || sellBusinessConfirm !== currentBusiness.name}
+  1026→                      className="bg-red-600 hover:bg-red-700 text-white"
+  1027→                    >
+  1028→                      {sellingBusiness ? 'Selling...' : 'Confirm Sale'}
+  1029→                    </Button>
+  1030→                  </DialogFooter>
+  1031→                </DialogContent>
+  1032→              </Dialog>
+  1033→            </div>
+  1034→          </TabsContent>
+  1035→        </div>
+  1036→      </Tabs>
+  1037→    </div>
+  1038→  );
+  1039→}

@@ -49,6 +49,8 @@ export default function NewBusiness() {
         toast.success(`${businessName.trim()} created successfully!`);
         const busRes = await fetch('/api/businesses');
         if (busRes.ok) setBusinesses(await busRes.json());
+        const pRes = await fetch('/api/player');
+        if (pRes.ok) useGameStore.getState().setPlayer(await pRes.json());
         selectBusiness(business.id);
       } else {
         const err = await res.json();

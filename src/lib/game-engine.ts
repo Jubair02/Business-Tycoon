@@ -104,11 +104,6 @@ export async function applyEventEffects(): Promise<void> {
         categoryDemandMod[cat] = (categoryDemandMod[cat] || 0) + value;
       }
     }
-
-    // Check if event has ended
-    if (new Date() > event.endsAt) {
-      await db.gameEvent.update({ where: { id: event.id }, data: { active: false } });
-    }
   }
 
   // Apply modifiers to market prices in batch
@@ -121,14 +116,14 @@ export async function applyEventEffects(): Promise<void> {
         let priceMod = allPriceMod + (categoryPriceMod[product.category] || 0);
         let demandMod = allDemandMod + (categoryDemandMod[product.category] || 0);
 
-        // Product-specific effects
-        if (categoryDemandMod['COLD_DRINKS'] && (product.name.includes('Cold') || product.name.includes('Drink') || product.name.includes('Soft'))) {
+        // Product-specific effects (only if category doesn't already match)
+        if (categoryDemandMod['COLD_DRINKS'] && product.category !== 'COLD_DRINKS' && (product.name.includes('Cold') || product.name.includes('Drink') || product.name.includes('Soft'))) {
           demandMod += categoryDemandMod['COLD_DRINKS'];
         }
-        if (categoryDemandMod['WINTER_CLOTHING'] && product.name.includes('Winter')) {
+        if (categoryDemandMod['WINTER_CLOTHING'] && product.category !== 'WINTER_CLOTHING' && product.name.includes('Winter')) {
           demandMod += categoryDemandMod['WINTER_CLOTHING'];
         }
-        if (categoryDemandMod['PREMIUM_MOBILE'] && product.name.includes('Premium')) {
+        if (categoryDemandMod['PREMIUM_MOBILE'] && product.category !== 'PREMIUM_MOBILE' && product.name.includes('Premium')) {
           demandMod += categoryDemandMod['PREMIUM_MOBILE'];
         }
 
@@ -305,12 +300,6 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       },
     });
 
-    // Update player cash
-    await tx.player.update({
-      where: { id: business.playerId },
-      data: { cash: { increment: dailyProfit } },
-    });
-
     // Log
     await tx.gameLog.create({
       data: {
@@ -368,7 +357,7 @@ async function processLoanPayments(): Promise<void> {
         data: {
           remainingDebt: newRemainingDebt,
           daysRemaining: Math.max(loan.daysRemaining - 1, 0),
-          status: (isPaidOff || newRemainingDebt <= 0) ? 'PAID_OFF' : 'ACTIVE',
+          status: newRemainingDebt <= 0 ? 'PAID_OFF' : 'ACTIVE',
         },
       });
 
@@ -380,8 +369,8 @@ async function processLoanPayments(): Promise<void> {
       await tx.gameLog.create({
         data: {
           playerId: loan.playerId,
-          type: (isPaidOff || newRemainingDebt <= 0) ? 'LOAN_PAID' : 'LOAN_PAYMENT',
-          message: (isPaidOff || newRemainingDebt <= 0)
+          type: newRemainingDebt <= 0 ? 'LOAN_PAID' : 'LOAN_PAYMENT',
+          message: newRemainingDebt <= 0
             ? `Loan of ৳${loan.amount.toLocaleString()} fully repaid! Final deduction: ৳${Math.round(deductAmount).toLocaleString()}`
             : `Loan payment: ৳${Math.round(deductAmount).toLocaleString()} deducted. Remaining debt: ৳${Math.round(newRemainingDebt).toLocaleString()} (${loan.daysRemaining - 1} days left)`,
           amount: -deductAmount,

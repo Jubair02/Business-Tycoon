@@ -27,6 +27,13 @@ export async function POST(
       );
     }
 
+    if (!Number.isInteger(quantity)) {
+      return NextResponse.json(
+        { error: 'Quantity must be an integer' },
+        { status: 400 }
+      );
+    }
+
     // Verify business ownership
     const business = await db.business.findUnique({
       where: { id },
@@ -53,17 +60,23 @@ export async function POST(
       return NextResponse.json({ error: 'Inventory does not belong to this business' }, { status: 400 });
     }
 
-    if (inventory.quantity < quantity) {
-      return NextResponse.json(
-        { error: `Not enough stock. Have ${inventory.quantity}, trying to sell ${quantity}` },
-        { status: 400 }
-      );
-    }
-
-    const sellPricePerUnit = Math.round(inventory.purchasePrice * LIQUIDATION_RATE);
-    const totalReceived = sellPricePerUnit * quantity;
-
     const result = await db.$transaction(async (tx) => {
+      // Re-read inventory inside transaction to prevent race conditions
+      const currentInventory = await tx.inventory.findUnique({
+        where: { id: inventoryId },
+      });
+
+      if (!currentInventory) {
+        throw new Error('Inventory not found');
+      }
+
+      if (currentInventory.quantity < quantity) {
+        throw new Error(`Not enough stock. Have ${currentInventory.quantity}, trying to sell ${quantity}`);
+      }
+
+      const sellPricePerUnit = Math.round(currentInventory.purchasePrice * LIQUIDATION_RATE);
+      const totalReceived = sellPricePerUnit * quantity;
+
       // Credit player cash
       await tx.player.update({
         where: { id: playerId },
@@ -71,7 +84,7 @@ export async function POST(
       });
 
       // Update or remove inventory
-      const newQuantity = inventory.quantity - quantity;
+      const newQuantity = currentInventory.quantity - quantity;
       let updatedInventory;
 
       if (newQuantity === 0) {
@@ -90,23 +103,41 @@ export async function POST(
           playerId,
           businessId: id,
           type: 'SELL',
-          message: `Sold ${quantity}x ${inventory.productName} at ৳${sellPricePerUnit.toLocaleString()}/unit (70% liquidation). Received ৳${totalReceived.toLocaleString()}.`,
+          message: `Sold ${quantity}x ${currentInventory.productName} at ৳${sellPricePerUnit.toLocaleString()}/unit (70% liquidation). Received ৳${totalReceived.toLocaleString()}.`,
           amount: totalReceived,
         },
       });
 
       // Fetch updated business data
-      return tx.business.findUnique({
+      const updatedBusiness = await tx.business.findUnique({
         where: { id },
         include: {
           inventories: { orderBy: { createdAt: 'desc' } },
           employees: { orderBy: { hiredAt: 'asc' } },
         },
       });
+
+      return {
+        business: updatedBusiness,
+        sale: {
+          productName: currentInventory.productName,
+          quantity,
+          sellPricePerUnit,
+          totalReceived,
+        },
+      };
     });
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Inventory not found') {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.startsWith('Not enough stock')) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
     console.error('Sell inventory error:', error);
     return NextResponse.json(
       { error: 'Failed to sell inventory' },

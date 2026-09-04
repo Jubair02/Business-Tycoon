@@ -37,7 +37,6 @@ export async function POST(
     // Validate business ownership
     const business = await db.business.findUnique({
       where: { id },
-      include: { employees: true },
     });
 
     if (!business) {
@@ -48,14 +47,6 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    // Check max employees
-    if (business.employees.length >= GAME_CONFIG.maxEmployees) {
-      return NextResponse.json(
-        { error: `Maximum ${GAME_CONFIG.maxEmployees} employees per business` },
-        { status: 400 }
-      );
-    }
-
     // Generate employee stats
     const name = getRandomName();
     const salaryVariation = 1 + Math.random() * 0.3;
@@ -63,19 +54,43 @@ export async function POST(
     const skill = Math.floor(Math.random() * 7) + 3; // 3-9
     const efficiency = 0.5 + skill * GAME_CONFIG.employeeEfficiencyPerSkill;
 
-    const employee = await db.employee.create({
-      data: {
-        businessId: id,
-        role,
-        name,
-        salary,
-        skill,
-        efficiency: Math.round(efficiency * 100) / 100,
-      },
+    const employee = await db.$transaction(async (tx) => {
+      // Check max employees inside transaction to prevent race conditions
+      const currentBusiness = await tx.business.findUnique({
+        where: { id },
+        include: { employees: true },
+      });
+
+      if (!currentBusiness) {
+        throw new Error('Business not found');
+      }
+
+      if (currentBusiness.employees.length >= GAME_CONFIG.maxEmployees) {
+        throw new Error(`Maximum ${GAME_CONFIG.maxEmployees} employees per business`);
+      }
+
+      return tx.employee.create({
+        data: {
+          businessId: id,
+          role,
+          name,
+          salary,
+          skill,
+          efficiency: Math.round(efficiency * 100) / 100,
+        },
+      });
     });
 
     return NextResponse.json(employee, { status: 201 });
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Business not found') {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.startsWith('Maximum')) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
     console.error('Hire employee error:', error);
     return NextResponse.json(
       { error: 'Failed to hire employee' },

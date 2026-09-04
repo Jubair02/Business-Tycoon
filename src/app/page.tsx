@@ -52,6 +52,7 @@ export default function Home() {
   const initDone = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoTickTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isTickingRef = useRef(false);
 
   const fetchPlayer = useCallback(async () => {
     try {
@@ -193,6 +194,10 @@ export default function Home() {
     checkAuth();
   }, []);
 
+  // Keep fetchAllData in a ref so the interval always calls the latest version
+  const fetchAllDataRef = useRef(fetchAllData);
+  fetchAllDataRef.current = fetchAllData;
+
   // Auto-tick timer based on speed setting
   useEffect(() => {
     if (autoTickTimer.current) {
@@ -203,17 +208,21 @@ export default function Home() {
     const intervals: Record<string, number> = { slow: 120000, normal: 60000, fast: 30000 };
     const interval = intervals[autoTickSpeed] || 60000;
     autoTickTimer.current = setInterval(async () => {
-      if (isTicking) return;
+      if (isTickingRef.current) return;
+      isTickingRef.current = true;
       setIsTicking(true);
       try {
         setPreTickBusinesses([...useGameStore.getState().businesses]);
         const res = await fetch('/api/game/tick', { method: 'POST' });
         if (res.ok) {
-          await fetchAllData();
+          await fetchAllDataRef.current();
           setShowSummary(true);
         }
       } catch { /* silent */ }
-      finally { setIsTicking(false); }
+      finally {
+        isTickingRef.current = false;
+        setIsTicking(false);
+      }
     }, interval);
     return () => {
       if (autoTickTimer.current) clearInterval(autoTickTimer.current);

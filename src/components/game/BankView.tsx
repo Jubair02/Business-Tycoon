@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Landmark, Plus, Wallet, CreditCard, Clock, CheckCircle2, XCircle, AlertTriangle, ArrowDownToLine, ShieldCheck, Percent, TrendingUp, Award, Banknote } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatTaka } from '@/lib/game-data';
 import { cn } from '@/lib/utils';
 
 const DURATION_OPTIONS = [
@@ -32,9 +33,6 @@ const INTEREST_RATE = 0.05;
 const MIN_LOAN = 50000;
 const MAX_ACTIVE_LOANS = 3;
 
-function formatTaka(amount: number): string {
-  return `৳${Math.round(amount).toLocaleString()}`;
-}
 
 interface Loan {
   id: string;
@@ -175,7 +173,7 @@ export default function BankView() {
     }
   };
 
-  const canTakeLoan = activeLoans.length < MAX_ACTIVE_LOANS && player && player.cash > 0;
+  const canTakeLoan = activeLoans.length < MAX_ACTIVE_LOANS && availableCredit > 0;
 
   return (
     <div className="p-3 md:p-4 space-y-5 pb-24 md:pb-4">
@@ -581,13 +579,13 @@ export default function BankView() {
                 value={[loanAmount]}
                 onValueChange={(v) => setLoanAmount(v[0])}
                 min={MIN_LOAN}
-                max={maxLoan}
+                max={Math.max(availableCredit, MIN_LOAN)}
                 step={10000}
                 className="w-full"
               />
               <div className="flex items-center justify-between text-[10px] text-muted-foreground font-medium">
                 <span>{formatTaka(MIN_LOAN)}</span>
-                <span>{formatTaka(maxLoan)}</span>
+                <span>{formatTaka(Math.max(availableCredit, MIN_LOAN))}</span>
               </div>
             </div>
 

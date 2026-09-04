@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,8 +14,10 @@ interface WelcomeScreenProps {
 
 export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenProps) {
   const [name, setName] = useState('');
+  const submitRef = useRef(false);
 
   const handleStart = async () => {
+    if (submitRef.current) return;
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error('Please enter your name!');
@@ -29,7 +31,12 @@ export default function WelcomeScreen({ onRegister, isLoading }: WelcomeScreenPr
       toast.error('Name must be 30 characters or less');
       return;
     }
-    await onRegister(trimmed);
+    submitRef.current = true;
+    try {
+      await onRegister(trimmed);
+    } finally {
+      submitRef.current = false;
+    }
   };
 
   return (

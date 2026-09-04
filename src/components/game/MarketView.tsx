@@ -30,7 +30,7 @@ export default function MarketView() {
   const { selectedCity, setSelectedCity, businesses } = useGameStore();
   const [products, setProducts] = useState<any[]>([]);
   const [selectedType, setSelectedType] = useState<string>('all');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const fetchProducts = async (city: string, type: string) => {
     setLoading(true);

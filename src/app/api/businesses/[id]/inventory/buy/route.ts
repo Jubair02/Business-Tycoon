@@ -26,6 +26,13 @@ export async function POST(
       );
     }
 
+    if (!Number.isInteger(quantity)) {
+      return NextResponse.json(
+        { error: 'Quantity must be an integer' },
+        { status: 400 }
+      );
+    }
+
     const business = await db.business.findUnique({
       where: { id },
     });
@@ -55,21 +62,18 @@ export async function POST(
     const unitCost = Math.round(productDef.basePrice * priceMultiplier);
     const totalCost = unitCost * quantity;
 
-    const player = await db.player.findUnique({ where: { id: playerId } });
-    if (!player) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
-    }
-
-    if (player.cash < totalCost) {
-      return NextResponse.json(
-        { error: `Insufficient cash. Need ৳${totalCost.toLocaleString()}, have ৳${player.cash.toLocaleString()}` },
-        { status: 400 }
-      );
-    }
-
     const suggestedSellPrice = Math.round(unitCost * (1 + productDef.suggestedMarkup));
 
     const result = await db.$transaction(async (tx) => {
+      const player = await tx.player.findUnique({ where: { id: playerId } });
+      if (!player) {
+        throw new Error('Player not found');
+      }
+
+      if (player.cash < totalCost) {
+        throw new Error(`Insufficient cash. Need ৳${totalCost.toLocaleString()}, have ৳${player.cash.toLocaleString()}`);
+      }
+
       await tx.player.update({
         where: { id: playerId },
         data: { cash: { decrement: totalCost } },
@@ -109,6 +113,14 @@ export async function POST(
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Player not found') {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.startsWith('Insufficient cash')) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
     console.error('Buy inventory error:', error);
     return NextResponse.json(
       { error: 'Failed to buy inventory' },

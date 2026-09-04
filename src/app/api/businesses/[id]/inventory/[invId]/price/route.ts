@@ -18,7 +18,7 @@ export async function PATCH(
     const body = await request.json();
     const { sellPrice } = body;
 
-    if (sellPrice === undefined || sellPrice === null || sellPrice < 0) {
+    if (typeof sellPrice !== 'number' || !Number.isFinite(sellPrice) || sellPrice < 0) {
       return NextResponse.json(
         { error: 'A valid non-negative sellPrice is required' },
         { status: 400 }

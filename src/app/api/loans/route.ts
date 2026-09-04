@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { amount, days } = body;
 
-    if (!amount || typeof amount !== 'number' || amount < MIN_LOAN) {
+    if (!amount || typeof amount !== 'number' || !Number.isFinite(amount) || amount < MIN_LOAN) {
       return NextResponse.json(
         { error: `Minimum loan amount is ৳${MIN_LOAN.toLocaleString()}` },
         { status: 400 }
@@ -47,23 +47,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check active loans count
-    const activeLoans = await db.loan.count({
-      where: { playerId, status: 'ACTIVE' },
-    });
-    if (activeLoans >= MAX_ACTIVE_LOANS) {
-      return NextResponse.json(
-        { error: `Maximum ${MAX_ACTIVE_LOANS} active loans allowed` },
-        { status: 400 }
-      );
-    }
-
     // Calculate loan terms
     const totalInterest = amount * INTEREST_RATE;
     const totalRepayment = amount + totalInterest;
     const dailyPayment = totalRepayment / days;
 
     const loan = await db.$transaction(async (tx) => {
+      // Check active loans count inside transaction to prevent race conditions
+      const activeLoans = await tx.loan.count({
+        where: { playerId, status: 'ACTIVE' },
+      });
+      if (activeLoans >= MAX_ACTIVE_LOANS) {
+        throw new Error(`Maximum ${MAX_ACTIVE_LOANS} active loans allowed`);
+      }
+
       // Create loan
       const newLoan = await tx.loan.create({
         data: {
@@ -78,12 +75,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Add loan amount to player cash
+      // Add loan amount to player cash (netWorth unchanged: cash+amount offset by equal debt)
       await tx.player.update({
         where: { id: playerId },
         data: {
           cash: { increment: amount },
-          netWorth: { increment: amount },
         },
       });
 
@@ -102,6 +98,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(loan, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Maximum')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error('Take loan error:', error);
     return NextResponse.json({ error: 'Failed to take loan' }, { status: 500 });
   }

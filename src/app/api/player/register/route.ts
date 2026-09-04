@@ -35,6 +35,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (name.trim().length > 50) {
+      return NextResponse.json(
+        { error: 'Player name must be 50 characters or less' },
+        { status: 400 }
+      );
+    }
+
     const player = await db.player.create({
       data: {
         name: name.trim(),

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { STARTING_CASH } from '@/lib/game-data';
 
 export async function POST() {
   try {
@@ -48,13 +49,10 @@ export async function POST() {
       await tx.player.update({
         where: { id: playerId },
         data: {
-          cash: 500000,
-          netWorth: 500000,
-          totalRevenue: 0,
-          totalProfit: 0,
+          cash: STARTING_CASH,
+          netWorth: STARTING_CASH,
           level: 1,
-          xp: 0,
-          xpToNext: 100,
+          experience: 0,
         },
       });
     });

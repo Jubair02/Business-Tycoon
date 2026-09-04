@@ -47,7 +47,7 @@ export default function Dashboard() {
       setLoadingLogs(false);
     };
     fetchLogs();
-  }, []);
+  }, [gameDay]);
 
   const totalEmployees = businesses.reduce((sum: number, b: any) => sum + (b._count?.employees || 0), 0);
   const totalDailyProfit = businesses.reduce((sum: number, b: any) => sum + (b.dailyProfit || 0), 0);

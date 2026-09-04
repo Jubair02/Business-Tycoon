@@ -80,6 +80,8 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
     const fetchMarket = async () => {
       setLoadingMarket(true);
       try {
+        // NOTE: Currently only fetches market data for the first city.
+        // If the player has businesses in multiple cities, only the first is shown.
         const city = playerCities[0];
         const res = await fetch(`/api/market?city=${city}`);
         if (res.ok) {
@@ -490,6 +492,11 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                 <TrendingUp className="h-3.5 w-3.5" />
                 Market Highlights
               </h3>
+              {[...new Set(businesses.map((b: any) => b.city))].length > 1 && (
+                <p className="text-[10px] text-muted-foreground mb-1.5">
+                  Market data for: {[...new Set(businesses.map((b: any) => b.city))][0]} only
+                </p>
+              )}
 
               <div className="space-y-1.5">
                 {marketHighlights.map((item, i) => (

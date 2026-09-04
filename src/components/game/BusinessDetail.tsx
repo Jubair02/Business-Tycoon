@@ -66,6 +66,16 @@ export default function BusinessDetail() {
     }
   }, [currentBusiness?.id, setCurrentBusiness]);
 
+  const refreshPlayer = useCallback(async () => {
+    try {
+      const res = await fetch('/api/player');
+      if (res.ok) {
+        const data = await res.json();
+        useGameStore.getState().setPlayer(data);
+      }
+    } catch { /* silent */ }
+  }, []);
+
   const fetchMarketProducts = useCallback(async () => {
     if (!currentBusiness) return;
     try {
@@ -76,7 +86,7 @@ export default function BusinessDetail() {
     } catch {
       // silent
     }
-  }, [currentBusiness]);
+  }, [currentBusiness?.type, currentBusiness?.city]);
 
   const fetchLogs = useCallback(async () => {
     if (!currentBusiness?.id) return;
@@ -124,6 +134,7 @@ export default function BusinessDetail() {
       if (res.ok) {
         toast.success(`${productName}: price set to ${formatTaka(price)}`);
         fetchBusiness();
+        refreshPlayer();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Failed to set price');
@@ -174,6 +185,7 @@ export default function BusinessDetail() {
         toast.success('Price updated!');
         setIsEditingPrice(null);
         fetchBusiness();
+        refreshPlayer();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Failed to update price');
@@ -202,6 +214,7 @@ export default function BusinessDetail() {
         setShowBuyDialog(false);
         setBuyQuantity(1);
         fetchBusiness();
+        refreshPlayer();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Purchase failed');
@@ -227,12 +240,17 @@ export default function BusinessDetail() {
       });
       if (res.ok) {
         const data = await res.json();
-        const sellPricePerUnit = Math.round((sellInventory.purchasePrice || 0) * 0.7);
-        toast.success(`Sold ${sellQuantity}x ${sellInventory.productName} for ${formatTaka(sellPricePerUnit * sellQuantity)}`);
+        // Use server-returned sale data for the toast instead of client-side calculation
+        if (data.sale) {
+          toast.success(`Sold ${data.sale.quantity}x ${data.sale.productName} for ${formatTaka(data.sale.totalReceived)}`);
+        } else {
+          toast.success('Inventory sold successfully');
+        }
         setShowSellDialog(false);
         setSellInventory(null);
         setSellQuantity(1);
-        setCurrentBusiness(data);
+        setCurrentBusiness(data.business || data);
+        refreshPlayer();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Sale failed');
@@ -258,6 +276,7 @@ export default function BusinessDetail() {
         setShowHireDialog(false);
         setHireRole('');
         fetchBusiness();
+        refreshPlayer();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Hiring failed');
@@ -276,6 +295,7 @@ export default function BusinessDetail() {
       if (res.ok) {
         toast.success('Employee fired');
         fetchBusiness();
+        refreshPlayer();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Failed to fire employee');
@@ -298,6 +318,7 @@ export default function BusinessDetail() {
       if (res.ok) {
         toast.success('Business upgraded!');
         fetchBusiness();
+        refreshPlayer();
       } else {
         const err = await res.json();
         toast.error(err.error || 'Upgrade failed');

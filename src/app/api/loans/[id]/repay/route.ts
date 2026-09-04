@@ -95,6 +95,15 @@ export async function POST(
       return updatedLoan;
     });
 
+    // Recalculate netWorth after repayment
+    const updatedPlayer = await db.player.findUnique({ where: { id: playerId } });
+    if (updatedPlayer) {
+      const bizCash = (await db.business.findMany({ where: { playerId }, select: { cash: true } })).reduce((s, b) => s + b.cash, 0);
+      const invValue = (await db.inventory.findMany({ where: { business: { playerId } }, select: { quantity: true, purchasePrice: true } })).reduce((s, i) => s + i.quantity * i.purchasePrice, 0);
+      const totalDebt = (await db.loan.findMany({ where: { playerId, status: 'ACTIVE' }, select: { remainingDebt: true } })).reduce((s, l) => s + l.remainingDebt, 0);
+      await db.player.update({ where: { id: playerId }, data: { netWorth: updatedPlayer.cash + bizCash + invValue - totalDebt } });
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     console.error('Repay loan error:', error);

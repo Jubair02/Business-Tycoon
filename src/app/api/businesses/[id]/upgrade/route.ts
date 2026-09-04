@@ -34,24 +34,31 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid business type' }, { status: 400 });
     }
 
-    const upgradeCost = Math.round(businessType.investment * business.level * 0.5);
-
-    const player = await db.player.findUnique({ where: { id: playerId } });
-    if (!player) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
-    }
-
-    if (player.cash < upgradeCost) {
-      return NextResponse.json(
-        { error: `Insufficient cash. Need ৳${upgradeCost.toLocaleString()}, have ৳${player.cash.toLocaleString()}` },
-        { status: 400 }
-      );
-    }
-
-    const newLevel = business.level + 1;
-    const newReputation = Math.min(100, business.reputation + 5);
-
     const updated = await db.$transaction(async (tx) => {
+      // Re-read business level inside transaction to prevent race conditions
+      const currentBusiness = await tx.business.findUnique({ where: { id } });
+      if (!currentBusiness) {
+        throw new Error('Business not found');
+      }
+
+      if (currentBusiness.level >= 10) {
+        throw new Error('Business has reached maximum level (10)');
+      }
+
+      const upgradeCost = Math.round(businessType.investment * currentBusiness.level * 0.5);
+
+      const player = await tx.player.findUnique({ where: { id: playerId } });
+      if (!player) {
+        throw new Error('Player not found');
+      }
+
+      if (player.cash < upgradeCost) {
+        throw new Error(`Insufficient cash. Need ৳${upgradeCost.toLocaleString()}, have ৳${player.cash.toLocaleString()}`);
+      }
+
+      const newLevel = currentBusiness.level + 1;
+      const newReputation = Math.min(100, currentBusiness.reputation + 5);
+
       await tx.player.update({
         where: { id: playerId },
         data: { cash: { decrement: upgradeCost } },
@@ -68,6 +75,17 @@ export async function POST(
 
     return NextResponse.json(updated);
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Business not found') {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message === 'Player not found') {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.startsWith('Insufficient cash') || error.message.startsWith('Business has reached')) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
     console.error('Upgrade business error:', error);
     return NextResponse.json(
       { error: 'Failed to upgrade business' },

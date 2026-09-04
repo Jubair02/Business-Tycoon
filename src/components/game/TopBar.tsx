@@ -22,9 +22,15 @@ export default function TopBar({ onNextDay, isTicking }: TopBarProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const lastSeenCountRef = useRef(0);
-  const cashDirection = useMemo(() => {
-    if (!player) return null;
-    return null;
+  const [cashDirection, setCashDirection] = useState<'up' | 'down' | null>(null);
+  const prevCashRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!player) return;
+    const prev = prevCashRef.current;
+    prevCashRef.current = player.cash;
+    if (prev === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- tracking previous value requires effect + setState
+    setCashDirection(player.cash > prev ? 'up' : player.cash < prev ? 'down' : null);
   }, [player?.cash]);
 
   const fetchLogCount = useCallback(async () => {
@@ -33,7 +39,7 @@ export default function TopBar({ onNextDay, isTicking }: TopBarProps) {
       if (res.ok) {
         const data = await res.json();
         const count = Array.isArray(data) ? data.length : 0;
-        setUnreadCount(count - lastSeenCountRef.current);
+        setUnreadCount(Math.max(0, count - lastSeenCountRef.current));
       }
     } catch {
       /* silent */
