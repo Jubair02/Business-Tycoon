@@ -1,58 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, forbidden, validationError, insufficientFunds, handleApiError, repayLoanSchema } from '@/lib/errors';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id } = await params;
-    const body = await request.json();
+    const body = repayLoanSchema.parse(await request.json());
     const { amount } = body;
-
-    if (!amount || typeof amount !== 'number' || amount <= 0) {
-      return NextResponse.json(
-        { error: 'A positive repayment amount is required' },
-        { status: 400 }
-      );
-    }
 
     const loan = await db.loan.findUnique({ where: { id } });
     if (!loan) {
-      return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
+      throw notFound('Loan');
     }
 
     if (loan.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     if (loan.status !== 'ACTIVE') {
-      return NextResponse.json(
-        { error: `Loan is already ${loan.status.toLowerCase()}` },
-        { status: 400 }
-      );
+      throw validationError(`Loan is already ${loan.status.toLowerCase()}`);
     }
 
     const repayAmount = Math.min(amount, loan.remainingDebt);
 
     const player = await db.player.findUnique({ where: { id: playerId } });
     if (!player) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+      throw notFound('Player');
     }
 
     if (player.cash < repayAmount) {
-      return NextResponse.json(
-        { error: `Insufficient cash. Need ৳${Math.round(repayAmount).toLocaleString()}, have ৳${Math.round(player.cash).toLocaleString()}` },
-        { status: 400 }
-      );
+      throw insufficientFunds(repayAmount, player.cash);
     }
 
     const result = await db.$transaction(async (tx) => {
@@ -106,7 +88,6 @@ export async function POST(
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Repay loan error:', error);
-    return NextResponse.json({ error: 'Failed to repay loan' }, { status: 500 });
+    return handleApiError(error);
   }
 }

@@ -1,6 +1,8 @@
 // ============================================
 // Bangladesh Business Tycoon - Game Engine (Optimized)
 // Server-authoritative economy simulation
+// Phase 0: Tick concurrency lock, stale lock recovery,
+//   transaction safety, error handling, net worth consistency
 // ============================================
 
 import { db } from './db';
@@ -9,6 +11,137 @@ import {
   getRandomName, getCity, getBusinessType
 } from './game-data';
 import type { EventTemplate } from './game-data';
+import { AppError, tickLocked, internalError } from '@/lib/errors';
+import { PrismaClient } from '@prisma/client';
+
+// ---- Prisma Transaction Client Type ----
+type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+
+// ---- Tick Concurrency Lock Constants ----
+const STALE_TICK_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+
+// ---- Tick Concurrency Lock ----
+
+/**
+ * Atomically attempt to acquire the tick lock using the GameState key-value store.
+ * Returns true if the lock was acquired, false if it was already held.
+ *
+ * Stale lock recovery: if the lock has been held for longer than
+ * STALE_TICK_TIMEOUT_MS, the lock is stolen and a warning is logged.
+ */
+export async function acquireTickLock(): Promise<boolean> {
+  const now = new Date();
+
+  return db.$transaction(async (tx) => {
+    // Read current lock state
+    const lockState = await tx.gameState.findUnique({ where: { key: 'tickInProgress' } });
+    const startedAtState = await tx.gameState.findUnique({ where: { key: 'tickStartedAt' } });
+
+    const isLocked = lockState?.value === 'true';
+    const startedAt = startedAtState?.value ? new Date(startedAtState.value) : null;
+
+    if (isLocked && startedAt) {
+      const elapsed = now.getTime() - startedAt.getTime();
+      if (elapsed < STALE_TICK_TIMEOUT_MS) {
+        // Lock is actively held and not stale → reject
+        return false;
+      }
+      // Lock is stale → steal it
+      console.warn(
+        `[GameEngine] Stale tick lock detected (held for ${Math.round(elapsed / 1000)}s, timeout ${STALE_TICK_TIMEOUT_MS / 1000}s). Stealing lock.`
+      );
+    } else if (isLocked) {
+      // Lock is held but no timestamp → treat as stale, steal it
+      console.warn('[GameEngine] Tick lock held with no timestamp. Stealing lock.');
+    }
+
+    // Acquire the lock
+    const nowISO = now.toISOString();
+
+    await tx.gameState.upsert({
+      where: { key: 'tickInProgress' },
+      create: { key: 'tickInProgress', value: 'true' },
+      update: { value: 'true' },
+    });
+
+    await tx.gameState.upsert({
+      where: { key: 'tickStartedAt' },
+      create: { key: 'tickStartedAt', value: nowISO },
+      update: { value: nowISO },
+    });
+
+    // Increment tickVersion atomically
+    const versionState = await tx.gameState.findUnique({ where: { key: 'tickVersion' } });
+    const currentVersion = parseInt(versionState?.value || '0', 10);
+    await tx.gameState.upsert({
+      where: { key: 'tickVersion' },
+      create: { key: 'tickVersion', value: '1' },
+      update: { value: String(currentVersion + 1) },
+    });
+
+    return true;
+  });
+}
+
+/**
+ * Release the tick lock by setting tickInProgress = "false".
+ */
+export async function releaseTickLock(): Promise<void> {
+  await db.gameState.upsert({
+    where: { key: 'tickInProgress' },
+    create: { key: 'tickInProgress', value: 'false' },
+    update: { value: 'false' },
+  });
+}
+
+// ---- Net Worth Recalculation (Transaction-Safe) ----
+
+/**
+ * Recalculate a player's net worth within a transaction context.
+ * netWorth = playerCash + businessCash + inventoryValue - outstandingDebt
+ *
+ * @param tx - Prisma transaction client (or the db singleton)
+ * @param playerId - The player whose net worth to recalculate
+ */
+async function recalculateNetWorth(tx: PrismaTx, playerId: string): Promise<void> {
+  const player = await tx.player.findUnique({
+    where: { id: playerId },
+    select: { id: true, cash: true },
+  });
+  if (!player) {
+    console.error(`[GameEngine] recalculateNetWorth: Player ${playerId} not found`);
+    return;
+  }
+
+  const allBusinesses = await tx.business.findMany({
+    where: { playerId },
+    select: { cash: true },
+  });
+  const totalBusinessCash = allBusinesses.reduce((sum, b) => sum + b.cash, 0);
+
+  const allInventory = await tx.inventory.findMany({
+    where: { business: { playerId } },
+    select: { quantity: true, purchasePrice: true },
+  });
+  const totalInventoryValue = allInventory.reduce(
+    (sum, inv) => sum + inv.quantity * inv.purchasePrice,
+    0
+  );
+
+  // Include outstanding loan debt
+  const activeLoans = await tx.loan.findMany({
+    where: { playerId, status: 'ACTIVE' },
+    select: { remainingDebt: true },
+  });
+  const outstandingDebt = activeLoans.reduce((sum, loan) => sum + loan.remainingDebt, 0);
+
+  const netWorth = player.cash + totalBusinessCash + totalInventoryValue - outstandingDebt;
+
+  await tx.player.update({
+    where: { id: playerId },
+    data: { netWorth },
+  });
+}
 
 // ---- Event Generation ----
 
@@ -276,7 +409,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     Math.min(GAME_CONFIG.maxReputation, business.reputation + reputationChange)
   );
 
-  // Execute all updates in a transaction
+  // Execute all updates AND net worth recalculation in a single transaction
   await db.$transaction(async (tx) => {
     // Update inventory quantities
     for (const upd of inventoryUpdates) {
@@ -310,23 +443,10 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         amount: dailyProfit,
       },
     });
+
+    // Recalculate net worth within the same transaction (includes debt)
+    await recalculateNetWorth(tx, business.playerId);
   });
-
-  // Update net worth (separate query, not critical for consistency)
-  const allBusinesses = await db.business.findMany({ where: { playerId: business.playerId }, select: { cash: true } });
-  const totalBusinessCash = allBusinesses.reduce((sum, b) => sum + b.cash, 0);
-  const totalInventoryValue = (await db.inventory.findMany({
-    where: { business: { playerId: business.playerId } },
-    select: { quantity: true, purchasePrice: true },
-  })).reduce((sum, inv) => sum + inv.quantity * inv.purchasePrice, 0);
-
-  const player = await db.player.findUnique({ where: { id: business.playerId } });
-  if (player) {
-    await db.player.update({
-      where: { id: business.playerId },
-      data: { netWorth: player.cash + totalBusinessCash + totalInventoryValue },
-    });
-  }
 }
 
 // ---- Loan Payment Processing ----
@@ -347,7 +467,10 @@ async function processLoanPayments(): Promise<void> {
     await db.$transaction(async (tx) => {
       // Deduct payment from player cash
       const player = await tx.player.findUnique({ where: { id: loan.playerId }, select: { cash: true } });
-      if (!player) return;
+      if (!player) {
+        console.error(`[GameEngine] processLoanPayments: Player ${loan.playerId} not found for loan ${loan.id}`);
+        return;
+      }
 
       const deductAmount = Math.min(actualPayment, player.cash);
       const newRemainingDebt = Math.max(loan.remainingDebt - deductAmount, 0);
@@ -383,65 +506,114 @@ async function processLoanPayments(): Promise<void> {
 // ---- Full Game Tick ----
 
 export async function gameTick(): Promise<void> {
-  // 0. Expire old events first
-  await db.gameEvent.updateMany({
-    where: { active: true, endsAt: { lt: new Date() } },
-    data: { active: false },
+  // NOTE: The tick lock is managed by the API route handler.
+  // gameTick() is the pure simulation function and does NOT acquire/release the lock.
+  // This prevents double-acquisition bugs when the API route wraps gameTick() with locking.
+
+  // Log tick start
+  await db.gameLog.create({
+    data: {
+      type: 'GAME_TICK_STARTED',
+      message: `Game tick started at ${new Date().toISOString()}`,
+    },
   });
 
-  // 1. Generate new events (20% chance)
-  if (Math.random() < 0.2) {
-    await generateEvent();
-  }
-
-  // 2. Update market prices (only every 3 ticks to save performance)
+  // 0. Game state housekeeping in a single transaction:
+  //    - Expire old events
+  //    - Update game day / tick count / lastTick
   const tickState = await db.gameState.findUnique({ where: { key: 'tickCount' } });
   const tickNum = parseInt(tickState?.value || '0');
-  if (tickNum % 3 === 0) {
-    await updateMarketPrices();
-    await applyEventEffects();
+
+  await db.$transaction(async (tx) => {
+    // Expire old events
+    await tx.gameEvent.updateMany({
+      where: { active: true, endsAt: { lt: new Date() } },
+      data: { active: false },
+    });
+
+    // Update game state (tick count, last tick, game day)
+    const now = new Date().toISOString();
+    await tx.gameState.upsert({
+      where: { key: 'lastTick' },
+      create: { key: 'lastTick', value: now },
+      update: { value: now },
+    });
+    await tx.gameState.upsert({
+      where: { key: 'tickCount' },
+      create: { key: 'tickCount', value: '1' },
+      update: { value: String(tickNum + 1) },
+    });
+    const dayState = await tx.gameState.findUnique({ where: { key: 'gameDay' } });
+    await tx.gameState.upsert({
+      where: { key: 'gameDay' },
+      create: { key: 'gameDay', value: '1' },
+      update: { value: String(parseInt(dayState?.value || '0') + 1) },
+    });
+  });
+
+  // Generate new events (20% chance) — outside the housekeeping tx
+  // because it involves a create which is independent
+  if (Math.random() < 0.2) {
+    try {
+      await generateEvent();
+    } catch (err) {
+      console.error('[GameEngine] Failed to generate event:', err);
+    }
   }
 
-  // 3. Simulate all businesses
+  // Update market prices (only every 3 ticks to save performance)
+  if (tickNum % 3 === 0) {
+    try {
+      await updateMarketPrices();
+    } catch (err) {
+      console.error('[GameEngine] Failed to update market prices:', err);
+    }
+    try {
+      await applyEventEffects();
+    } catch (err) {
+      console.error('[GameEngine] Failed to apply event effects:', err);
+    }
+  }
+
+  // 1. Simulate all businesses
   const businesses = await db.business.findMany({ select: { id: true } });
   for (const business of businesses) {
-    await simulateBusinessTick(business.id);
+    try {
+      await simulateBusinessTick(business.id);
+    } catch (err) {
+      console.error(`[GameEngine] Failed to simulate business ${business.id}:`, err);
+    }
   }
 
-  // 3.5 Process loan payments (safe - skip if model unavailable)
+  // 2. Process loan payments — errors now propagate with proper logging
   try {
     await processLoanPayments();
-  } catch {
-    // Loan model may not be available yet
+  } catch (err) {
+    console.error('[GameEngine] Failed to process loan payments:', err);
   }
 
-  // 4. Simulate AI player activity
-  await simulateAITick();
+  // 3. Simulate AI player activity
+  try {
+    await simulateAITick();
+  } catch (err) {
+    console.error('[GameEngine] Failed to simulate AI tick:', err);
+  }
 
-  // 5. Generate news (50% chance)
+  // 4. Generate news (50% chance)
   if (Math.random() < 0.5) {
-    await generateNews();
+    try {
+      await generateNews();
+    } catch (err) {
+      console.error('[GameEngine] Failed to generate news:', err);
+    }
   }
 
-  // 6. Update game state
-  const now = new Date().toISOString();
-  await db.gameState.upsert({
-    where: { key: 'lastTick' },
-    create: { key: 'lastTick', value: now },
-    update: { value: now },
-  });
-
-  await db.gameState.upsert({
-    where: { key: 'tickCount' },
-    create: { key: 'tickCount', value: '1' },
-    update: { value: String(tickNum + 1) },
-  });
-
-  const dayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
-  await db.gameState.upsert({
-    where: { key: 'gameDay' },
-    create: { key: 'gameDay', value: '1' },
-    update: { value: String(parseInt(dayState?.value || '0') + 1) },
+  // Log tick completion
+  await db.gameLog.create({
+    data: {
+      type: 'GAME_TICK_COMPLETED',
+      message: `Game tick completed at ${new Date().toISOString()}`,
+    },
   });
 }
 
@@ -525,6 +697,9 @@ export async function seedInitialData(): Promise<void> {
   await db.gameState.upsert({ where: { key: 'lastTick' }, create: { key: 'lastTick', value: new Date().toISOString() }, update: {} });
   await db.gameState.upsert({ where: { key: 'tickCount' }, create: { key: 'tickCount', value: '0' }, update: {} });
   await db.gameState.upsert({ where: { key: 'gameDay' }, create: { key: 'gameDay', value: '1' }, update: {} });
+  // Initialize tick lock state
+  await db.gameState.upsert({ where: { key: 'tickInProgress' }, create: { key: 'tickInProgress', value: 'false' }, update: {} });
+  await db.gameState.upsert({ where: { key: 'tickVersion' }, create: { key: 'tickVersion', value: '0' }, update: {} });
 
   // Generate initial news
   for (let i = 0; i < 5; i++) {

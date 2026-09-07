@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, forbidden, validationError, handleApiError } from '@/lib/errors';
 
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; empId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id, empId } = await params;
 
@@ -22,11 +17,11 @@ export async function DELETE(
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     if (business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     // Validate employee belongs to this business
@@ -35,11 +30,11 @@ export async function DELETE(
     });
 
     if (!employee) {
-      return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+      throw notFound('Employee');
     }
 
     if (employee.businessId !== id) {
-      return NextResponse.json({ error: 'Employee does not belong to this business' }, { status: 400 });
+      throw validationError('Employee does not belong to this business');
     }
 
     await db.employee.delete({
@@ -48,10 +43,6 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Fire employee error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fire employee' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

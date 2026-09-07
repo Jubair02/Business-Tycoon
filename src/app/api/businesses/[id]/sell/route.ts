@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { getBusinessType } from '@/lib/game-data';
+import { requirePlayerId, notFound, forbidden, handleApiError } from '@/lib/errors';
 
 // Sell business: recover 40-60% of investment based on reputation
 const SELL_BASE_RATE = 0.5;
@@ -12,12 +12,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id } = await params;
 
@@ -31,11 +26,11 @@ export async function POST(
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     if (business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     const bt = getBusinessType(business.type);
@@ -109,11 +104,7 @@ export async function POST(
       player: finalPlayer,
     });
   } catch (error) {
-    console.error('Sell business error:', error);
-    return NextResponse.json(
-      { error: 'Failed to sell business' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 

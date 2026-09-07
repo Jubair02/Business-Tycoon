@@ -1,48 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { getProductsForBusiness } from '@/lib/game-data';
+import { requirePlayerId, notFound, forbidden, insufficientFunds, validationError, handleApiError, buyInventorySchema } from '@/lib/errors';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id } = await params;
-    const body = await request.json();
+    const body = buyInventorySchema.parse(await request.json());
     const { productId, productName, category, quantity } = body;
-
-    if (!productId || !productName || !category || !quantity || quantity <= 0) {
-      return NextResponse.json(
-        { error: 'productId, productName, category, and positive quantity are required' },
-        { status: 400 }
-      );
-    }
-
-    if (!Number.isInteger(quantity)) {
-      return NextResponse.json(
-        { error: 'Quantity must be an integer' },
-        { status: 400 }
-      );
-    }
 
     const business = await db.business.findUnique({
       where: { id },
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     if (business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     const marketPrice = await db.marketPrice.findUnique({
@@ -52,10 +33,7 @@ export async function POST(
     const products = getProductsForBusiness(business.type);
     const productDef = products.find((p) => p.name === productName);
     if (!productDef) {
-      return NextResponse.json(
-        { error: `Product ${productName} is not available for ${business.type}` },
-        { status: 400 }
-      );
+      throw validationError(`Product ${productName} is not available for ${business.type}`);
     }
 
     const priceMultiplier = marketPrice?.priceMultiplier ?? 1;
@@ -67,11 +45,11 @@ export async function POST(
     const result = await db.$transaction(async (tx) => {
       const player = await tx.player.findUnique({ where: { id: playerId } });
       if (!player) {
-        throw new Error('Player not found');
+        throw notFound('Player');
       }
 
       if (player.cash < totalCost) {
-        throw new Error(`Insufficient cash. Need ৳${totalCost.toLocaleString()}, have ৳${player.cash.toLocaleString()}`);
+        throw insufficientFunds(totalCost, player.cash);
       }
 
       await tx.player.update({
@@ -113,18 +91,6 @@ export async function POST(
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Player not found') {
-        return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-      if (error.message.startsWith('Insufficient cash')) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-    }
-    console.error('Buy inventory error:', error);
-    return NextResponse.json(
-      { error: 'Failed to buy inventory' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

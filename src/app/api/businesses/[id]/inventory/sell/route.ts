@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, forbidden, validationError, handleApiError, sellInventorySchema } from '@/lib/errors';
 
 const LIQUIDATION_RATE = 0.7; // 70% of purchase price
 
@@ -9,30 +9,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id } = await params;
-    const body = await request.json();
+    const body = sellInventorySchema.parse(await request.json());
     const { inventoryId, quantity } = body;
-
-    if (!inventoryId || !quantity || quantity <= 0) {
-      return NextResponse.json(
-        { error: 'inventoryId and positive quantity are required' },
-        { status: 400 }
-      );
-    }
-
-    if (!Number.isInteger(quantity)) {
-      return NextResponse.json(
-        { error: 'Quantity must be an integer' },
-        { status: 400 }
-      );
-    }
 
     // Verify business ownership
     const business = await db.business.findUnique({
@@ -40,11 +21,11 @@ export async function POST(
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     if (business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     // Verify inventory belongs to this business
@@ -53,11 +34,11 @@ export async function POST(
     });
 
     if (!inventory) {
-      return NextResponse.json({ error: 'Inventory not found' }, { status: 404 });
+      throw notFound('Inventory');
     }
 
     if (inventory.businessId !== id) {
-      return NextResponse.json({ error: 'Inventory does not belong to this business' }, { status: 400 });
+      throw validationError('Inventory does not belong to this business');
     }
 
     const result = await db.$transaction(async (tx) => {
@@ -67,11 +48,11 @@ export async function POST(
       });
 
       if (!currentInventory) {
-        throw new Error('Inventory not found');
+        throw notFound('Inventory');
       }
 
       if (currentInventory.quantity < quantity) {
-        throw new Error(`Not enough stock. Have ${currentInventory.quantity}, trying to sell ${quantity}`);
+        throw validationError(`Not enough stock. Have ${currentInventory.quantity}, trying to sell ${quantity}`);
       }
 
       const sellPricePerUnit = Math.round(currentInventory.purchasePrice * LIQUIDATION_RATE);
@@ -130,18 +111,6 @@ export async function POST(
 
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Inventory not found') {
-        return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-      if (error.message.startsWith('Not enough stock')) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-    }
-    console.error('Sell inventory error:', error);
-    return NextResponse.json(
-      { error: 'Failed to sell inventory' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, handleApiError } from '@/lib/errors';
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const logs = await db.gameLog.findMany({
       where: { playerId },
@@ -19,7 +14,6 @@ export async function GET() {
 
     return NextResponse.json(logs);
   } catch (error) {
-    console.error('Get player logs error:', error);
-    return NextResponse.json({ error: 'Failed to get logs' }, { status: 500 });
+    return handleApiError(error);
   }
 }

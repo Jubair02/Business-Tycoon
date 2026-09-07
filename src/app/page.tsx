@@ -217,8 +217,10 @@ export default function Home() {
         if (res.ok) {
           await fetchAllDataRef.current();
           setShowSummary(true);
+        } else if (res.status === 409) {
+          // Tick already in progress — skip silently, will retry next interval
         }
-      } catch { /* silent */ }
+      } catch { /* network error — auto-tick will retry next interval */ }
       finally {
         isTickingRef.current = false;
         setIsTicking(false);
@@ -278,6 +280,7 @@ export default function Home() {
   const handleNextDay = async () => {
     if (isTicking) return;
     setIsTicking(true);
+    isTickingRef.current = true;
     try {
       // Save current businesses before the tick for comparison
       setPreTickBusinesses([...businesses]);
@@ -286,13 +289,19 @@ export default function Home() {
         await fetchAllData();
         // Show daily summary after data refresh
         setShowSummary(true);
+      } else if (res.status === 409) {
+        // Tick already in progress (concurrent request) — silently skip
+        // No need to show an error, just try again later
       } else {
+        // Parse structured error response
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || 'Tick failed');
+        const message = err?.error?.message || err?.error || 'Tick failed';
+        toast.error(message);
       }
     } catch {
       toast.error('Network error');
     } finally {
+      isTickingRef.current = false;
       setIsTicking(false);
     }
   };

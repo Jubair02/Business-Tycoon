@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { BUSINESS_TYPES } from '@/lib/game-data';
+import { requirePlayerId, notFound, forbidden, insufficientFunds, validationError, handleApiError } from '@/lib/errors';
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id } = await params;
 
@@ -22,38 +17,38 @@ export async function POST(
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     if (business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     const businessType = BUSINESS_TYPES.find((b) => b.id === business.type);
     if (!businessType) {
-      return NextResponse.json({ error: 'Invalid business type' }, { status: 400 });
+      throw validationError('Invalid business type');
     }
 
     const updated = await db.$transaction(async (tx) => {
       // Re-read business level inside transaction to prevent race conditions
       const currentBusiness = await tx.business.findUnique({ where: { id } });
       if (!currentBusiness) {
-        throw new Error('Business not found');
+        throw notFound('Business');
       }
 
       if (currentBusiness.level >= 10) {
-        throw new Error('Business has reached maximum level (10)');
+        throw validationError('Business has reached maximum level (10)');
       }
 
       const upgradeCost = Math.round(businessType.investment * currentBusiness.level * 0.5);
 
       const player = await tx.player.findUnique({ where: { id: playerId } });
       if (!player) {
-        throw new Error('Player not found');
+        throw notFound('Player');
       }
 
       if (player.cash < upgradeCost) {
-        throw new Error(`Insufficient cash. Need ৳${upgradeCost.toLocaleString()}, have ৳${player.cash.toLocaleString()}`);
+        throw insufficientFunds(upgradeCost, player.cash);
       }
 
       const newLevel = currentBusiness.level + 1;
@@ -75,21 +70,6 @@ export async function POST(
 
     return NextResponse.json(updated);
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Business not found') {
-        return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-      if (error.message === 'Player not found') {
-        return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-      if (error.message.startsWith('Insufficient cash') || error.message.startsWith('Business has reached')) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-    }
-    console.error('Upgrade business error:', error);
-    return NextResponse.json(
-      { error: 'Failed to upgrade business' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

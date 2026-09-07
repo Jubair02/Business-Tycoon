@@ -1,29 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, forbidden, validationError, handleApiError, updatePriceSchema } from '@/lib/errors';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; invId: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id, invId } = await params;
-    const body = await request.json();
+    const body = updatePriceSchema.parse(await request.json());
     const { sellPrice } = body;
-
-    if (typeof sellPrice !== 'number' || !Number.isFinite(sellPrice) || sellPrice < 0) {
-      return NextResponse.json(
-        { error: 'A valid non-negative sellPrice is required' },
-        { status: 400 }
-      );
-    }
 
     // Validate business ownership
     const business = await db.business.findUnique({
@@ -31,11 +19,11 @@ export async function PATCH(
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     if (business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     // Validate inventory belongs to this business
@@ -44,11 +32,11 @@ export async function PATCH(
     });
 
     if (!inventory) {
-      return NextResponse.json({ error: 'Inventory not found' }, { status: 404 });
+      throw notFound('Inventory');
     }
 
     if (inventory.businessId !== id) {
-      return NextResponse.json({ error: 'Inventory does not belong to this business' }, { status: 400 });
+      throw validationError('Inventory does not belong to this business');
     }
 
     const updated = await db.inventory.update({
@@ -58,10 +46,6 @@ export async function PATCH(
 
     return NextResponse.json(updated);
   } catch (error) {
-    console.error('Update price error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update sell price' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

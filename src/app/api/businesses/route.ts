@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
-import { CITIES, BUSINESS_TYPES } from '@/lib/game-data';
+import { BUSINESS_TYPES } from '@/lib/game-data';
+import { requirePlayerId, notFound, insufficientFunds, handleApiError, createBusinessSchema } from '@/lib/errors';
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const businesses = await db.business.findMany({
       where: { playerId },
@@ -27,76 +22,32 @@ export async function GET() {
 
     return NextResponse.json(businesses);
   } catch (error) {
-    console.error('Get businesses error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get businesses' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
+    const playerId = await requirePlayerId();
 
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
-    const body = await request.json();
+    const body = createBusinessSchema.parse(await request.json());
     const { type, city, name } = body;
 
-    if (typeof type !== 'string' || typeof city !== 'string' || typeof name !== 'string') {
-      return NextResponse.json(
-        { error: 'Business type, city, and name must be strings' },
-        { status: 400 }
-      );
-    }
-
-    if (!type || !city || !name) {
-      return NextResponse.json(
-        { error: 'Business type, city, and name are required' },
-        { status: 400 }
-      );
-    }
-
-    if (name.length > 50) {
-      return NextResponse.json(
-        { error: 'Business name must be 50 characters or less' },
-        { status: 400 }
-      );
-    }
-
-    const cityDef = CITIES.find((c) => c.id === city);
-    if (!cityDef) {
-      return NextResponse.json(
-        { error: `Invalid city: ${city}` },
-        { status: 400 }
-      );
-    }
-
     const businessType = BUSINESS_TYPES.find((b) => b.id === type);
-    if (!businessType) {
-      return NextResponse.json(
-        { error: `Invalid business type: ${type}` },
-        { status: 400 }
-      );
-    }
 
     const business = await db.$transaction(async (tx) => {
       const player = await tx.player.findUnique({ where: { id: playerId } });
       if (!player) {
-        throw new Error('Player not found');
+        throw notFound('Player');
       }
 
-      if (player.cash < businessType.investment) {
-        throw new Error(`Insufficient cash. Need ৳${businessType.investment.toLocaleString()}, have ৳${player.cash.toLocaleString()}`);
+      if (player.cash < businessType!.investment) {
+        throw insufficientFunds(businessType!.investment, player.cash);
       }
 
       await tx.player.update({
         where: { id: playerId },
-        data: { cash: { decrement: businessType.investment } },
+        data: { cash: { decrement: businessType!.investment } },
       });
 
       return tx.business.create({
@@ -104,7 +55,7 @@ export async function POST(request: NextRequest) {
           playerId,
           type,
           city,
-          name: name.trim(),
+          name,
           level: 1,
           reputation: 50,
         },
@@ -113,18 +64,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(business, { status: 201 });
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Player not found') {
-        return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-      if (error.message.startsWith('Insufficient cash')) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-    }
-    console.error('Create business error:', error);
-    return NextResponse.json(
-      { error: 'Failed to create business' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, handleApiError } from '@/lib/errors';
 
 type AchievementCategory = 'BUSINESS' | 'WEALTH' | 'SOCIAL' | 'MILESTONE';
 
@@ -29,12 +29,7 @@ const ACHIEVEMENTS: AchievementDef[] = [
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const player = await db.player.findUnique({
       where: { id: playerId },
@@ -50,7 +45,7 @@ export async function GET() {
     });
 
     if (!player) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+      throw notFound('Player');
     }
 
     // Fetch game state for current game day
@@ -94,10 +89,6 @@ export async function GET() {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Get achievements error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get achievements' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

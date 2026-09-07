@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getProductsForBusiness, getAllProducts, BUSINESS_TYPES } from '@/lib/game-data';
+import { getProductsForBusiness, getAllProducts } from '@/lib/game-data';
+import { handleApiError, validationError } from '@/lib/errors';
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,10 +10,7 @@ export async function GET(request: NextRequest) {
     const city = searchParams.get('city');
 
     if (!city) {
-      return NextResponse.json(
-        { error: 'city query parameter is required' },
-        { status: 400 }
-      );
+      throw validationError('city query parameter is required');
     }
 
     // Support "all" type or missing type to show all products
@@ -24,10 +22,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (productDefs.length === 0) {
-      return NextResponse.json(
-        { error: `No products found for business type: ${type}` },
-        { status: 400 }
-      );
+      throw validationError(`No products found for business type: ${type}`);
     }
 
     // Get market prices for all products in this city
@@ -72,10 +67,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Get market products error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get market products' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

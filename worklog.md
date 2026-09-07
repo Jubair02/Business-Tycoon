@@ -823,3 +823,34 @@ Stage Summary:
 - Vertical separators between Cash/Net Worth/Day in the top bar are visible (1px wide x 32px tall)
 - Mobile bottom nav shows all 8 items with no overflow, even on 375px width
 - Content properly padded to not overlap with fixed bottom nav on mobile
+
+---
+Task ID: phase0
+Agent: Main
+Task: V2 Phase 0: Architecture & Stability
+
+Work Log:
+- Created centralized error system: lib/errors/ (AppError, handleApiError, auth helpers, Zod validation schemas)
+- Implemented tick concurrency lock using GameState key-value store (tickInProgress, tickStartedAt, tickVersion)
+- Implemented stale lock recovery with 2-minute timeout
+- Fixed double-acquisition bug where both API route and gameTick() were acquiring the lock
+- gameTick() is now a pure simulation function; lock is managed by the API route
+- Game state housekeeping (expire events, increment day/tick) wrapped in single transaction
+- Net worth now recalculated within transactions, including outstanding loan debt
+- All silent catch blocks removed from game engine - proper error logging added
+- Game tick logging: GAME_TICK_STARTED and GAME_TICK_COMPLETED entries created
+- All 22 API routes updated to use requirePlayerId(), handleApiError(), Zod validation
+- Ownership checks verified on all mutation routes
+- Frontend handles 409 Conflict (tick locked) gracefully
+- 10 unused packages removed: @tanstack/react-query, @tanstack/react-table, next-auth, next-intl, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, react-markdown, react-syntax-highlighter, @mdxeditor/editor
+- Lint passes clean
+- Browser QA passed: registration, tick, all views, rapid clicks, no permanent lock
+
+Stage Summary:
+- Tick concurrency: Atomic lock via GameState KV store, stale recovery after 2min, always released in finally block
+- Transaction safety: Game state housekeeping in single tx, business sim keeps own tx, net worth recalculated within tx
+- Error handling: AppError class with 9 error codes, Zod validation on all mutations, structured JSON error responses
+- Authorization: requirePlayerId() DRY helper, ownership checks on all resource mutations
+- Validation: Zod schemas for register, createBusiness, buyInventory, sellInventory, updatePrice, hireEmployee, takeLoan, repayLoan
+- Net worth: Formula includes debt (playerCash + businessCash + inventoryValue - outstandingDebt), recalculated within transactions
+- Unused code: 10 packages removed

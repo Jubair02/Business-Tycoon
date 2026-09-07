@@ -1,28 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { handleApiError, validationError, cityQuerySchema } from '@/lib/errors';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const city = searchParams.get('city');
 
-    if (!city) {
-      return NextResponse.json(
-        { error: 'City query parameter is required' },
-        { status: 400 }
-      );
-    }
+    cityQuerySchema.parse({ city });
 
     const prices = await db.marketPrice.findMany({
-      where: { city },
+      where: { city: city! },
     });
 
     return NextResponse.json(prices);
   } catch (error) {
-    console.error('Get market error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get market prices' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

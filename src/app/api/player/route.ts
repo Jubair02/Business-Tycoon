@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, handleApiError } from '@/lib/errors';
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const player = await db.player.findUnique({
       where: { id: playerId },
@@ -30,7 +25,7 @@ export async function GET() {
     });
 
     if (!player) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+      throw notFound('Player');
     }
 
     const totalEmployees = player.businesses.reduce(
@@ -44,10 +39,6 @@ export async function GET() {
       totalEmployees,
     });
   } catch (error) {
-    console.error('Get player error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get player data' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

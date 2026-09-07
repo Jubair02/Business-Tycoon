@@ -1,21 +1,16 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { STARTING_CASH } from '@/lib/game-data';
+import { requirePlayerId, notFound, handleApiError } from '@/lib/errors';
 
 export async function POST() {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     // Verify player exists
     const player = await db.player.findUnique({ where: { id: playerId } });
     if (!player) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+      throw notFound('Player');
     }
 
     // Delete all player data in transaction
@@ -60,10 +55,6 @@ export async function POST() {
     // Clear tutorial flag from localStorage by returning a signal
     return NextResponse.json({ success: true, message: 'Game reset successfully' });
   } catch (error) {
-    console.error('Reset game error:', error);
-    return NextResponse.json(
-      { error: 'Failed to reset game' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

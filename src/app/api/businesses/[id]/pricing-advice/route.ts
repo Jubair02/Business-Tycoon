@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
-import { PRODUCTS, getBusinessType, getCity, GAME_CONFIG, EMPLOYEE_ROLES } from '@/lib/game-data';
+import { PRODUCTS, getBusinessType, getCity, GAME_CONFIG } from '@/lib/game-data';
+import { requirePlayerId, notFound, forbidden, internalError, handleApiError } from '@/lib/errors';
 
 interface PricingAdvice {
   productName: string;
@@ -23,9 +23,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-    if (!playerId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    const playerId = await requirePlayerId();
 
     const { id } = await params;
 
@@ -34,12 +32,12 @@ export async function GET(
       include: { inventories: true, employees: true },
     });
 
-    if (!business) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (business.playerId !== playerId) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    if (!business) throw notFound('Business');
+    if (business.playerId !== playerId) throw forbidden();
 
     const bt = getBusinessType(business.type);
     const city = getCity(business.city);
-    if (!bt || !city) return NextResponse.json({ error: 'Invalid business data' }, { status: 500 });
+    if (!bt || !city) throw internalError('Invalid business data');
 
     // Get market prices for this city
     const marketPrices = await db.marketPrice.findMany({
@@ -133,7 +131,6 @@ export async function GET(
       advice,
     });
   } catch (error) {
-    console.error('Pricing advice error:', error);
-    return NextResponse.json({ error: 'Failed to get pricing advice' }, { status: 500 });
+    return handleApiError(error);
   }
 }

@@ -1,23 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, forbidden, handleApiError } from '@/lib/errors';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
+    const playerId = await requirePlayerId();
 
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const { id } = await params;
 
     const business = await db.business.findUnique({ where: { id } });
-    if (!business || business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+    if (!business) {
+      throw notFound('Business');
+    }
+
+    if (business.playerId !== playerId) {
+      throw forbidden();
     }
 
     const logs = await db.gameLog.findMany({
@@ -28,7 +28,6 @@ export async function GET(
 
     return NextResponse.json(logs);
   } catch (error) {
-    console.error('Get logs error:', error);
-    return NextResponse.json({ error: 'Failed to get logs' }, { status: 500 });
+    return handleApiError(error);
   }
 }

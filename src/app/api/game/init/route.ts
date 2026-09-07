@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { seedInitialData, seedAIPlayers } from '@/lib/game-engine';
+import { handleApiError } from '@/lib/errors';
 
 export async function POST() {
   try {
@@ -7,10 +8,6 @@ export async function POST() {
     await seedAIPlayers();
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Game init error:', error);
-    return NextResponse.json(
-      { error: 'Failed to initialize game' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

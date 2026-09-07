@@ -1,50 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requirePlayerId, notFound, validationError, conflict, handleApiError, takeLoanSchema } from '@/lib/errors';
 
-const MIN_LOAN = 50000;
 const INTEREST_RATE = 0.05;
 const MAX_ACTIVE_LOANS = 3;
-const LOAN_DURATION_OPTIONS = [10, 20, 30] as const;
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
+    const playerId = await requirePlayerId();
 
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
-    const body = await request.json();
+    const body = takeLoanSchema.parse(await request.json());
     const { amount, days } = body;
-
-    if (!amount || typeof amount !== 'number' || !Number.isFinite(amount) || amount < MIN_LOAN) {
-      return NextResponse.json(
-        { error: `Minimum loan amount is ৳${MIN_LOAN.toLocaleString()}` },
-        { status: 400 }
-      );
-    }
-
-    if (!days || !LOAN_DURATION_OPTIONS.includes(days)) {
-      return NextResponse.json(
-        { error: `Loan duration must be one of: ${LOAN_DURATION_OPTIONS.join(', ')} days` },
-        { status: 400 }
-      );
-    }
 
     // Get player to check level and active loans
     const player = await db.player.findUnique({ where: { id: playerId } });
     if (!player) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+      throw notFound('Player');
     }
 
     const maxLoan = player.level * 200000;
     if (amount > maxLoan) {
-      return NextResponse.json(
-        { error: `Maximum loan for your level (${player.level}) is ৳${maxLoan.toLocaleString()}` },
-        { status: 400 }
-      );
+      throw validationError(`Maximum loan for your level (${player.level}) is ৳${maxLoan.toLocaleString()}`);
     }
 
     // Calculate loan terms
@@ -58,7 +34,7 @@ export async function POST(request: NextRequest) {
         where: { playerId, status: 'ACTIVE' },
       });
       if (activeLoans >= MAX_ACTIVE_LOANS) {
-        throw new Error(`Maximum ${MAX_ACTIVE_LOANS} active loans allowed`);
+        throw conflict(`Maximum ${MAX_ACTIVE_LOANS} active loans allowed`);
       }
 
       // Create loan
@@ -98,22 +74,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(loan, { status: 201 });
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Maximum')) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-    console.error('Take loan error:', error);
-    return NextResponse.json({ error: 'Failed to take loan' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const loans = await db.loan.findMany({
       where: { playerId },
@@ -122,7 +89,6 @@ export async function GET() {
 
     return NextResponse.json(loans);
   } catch (error) {
-    console.error('Fetch loans error:', error);
-    return NextResponse.json({ error: 'Failed to fetch loans' }, { status: 500 });
+    return handleApiError(error);
   }
 }

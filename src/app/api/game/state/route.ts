@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { handleApiError } from '@/lib/errors';
 
 export async function GET() {
   try {
@@ -15,10 +16,6 @@ export async function GET() {
       lastTick: stateMap['lastTick'] || null,
     });
   } catch (error) {
-    console.error('Get game state error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get game state' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

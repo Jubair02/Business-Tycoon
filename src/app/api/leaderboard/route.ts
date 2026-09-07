@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { handleApiError, validationError, leaderboardTypeSchema } from '@/lib/errors';
 
 type LeaderboardType = 'networth' | 'profit' | 'reputation' | 'businesses';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const type = (searchParams.get('type') || 'networth') as LeaderboardType;
+    const rawType = searchParams.get('type') || 'networth';
+    const type = leaderboardTypeSchema.parse(rawType) as LeaderboardType;
     const city = searchParams.get('city') || undefined;
-
-    const validTypes: LeaderboardType[] = ['networth', 'profit', 'reputation', 'businesses'];
-    if (!validTypes.includes(type)) {
-      return NextResponse.json(
-        { error: `Invalid type. Must be one of: ${validTypes.join(', ')}` },
-        { status: 400 }
-      );
-    }
 
     // Use DB-level ordering and pagination for networth and businesses
     // For profit and reputation, we still need in-memory sorting since they're computed
@@ -151,10 +145,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(formatted);
   } catch (error) {
-    console.error('Get leaderboard error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get leaderboard' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

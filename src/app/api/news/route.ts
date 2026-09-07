@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { handleApiError } from '@/lib/errors';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,10 +15,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(news);
   } catch (error) {
-    console.error('Get news error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get news' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

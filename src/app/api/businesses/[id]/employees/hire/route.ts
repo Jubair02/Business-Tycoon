@@ -1,38 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
-import { EMPLOYEE_ROLES, GAME_CONFIG, getRandomName } from '@/lib/game-data';
+import { GAME_CONFIG, getRandomName, EMPLOYEE_ROLES } from '@/lib/game-data';
+import { requirePlayerId, notFound, forbidden, validationError, handleApiError, hireEmployeeSchema } from '@/lib/errors';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
-
-    if (!playerId) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    const playerId = await requirePlayerId();
 
     const { id } = await params;
-    const body = await request.json();
+    const body = hireEmployeeSchema.parse(await request.json());
     const { role } = body;
 
-    if (!role) {
-      return NextResponse.json(
-        { error: 'Employee role is required' },
-        { status: 400 }
-      );
-    }
-
     const roleDef = EMPLOYEE_ROLES.find((r) => r.role === role);
-    if (!roleDef) {
-      return NextResponse.json(
-        { error: `Invalid role: ${role}` },
-        { status: 400 }
-      );
-    }
 
     // Validate business ownership
     const business = await db.business.findUnique({
@@ -40,17 +22,17 @@ export async function POST(
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     if (business.playerId !== playerId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      throw forbidden();
     }
 
     // Generate employee stats
     const name = getRandomName();
     const salaryVariation = 1 + Math.random() * 0.3;
-    const salary = Math.round(roleDef.baseSalary * salaryVariation);
+    const salary = Math.round(roleDef!.baseSalary * salaryVariation);
     const skill = Math.floor(Math.random() * 7) + 3; // 3-9
     const efficiency = 0.5 + skill * GAME_CONFIG.employeeEfficiencyPerSkill;
 
@@ -62,11 +44,11 @@ export async function POST(
       });
 
       if (!currentBusiness) {
-        throw new Error('Business not found');
+        throw notFound('Business');
       }
 
       if (currentBusiness.employees.length >= GAME_CONFIG.maxEmployees) {
-        throw new Error(`Maximum ${GAME_CONFIG.maxEmployees} employees per business`);
+        throw validationError(`Maximum ${GAME_CONFIG.maxEmployees} employees per business`);
       }
 
       return tx.employee.create({
@@ -83,18 +65,6 @@ export async function POST(
 
     return NextResponse.json(employee, { status: 201 });
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Business not found') {
-        return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-      if (error.message.startsWith('Maximum')) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-    }
-    console.error('Hire employee error:', error);
-    return NextResponse.json(
-      { error: 'Failed to hire employee' },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
