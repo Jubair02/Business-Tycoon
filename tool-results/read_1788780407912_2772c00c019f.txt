@@ -1,0 +1,610 @@
+     1→'use client';
+     2→
+     3→import { useEffect, useState, useMemo } from 'react';
+     4→import { motion } from 'framer-motion';
+     5→import { useGameStore } from '@/store/game-store';
+     6→import { formatTaka, formatTakaShort, getBusinessType, getCity, PRODUCTS } from '@/lib/game-data';
+     7→import {
+     8→  Dialog,
+     9→  DialogContent,
+    10→  DialogTitle,
+    11→  DialogDescription,
+    12→  DialogFooter,
+    13→} from '@/components/ui/dialog';
+    14→import { Button } from '@/components/ui/button';
+    15→import { Badge } from '@/components/ui/badge';
+    16→import { Skeleton } from '@/components/ui/skeleton';
+    17→import {
+    18→  Sun,
+    19→  TrendingUp,
+    20→  TrendingDown,
+    21→  ArrowUp,
+    22→  ArrowDown,
+    23→  Package,
+    24→  Flame,
+    25→  BarChart3,
+    26→  Lightbulb,
+    27→  Wallet,
+    28→  Receipt,
+    29→  PiggyBank,
+    30→} from 'lucide-react';
+    31→import { cn } from '@/lib/utils';
+    32→
+    33→interface DailySummaryProps {
+    34→  open: boolean;
+    35→  onClose: () => void;
+    36→  previousBusinesses: any[];
+    37→}
+    38→
+    39→interface MarketPriceEntry {
+    40→  productName: string;
+    41→  city: string;
+    42→  priceMultiplier: number;
+    43→  demandMultiplier: number;
+    44→}
+    45→
+    46→const cardVariants = {
+    47→  hidden: { opacity: 0, y: 16 },
+    48→  show: { opacity: 1, y: 0 },
+    49→};
+    50→
+    51→const staggerContainer = {
+    52→  hidden: { opacity: 0 },
+    53→  show: {
+    54→    opacity: 1,
+    55→    transition: { staggerChildren: 0.08 },
+    56→  },
+    57→};
+    58→
+    59→export default function DailySummary({ open, onClose, previousBusinesses }: DailySummaryProps) {
+    60→  const { businesses, events, gameDay } = useGameStore();
+    61→  const [marketPrices, setMarketPrices] = useState<MarketPriceEntry[]>([]);
+    62→  const [loadingMarket, setLoadingMarket] = useState(false);
+    63→
+    64→  // Build a lookup for previous business data
+    65→  const prevBizMap = useMemo(() => {
+    66→    const map: Record<string, any> = {};
+    67→    for (const b of previousBusinesses) {
+    68→      map[b.id] = b;
+    69→    }
+    70→    return map;
+    71→  }, [previousBusinesses]);
+    72→
+    73→  // Fetch market prices for the player's cities
+    74→  useEffect(() => {
+    75→    if (!open) return;
+    76→
+    77→    const playerCities = [...new Set(businesses.map((b: any) => b.city))];
+    78→    if (playerCities.length === 0) return;
+    79→
+    80→    const fetchMarket = async () => {
+    81→      setLoadingMarket(true);
+    82→      try {
+    83→        // NOTE: Currently only fetches market data for the first city.
+    84→        // If the player has businesses in multiple cities, only the first is shown.
+    85→        const city = playerCities[0];
+    86→        const res = await fetch(`/api/market?city=${city}`);
+    87→        if (res.ok) {
+    88→          const data = await res.json();
+    89→          setMarketPrices(data);
+    90→        }
+    91→      } catch {
+    92→        // silent
+    93→      }
+    94→      setLoadingMarket(false);
+    95→    };
+    96→
+    97→    fetchMarket();
+    98→  }, [open, businesses]);
+    99→
+   100→  // Compute business summaries
+   101→  const businessSummaries = useMemo(() => {
+   102→    return businesses.map((b: any) => {
+   103→      const prev = prevBizMap[b.id];
+   104→      const bt = getBusinessType(b.type);
+   105→      const city = getCity(b.city);
+   106→      const revenue = b.dailyRevenue || 0;
+   107→      const expense = b.dailyExpense || 0;
+   108→      const profit = b.dailyProfit || 0;
+   109→      const repChange = prev ? b.reputation - prev.reputation : 0;
+   110→      const hasInventories = (b._count?.inventories || 0) > 0;
+   111→      const likelyStockout = hasInventories && revenue === 0 && expense > 0;
+   112→
+   113→      return {
+   114→        id: b.id,
+   115→        name: b.name,
+   116→        type: b.type,
+   117→        icon: bt?.icon || '\uD83C\uDFEA',
+   118→        typeName: bt?.name || 'Unknown',
+   119→        city: city?.name || b.city,
+   120→        level: b.level || 1,
+   121→        revenue,
+   122→        expense,
+   123→        profit,
+   124→        reputation: b.reputation || 0,
+   125→        repChange,
+   126→        likelyStockout,
+   127→      };
+   128→    });
+   129→  }, [businesses, prevBizMap]);
+   130→
+   131→  // Total daily profit
+   132→  const totalProfit = useMemo(() => {
+   133→    return businessSummaries.reduce((sum, b) => sum + b.profit, 0);
+   134→  }, [businessSummaries]);
+   135→
+   136→  const totalRevenue = useMemo(() => {
+   137→    return businessSummaries.reduce((sum, b) => sum + b.revenue, 0);
+   138→  }, [businessSummaries]);
+   139→
+   140→  const totalExpense = useMemo(() => {
+   141→    return businessSummaries.reduce((sum, b) => sum + b.expense, 0);
+   142→  }, [businessSummaries]);
+   143→
+   144→  // Detect events that started recently (within last 2 minutes = this tick)
+   145→  const newEvents = useMemo(() => {
+   146→    const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+   147→    return events.filter((e: any) => {
+   148→      try {
+   149→        const start = new Date(e.startsAt).getTime();
+   150→        return start > twoMinutesAgo;
+   151→      } catch {
+   152→        return false;
+   153→      }
+   154→    });
+   155→  }, [events]);
+   156→
+   157→  // Ongoing events (not new, max 2)
+   158→  const ongoingEvents = useMemo(() => {
+   159→    const newEventIds = new Set(newEvents.map((e) => e.id));
+   160→    return events.filter((e) => !newEventIds.has(e.id)).slice(0, 2);
+   161→  }, [events, newEvents]);
+   162→
+   163→  // Market highlights: biggest gain and biggest drop
+   164→  const marketHighlights = useMemo(() => {
+   165→    if (marketPrices.length === 0) return [];
+   166→
+   167→    const sorted = [...marketPrices].sort(
+   168→      (a, b) => b.priceMultiplier - a.priceMultiplier
+   169→    );
+   170→
+   171→    const highlights: { name: string; multiplier: number; direction: 'up' | 'down' }[] = [];
+   172→
+   173→    // Biggest gain
+   174→    const top = sorted[0];
+   175→    if (top && top.priceMultiplier > 1.01) {
+   176→      highlights.push({
+   177→        name: top.productName,
+   178→        multiplier: top.priceMultiplier,
+   179→        direction: 'up',
+   180→      });
+   181→    }
+   182→
+   183→    // Biggest drop
+   184→    const bottom = sorted[sorted.length - 1];
+   185→    if (bottom && bottom.priceMultiplier < 0.99) {
+   186→      highlights.push({
+   187→        name: bottom.productName,
+   188→        multiplier: bottom.priceMultiplier,
+   189→        direction: 'down',
+   190→      });
+   191→    }
+   192→
+   193→    // Most extreme demand change for variety
+   194→    if (marketPrices.length > 2) {
+   195→      const demandSorted = [...marketPrices].sort(
+   196→        (a, b) => Math.abs(b.demandMultiplier - 1) - Math.abs(a.demandMultiplier - 1)
+   197→      );
+   198→      const extremeDemand = demandSorted[0];
+   199→      if (extremeDemand && !highlights.find((h) => h.name === extremeDemand.productName)) {
+   200→        highlights.push({
+   201→          name: extremeDemand.productName,
+   202→          multiplier: extremeDemand.demandMultiplier,
+   203→          direction: extremeDemand.demandMultiplier > 1 ? 'up' : 'down',
+   204→        });
+   205→      }
+   206→    }
+   207→
+   208→    return highlights.slice(0, 3);
+   209→  }, [marketPrices]);
+   210→
+   211→  // Get product icon
+   212→  const getProductIcon = (name: string): string => {
+   213→    for (const category of Object.values(PRODUCTS)) {
+   214→      const found = category.find((p) => p.name === name);
+   215→      if (found) return found.icon || '\uD83D\uDCE6';
+   216→    }
+   217→    return '\uD83D\uDCE6';
+   218→  };
+   219→
+   220→  // Tip logic
+   221→  const tip = useMemo(() => {
+   222→    if (businessSummaries.length === 0) return null;
+   223→    const stockoutBiz = businessSummaries.find(b => b.likelyStockout);
+   224→    if (stockoutBiz) return { icon: '📦', text: `${stockoutBiz.name} ran out of stock! Restock inventory to avoid losing customers and reputation.`, type: 'warning' as const };
+   225→    if (totalProfit < 0) {
+   226→      const highExpense = [...businessSummaries].sort((a, b) => b.expense - a.expense)[0];
+   227→      return { icon: '💡', text: `Your expenses exceed revenue. Consider reducing staff or restocking ${highExpense?.name || 'low-performers'} with cheaper inventory.`, type: 'negative' as const };
+   228→    }
+   229→    if (totalProfit > 0 && totalExpense < totalRevenue * 0.3) {
+   230→      return { icon: '🚀', text: `Excellent margins! With strong profits and low expenses, consider expanding to a new city or upgrading your businesses.`, type: 'positive' as const };
+   231→    }
+   232→    return { icon: '📈', text: `Profit is positive! Consider hiring more staff or expanding inventory to boost revenue further.`, type: 'positive' as const };
+   233→  }, [businessSummaries, totalProfit, totalExpense, totalRevenue]);
+   234→
+   235→  return (
+   236→    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+   237→      <DialogContent
+   238→        className="sm:max-w-md max-h-[85vh] overflow-hidden flex flex-col p-0"
+   239→        showCloseButton={false}
+   240→      >
+   241→        {/* Green Header Bar */}
+   242→        <div
+   243→          className="px-4 py-3.5 shrink-0"
+   244→          style={{ background: 'linear-gradient(135deg, #006a4e 0%, #008c66 100%)' }}
+   245→        >
+   246→          <div className="flex items-center gap-2.5">
+   247→            <div className="h-9 w-9 rounded-xl bg-white/20 flex items-center justify-center">
+   248→              <Sun className="h-5 w-5 text-yellow-300" />
+   249→            </div>
+   250→            <div>
+   251→              <DialogTitle className="text-white text-base font-bold">
+   252→                Day {gameDay} Results
+   253→              </DialogTitle>
+   254→              <DialogDescription className="text-green-100 text-[11px] mt-0.5">
+   255→                Here&apos;s what happened today
+   256→              </DialogDescription>
+   257→            </div>
+   258→          </div>
+   259→        </div>
+   260→
+   261→        {/* Scrollable Body */}
+   262→        <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4" style={{ scrollbarWidth: 'thin' }}>
+   263→          {/* Total Summary Stat Card */}
+   264→          {businessSummaries.length > 0 && (
+   265→            <motion.div
+   266→              initial={{ opacity: 0, y: 12 }}
+   267→              animate={{ opacity: 1, y: 0 }}
+   268→              transition={{ duration: 0.35 }}
+   269→            >
+   270→              <div className="rounded-xl p-3.5" style={{ background: 'linear-gradient(135deg, rgba(0, 106, 78, 0.04), rgba(0, 168, 107, 0.07))', border: '1px solid rgba(0, 106, 78, 0.12)' }}>
+   271→                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold mb-3 text-center">Daily Overview</p>
+   272→                <div className="grid grid-cols-3 gap-3">
+   273→                  <div className="text-center">
+   274→                    <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center mx-auto mb-1.5">
+   275→                      <Wallet className="h-4 w-4 text-green-600" />
+   276→                    </div>
+   277→                    <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Revenue</p>
+   278→                    <p className="text-sm font-bold text-green-700 game-number-tick">{formatTakaShort(totalRevenue)}</p>
+   279→                  </div>
+   280→                  <div className="text-center">
+   281→                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center mx-auto mb-1.5">
+   282→                      <Receipt className="h-4 w-4 text-red-500" />
+   283→                    </div>
+   284→                    <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Expenses</p>
+   285→                    <p className="text-sm font-bold text-red-600 game-number-tick">{formatTakaShort(totalExpense)}</p>
+   286→                  </div>
+   287→                  <div className="text-center">
+   288→                    <div className="w-8 h-8 rounded-lg flex items-center justify-center mx-auto mb-1.5" style={{ background: totalProfit >= 0 ? 'rgba(0,106,78,0.08)' : 'rgba(244,42,65,0.08)' }}>
+   289→                      <PiggyBank className="h-4 w-4" style={{ color: totalProfit >= 0 ? '#006a4e' : '#f42a41' }} />
+   290→                    </div>
+   291→                    <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Profit</p>
+   292→                    <p className={cn('text-sm font-bold game-number-tick', totalProfit >= 0 ? 'text-green-700' : 'text-red-600')}>
+   293→                      {totalProfit >= 0 ? '+' : ''}{formatTakaShort(totalProfit)}
+   294→                    </p>
+   295→                  </div>
+   296→                </div>
+   297→              </div>
+   298→            </motion.div>
+   299→          )}
+   300→
+   301→          {/* Business Summaries */}
+   302→          {businessSummaries.length > 0 && (
+   303→            <motion.div
+   304→              variants={staggerContainer}
+   305→              initial="hidden"
+   306→              animate="show"
+   307→              className="space-y-2.5"
+   308→            >
+   309→              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 game-section-header">
+   310→                <BarChart3 className="h-3.5 w-3.5" />
+   311→                Business Performance
+   312→              </h3>
+   313→
+   314→              {businessSummaries.map((biz) => {
+   315→                const isProfitable = biz.profit >= 0;
+   316→                const repUp = biz.repChange > 0;
+   317→                const repDown = biz.repChange < 0;
+   318→
+   319→                return (
+   320→                  <motion.div
+   321→                    key={biz.id}
+   322→                    variants={cardVariants}
+   323→                    transition={{ duration: 0.3 }}
+   324→                  >
+   325→                    <div className={cn(
+   326→                      'rounded-xl border p-3 transition-all duration-200 hover:shadow-sm',
+   327→                      isProfitable
+   328→                        ? 'bg-green-50/60 border-green-200/60 hover:border-green-300'
+   329→                        : 'bg-red-50/40 border-red-200/60 hover:border-red-300'
+   330→                    )}>
+   331→                      {/* Business header */}
+   332→                      <div className="flex items-center gap-2.5 mb-2">
+   333→                        <div className="text-xl shrink-0">{biz.icon}</div>
+   334→                        <div className="flex-1 min-w-0">
+   335→                          <div className="flex items-center gap-1.5">
+   336→                            <span className="text-sm font-semibold truncate">{biz.name}</span>
+   337→                            <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">
+   338→                              Lv.{biz.level}
+   339→                            </Badge>
+   340→                            {biz.likelyStockout && (
+   341→                              <Badge className="text-[9px] px-1.5 py-0 bg-amber-500 text-white border-0 shrink-0 font-semibold rounded-full">
+   342→                                <Package className="h-2.5 w-2.5 mr-0.5" />
+   343→                                Out of Stock!
+   344→                              </Badge>
+   345→                            )}
+   346→                          </div>
+   347→                          <div className="text-[10px] text-muted-foreground">
+   348→                            {biz.typeName} &middot; {biz.city}
+   349→                          </div>
+   350→                        </div>
+   351→                      </div>
+   352→
+   353→                      {/* Financials grid */}
+   354→                      <div className="grid grid-cols-3 gap-2">
+   355→                        {/* Revenue */}
+   356→                        <div className="text-center">
+   357→                          <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Revenue</div>
+   358→                          <div className="text-xs font-semibold text-green-700 flex items-center justify-center gap-0.5 mt-0.5 game-number-tick">
+   359→                            <TrendingUp className="h-3 w-3" />
+   360→                            {formatTakaShort(biz.revenue)}
+   361→                          </div>
+   362→                        </div>
+   363→
+   364→                        {/* Expenses */}
+   365→                        <div className="text-center">
+   366→                          <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Expenses</div>
+   367→                          <div className="text-xs font-semibold text-red-600 flex items-center justify-center gap-0.5 mt-0.5 game-number-tick">
+   368→                            <TrendingDown className="h-3 w-3" />
+   369→                            {formatTakaShort(biz.expense)}
+   370→                          </div>
+   371→                        </div>
+   372→
+   373→                        {/* Net Profit */}
+   374→                        <div className="text-center">
+   375→                          <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Profit</div>
+   376→                          <div className={cn(
+   377→                            'text-xs font-bold flex items-center justify-center gap-0.5 mt-0.5 game-number-tick',
+   378→                            isProfitable ? 'text-green-700' : 'text-red-600'
+   379→                          )}>
+   380→                            {isProfitable ? (
+   381→                              <TrendingUp className="h-3 w-3" />
+   382→                            ) : (
+   383→                              <TrendingDown className="h-3 w-3" />
+   384→                            )}
+   385→                            {isProfitable ? '+' : ''}{formatTakaShort(biz.profit)}
+   386→                          </div>
+   387→                        </div>
+   388→                      </div>
+   389→
+   390→                      {/* Reputation change */}
+   391→                      {(repUp || repDown) && (
+   392→                        <div className={cn(
+   393→                          'mt-2 pt-2 border-t flex items-center gap-1.5 text-[10px]',
+   394→                          repUp ? 'border-green-200/60 text-green-700' : 'border-red-200/60 text-red-600'
+   395→                        )}>
+   396→                          {repUp ? (
+   397→                            <ArrowUp className="h-3 w-3" />
+   398→                          ) : (
+   399→                            <ArrowDown className="h-3 w-3" />
+   400→                          )}
+   401→                          <span>
+   402→                            Reputation {repUp ? '+' : ''}{biz.repChange.toFixed(1)}%
+   403→                          </span>
+   404→                          <span className="text-muted-foreground">
+   405→                            &rarr; {biz.reputation.toFixed(0)}%
+   406→                          </span>
+   407→                        </div>
+   408→                      )}
+   409→                    </div>
+   410→                  </motion.div>
+   411→                );
+   412→              })}
+   413→            </motion.div>
+   414→          )}
+   415→
+   416→          {/* Gradient separator */}
+   417→          {(newEvents.length > 0 || ongoingEvents.length > 0) && (
+   418→            <hr className="game-divider-gradient" />
+   419→          )}
+   420→
+   421→          {/* Events Section */}
+   422→          {(newEvents.length > 0 || ongoingEvents.length > 0) && (
+   423→            <motion.div
+   424→              initial={{ opacity: 0, y: 16 }}
+   425→              animate={{ opacity: 1, y: 0 }}
+   426→              transition={{ duration: 0.3, delay: 0.2 }}
+   427→            >
+   428→              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2 game-section-header">
+   429→                <Flame className="h-3.5 w-3.5" />
+   430→                Events
+   431→              </h3>
+   432→
+   433→              <div className="space-y-1.5">
+   434→                {newEvents.map((event) => (
+   435→                  <div
+   436→                    key={event.id}
+   437→                    className="flex items-start gap-2 p-2.5 rounded-lg border border-amber-200/60 game-amber-pulse"
+   438→                    style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.06), rgba(245,158,11,0.02))' }}
+   439→                  >
+   440→                    <span className="text-base shrink-0 mt-0.5">{event.icon || '\u26A0'}</span>
+   441→                    <div className="min-w-0">
+   442→                      <div className="flex items-center gap-1.5">
+   443→                        <span className="text-xs font-semibold">{event.title}</span>
+   444→                        <Badge className="text-[8px] px-1.5 py-0 font-bold rounded-full" style={{ background: 'linear-gradient(135deg, #f42a41, #f87171)', color: 'white', border: 'none' }}>NEW</Badge>
+   445→                      </div>
+   446→                      <div className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
+   447→                        {event.description}
+   448→                      </div>
+   449→                    </div>
+   450→                  </div>
+   451→                ))}
+   452→
+   453→                {ongoingEvents.map((event) => (
+   454→                  <div
+   455→                    key={event.id}
+   456→                    className="flex items-start gap-2 p-2.5 rounded-lg bg-muted/40 border border-border/50"
+   457→                  >
+   458→                    <span className="text-base shrink-0 mt-0.5">{event.icon || '\u26A0'}</span>
+   459→                    <div className="min-w-0">
+   460→                      <div className="flex items-center gap-1.5">
+   461→                        <span className="text-xs font-medium">{event.title}</span>
+   462→                        <Badge className="text-[8px] px-1.5 py-0 font-medium rounded-full bg-green-50 text-green-700 border border-green-200" variant="outline">ONGOING</Badge>
+   463→                      </div>
+   464→                      <div className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
+   465→                        {event.description}
+   466→                      </div>
+   467→                    </div>
+   468→                  </div>
+   469→                ))}
+   470→              </div>
+   471→            </motion.div>
+   472→          )}
+   473→
+   474→          {/* Gradient separator */}
+   475→          {marketHighlights.length > 0 && (
+   476→            <hr className="game-divider-gradient" />
+   477→          )}
+   478→
+   479→          {/* Market Highlights */}
+   480→          {loadingMarket ? (
+   481→            <div className="space-y-2">
+   482→              <Skeleton className="h-4 w-28" />
+   483→              <Skeleton className="h-12 w-full rounded-lg" />
+   484→            </div>
+   485→          ) : marketHighlights.length > 0 ? (
+   486→            <motion.div
+   487→              initial={{ opacity: 0, y: 16 }}
+   488→              animate={{ opacity: 1, y: 0 }}
+   489→              transition={{ duration: 0.3, delay: 0.35 }}
+   490→            >
+   491→              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 mb-2 game-section-header">
+   492→                <TrendingUp className="h-3.5 w-3.5" />
+   493→                Market Highlights
+   494→              </h3>
+   495→              {[...new Set(businesses.map((b: any) => b.city))].length > 1 && (
+   496→                <p className="text-[10px] text-muted-foreground mb-1.5">
+   497→                  Market data for: {[...new Set(businesses.map((b: any) => b.city))][0]} only
+   498→                </p>
+   499→              )}
+   500→
+   501→              <div className="space-y-1.5">
+   502→                {marketHighlights.map((item, i) => (
+   503→                  <div
+   504→                    key={`${item.name}-${i}`}
+   505→                    className={cn(
+   506→                      'flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors',
+   507→                      item.direction === 'up'
+   508→                        ? 'bg-green-50/60 border-green-200/40 hover:border-green-300'
+   509→                        : 'bg-red-50/40 border-red-200/40 hover:border-red-300'
+   510→                    )}
+   511→                  >
+   512→                    <span className="text-base shrink-0">{getProductIcon(item.name)}</span>
+   513→                    <div className="flex-1 min-w-0">
+   514→                      <span className="text-xs font-medium">{item.name}</span>
+   515→                    </div>
+   516→                    <div className={cn(
+   517→                      'flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full',
+   518→                      item.direction === 'up' ? 'text-green-700 bg-green-100/60' : 'text-red-600 bg-red-100/60'
+   519→                    )}>
+   520→                      {item.direction === 'up' ? (
+   521→                        <ArrowUp className="h-3 w-3" />
+   522→                      ) : (
+   523→                        <ArrowDown className="h-3 w-3" />
+   524→                      )}
+   525→                      {((item.multiplier - 1) * 100).toFixed(1)}%
+   526→                    </div>
+   527→                  </div>
+   528→                ))}
+   529→              </div>
+   530→            </motion.div>
+   531→          ) : null}
+   532→
+   533→          {/* Gradient separator */}
+   534→          {tip && (
+   535→            <hr className="game-divider-gradient" />
+   536→          )}
+   537→
+   538→          {/* Tip Section */}
+   539→          {tip && (
+   540→            <motion.div
+   541→              initial={{ opacity: 0, y: 12 }}
+   542→              animate={{ opacity: 1, y: 0 }}
+   543→              transition={{ duration: 0.3, delay: 0.45 }}
+   544→            >
+   545→              <div className={cn(
+   546→                'rounded-xl border p-3 flex items-start gap-2.5',
+   547→                tip.type === 'positive'
+   548→                  ? 'bg-green-50/50 border-green-200/50'
+   549→                  : tip.type === 'negative'
+   550→                  ? 'bg-red-50/40 border-red-200/50'
+   551→                  : 'bg-amber-50/50 border-amber-200/50'
+   552→              )}>
+   553→                <div className="shrink-0 mt-0.5">
+   554→                  <div className={cn(
+   555→                    'w-7 h-7 rounded-lg flex items-center justify-center',
+   556→                    tip.type === 'positive' ? 'bg-green-100' : tip.type === 'negative' ? 'bg-red-100' : 'bg-amber-100'
+   557→                  )}>
+   558→                    <Lightbulb className={cn(
+   559→                      'h-3.5 w-3.5',
+   560→                      tip.type === 'positive' ? 'text-green-600' : tip.type === 'negative' ? 'text-red-500' : 'text-amber-600'
+   561→                    )} />
+   562→                  </div>
+   563→                </div>
+   564→                <div>
+   565→                  <p className={cn(
+   566→                    'text-[10px] font-bold uppercase tracking-wider mb-0.5',
+   567→                    tip.type === 'positive' ? 'text-green-700' : tip.type === 'negative' ? 'text-red-600' : 'text-amber-700'
+   568→                  )}>Daily Tip</p>
+   569→                  <p className="text-xs text-foreground leading-relaxed">{tip.text}</p>
+   570→                </div>
+   571→              </div>
+   572→            </motion.div>
+   573→          )}
+   574→        </div>
+   575→
+   576→        {/* Footer */}
+   577→        <div className="shrink-0 border-t bg-muted/30 px-4 py-3">
+   578→          {/* Total summary row */}
+   579→          <div className="flex items-center justify-between mb-3">
+   580→            <div className="space-y-0.5">
+   581→              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Daily Profit</div>
+   582→              <div className={cn(
+   583→                'text-lg font-bold flex items-center gap-1 game-number-tick',
+   584→                totalProfit >= 0 ? 'text-green-700' : 'text-red-600'
+   585→              )}>
+   586→                {totalProfit >= 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
+   587→                {totalProfit >= 0 ? '+' : ''}{formatTaka(totalProfit)}
+   588→              </div>
+   589→            </div>
+   590→            <div className="text-right space-y-0.5">
+   591→              <div className="text-[10px] text-muted-foreground">Revenue: <span className="text-green-700 font-medium">{formatTakaShort(totalRevenue)}</span></div>
+   592→              <div className="text-[10px] text-muted-foreground">Expenses: <span className="text-red-600 font-medium">{formatTakaShort(totalExpense)}</span></div>
+   593→            </div>
+   594→          </div>
+   595→
+   596→          <DialogFooter className="sm:justify-center">
+   597→            <Button
+   598→              onClick={onClose}
+   599→              className="w-full sm:w-auto text-white game-btn-shimmer"
+   600→              style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}
+   601→            >
+   602→              Continue
+   603→            </Button>
+   604→          </DialogFooter>
+   605→        </div>
+   606→      </DialogContent>
+   607→    </Dialog>
+   608→  );
+   609→}
+   610→
