@@ -12,19 +12,141 @@
 // ============================================
 
 import { db } from '@/lib/db';
-import type { AIDecisionContext, ScoredAction, AIPersonality, AIActionResult } from './types';
+import type { AIDecisionContext, ScoredAction, AIPersonality, AIActionResult, AIEventSnapshot } from './types';
 import { selectBestAction } from './ai-evaluation';
 import { executeAIAction } from './ai-actions';
 import { randomPersonality, getPersonalityConfig } from './ai-strategy';
 import { BUSINESS_TYPES, CITIES, PRODUCTS } from '@/lib/game-data';
 import { roundTaka } from '@/lib/game/economy/formulas';
 
+// ---- Mandatory Inventory Restocking ----
+
+/**
+ * Before taking any strategic action, AI players ALWAYS restock critically
+ * low inventory. This is a "background" action — real business owners
+ * always prioritize keeping shelves stocked.
+ *
+ * Rules:
+ * - Any inventory item below 20% of maxStock → restock to 40% of maxStock
+ * - Only if the player can afford the restock
+ * - This does NOT count as a strategic action (no cooldown consumed)
+ * - Uses db.$transaction for safety
+ */
+async function performMandatoryRestock(playerId: string): Promise<void> {
+  const MANDATORY_RESTOCK_THRESHOLD = 0.20; // Below 20% → restock
+  const MANDATORY_RESTOCK_TARGET = 0.40;    // Restock to 40% of maxStock
+
+  try {
+    const player = await db.player.findUnique({
+      where: { id: playerId },
+      select: { cash: true },
+    });
+    if (!player || player.cash <= 0) return;
+
+    const businesses = await db.business.findMany({
+      where: { playerId },
+      include: { inventories: true },
+    });
+
+    let totalRestockCost = 0;
+    const restockItems: { inventoryId: string; quantityToAdd: number; cost: number }[] = [];
+
+    for (const biz of businesses) {
+      const productDefs = PRODUCTS[biz.type] || [];
+
+      for (const inv of biz.inventories) {
+        const prodDef = productDefs.find(p => p.name === inv.productName);
+        if (!prodDef) continue;
+
+        const maxStock = prodDef.maxStock;
+        const stockRatio = inv.quantity / maxStock;
+
+        // Only restock if below threshold
+        if (stockRatio >= MANDATORY_RESTOCK_THRESHOLD) continue;
+
+        // Calculate how much to buy (bring to 40% of maxStock)
+        const targetQuantity = Math.floor(maxStock * MANDATORY_RESTOCK_TARGET);
+        const quantityToAdd = Math.max(0, targetQuantity - inv.quantity);
+        if (quantityToAdd <= 0) continue;
+
+        const costPerUnit = prodDef.basePrice;
+        const cost = costPerUnit * quantityToAdd;
+
+        // Check if player can afford this restock (with some cash reserve)
+        if (player.cash - totalRestockCost - cost < 0) continue;
+
+        totalRestockCost += cost;
+        restockItems.push({ inventoryId: inv.id, quantityToAdd, cost });
+      }
+    }
+
+    // Execute all restocks in a single transaction
+    if (restockItems.length > 0) {
+      await db.$transaction(async (tx) => {
+        // Deduct total cost from player cash
+        await tx.player.update({
+          where: { id: playerId },
+          data: { cash: { decrement: Math.round(totalRestockCost) } },
+        });
+
+        // Update each inventory item
+        for (const item of restockItems) {
+          await tx.inventory.update({
+            where: { id: item.inventoryId },
+            data: { quantity: { increment: item.quantityToAdd } },
+          });
+        }
+      });
+    }
+  } catch (err) {
+    console.error(`[AI Engine] Mandatory restock failed for ${playerId}:`, err);
+  }
+}
+
 // ---- AI Tick: Main Entry Point ----
+
+/**
+ * Shared context data that is identical for ALL AI players.
+ * Fetched once per tick and reused across all AI decision builds.
+ *
+ * Performance: Avoids N redundant queries for events and market prices
+ * when there are N AI players (8 players → saves 14 queries per tick).
+ */
+interface SharedAIContext {
+  activeEvents: AIEventSnapshot[];
+  marketPrices: Record<string, number>;
+}
+
+/**
+ * Fetch game-global data that is the same for all AI players.
+ * Called once per tick in simulateAIPlayersTick and passed to buildDecisionContext.
+ */
+async function fetchSharedAIContext(): Promise<SharedAIContext> {
+  const [events, marketPriceRows] = await Promise.all([
+    db.gameEvent.findMany({ where: { active: true } }),
+    db.marketPrice.findMany({}),
+  ]);
+
+  const marketPrices: Record<string, number> = {};
+  for (const mp of marketPriceRows) {
+    marketPrices[mp.productName] = mp.priceMultiplier;
+  }
+
+  return {
+    activeEvents: events.map(e => ({
+      title: e.title,
+      type: e.type,
+      effects: JSON.parse(e.effects) as Record<string, number>,
+    })),
+    marketPrices,
+  };
+}
 
 /**
  * Simulate one game tick for all AI players.
  *
  * Replaces the old random cash drift with real decision-making:
+ * - AI players always restock critically low inventory first (mandatory)
  * - AI players evaluate their situation
  * - AI players choose and execute actions
  * - AI businesses are simulated through the SAME economy engine
@@ -48,13 +170,20 @@ export async function simulateAIPlayersTick(gameDay: number): Promise<void> {
 
   if (aiPlayers.length === 0) return;
 
+  // Fetch shared context once (events + market prices are the same for all AI players)
+  // Performance: reduces queries from N×4 to 2 + N×2 (with 8 AI players: 32→18 queries)
+  const sharedCtx = await fetchSharedAIContext();
+
   // Process each AI player
   const newsItems: { title: string; content: string }[] = [];
 
   for (const ai of aiPlayers) {
     try {
-      // 1. Build decision context
-      const ctx = await buildDecisionContext(ai.id, ai.personality || 'BALANCED', ai.cash, ai.netWorth, gameDay, ai.lastActionAt);
+      // 0. Mandatory restocking of critically low inventory (background action)
+      await performMandatoryRestock(ai.id);
+
+      // 1. Build decision context (after restock, to reflect updated state)
+      const ctx = await buildDecisionContext(ai.id, ai.personality || 'BALANCED', ai.cash, ai.netWorth, gameDay, ai.lastActionAt, sharedCtx);
 
       // 2. Select best action
       const bestAction = selectBestAction(ctx);
@@ -114,6 +243,10 @@ export async function simulateAIPlayersTick(gameDay: number): Promise<void> {
 /**
  * Gather all information an AI needs to make decisions.
  * This is the AI's "view" of the game world.
+ *
+ * @param sharedCtx - Pre-fetched game-global data (events, market prices)
+ *   that is the same for ALL AI players. Fetched once in simulateAIPlayersTick
+ *   and reused to avoid N redundant queries.
  */
 async function buildDecisionContext(
   playerId: string,
@@ -122,32 +255,22 @@ async function buildDecisionContext(
   netWorth: number,
   gameDay: number,
   lastActionAt: number,
+  sharedCtx: SharedAIContext,
 ): Promise<AIDecisionContext> {
-  // Get AI's businesses with full detail
-  const businesses = await db.business.findMany({
-    where: { playerId },
-    include: {
-      inventories: true,
-      employees: true,
-    },
-  });
-
-  // Get active loans
-  const loans = await db.loan.findMany({
-    where: { playerId, status: 'ACTIVE' },
-  });
-
-  // Get active events
-  const events = await db.gameEvent.findMany({
-    where: { active: true },
-  });
-
-  // Get market prices (simplified — just get all)
-  const marketPrices = await db.marketPrice.findMany({});
-  const priceMap: Record<string, number> = {};
-  for (const mp of marketPrices) {
-    priceMap[mp.productName] = mp.priceMultiplier;
-  }
+  // Fetch player-specific data only (businesses + loans)
+  // These are different for each AI player and cannot be shared.
+  const [businesses, loans] = await Promise.all([
+    db.business.findMany({
+      where: { playerId },
+      include: {
+        inventories: true,
+        employees: true,
+      },
+    }),
+    db.loan.findMany({
+      where: { playerId, status: 'ACTIVE' },
+    }),
+  ]);
 
   return {
     playerId,
@@ -186,12 +309,9 @@ async function buildDecisionContext(
       dailyPayment: l.dailyPayment,
       daysRemaining: l.daysRemaining,
     })),
-    activeEvents: events.map(e => ({
-      title: e.title,
-      type: e.type,
-      effects: JSON.parse(e.effects) as Record<string, number>,
-    })),
-    marketPrices: priceMap,
+    // Reuse pre-fetched shared context (events + market prices)
+    activeEvents: sharedCtx.activeEvents,
+    marketPrices: sharedCtx.marketPrices,
   };
 }
 
@@ -268,13 +388,29 @@ export async function calculateMarketShare(
     where: { city, type: businessType },
     include: {
       player: { select: { id: true, name: true, isAI: true } },
+      inventories: true,
     },
   });
 
   if (businesses.length === 0) return { shares: [], totalDemand: 0 };
 
+  // Pre-compute market-wide averages for relative factors
+  const totalRevenue = businesses.reduce((sum, b) => sum + b.dailyRevenue, 0);
+  const avgRevenue = businesses.length > 0 ? totalRevenue / businesses.length : 1;
+
+  // Compute average sell price across all businesses for pricing factor
+  const allPrices: number[] = [];
+  for (const b of businesses) {
+    for (const inv of b.inventories) {
+      if (inv.sellPrice > 0) allPrices.push(inv.sellPrice);
+    }
+  }
+  const avgMarketPrice = allPrices.length > 0
+    ? allPrices.reduce((sum, p) => sum + p, 0) / allPrices.length
+    : 1;
+
   // Calculate "attractiveness" score for each business
-  // Higher reputation + higher level + more inventory = more market share
+  // score = repFactor × levelFactor × healthFactor × inventoryFactor × pricingFactor × revenueFactor
   const scored = businesses.map(b => {
     // Reputation factor: 0-100 → 0.4-1.6
     const repFactor = 0.4 + (b.reputation / 100) * 1.2;
@@ -283,7 +419,35 @@ export async function calculateMarketShare(
     // Health factor: 0-100 → 0.5-1.5
     const healthFactor = 0.5 + (b.healthScore / 100);
 
-    const score = repFactor * levelFactor * healthFactor;
+    // Inventory factor: stocked stores attract more customers
+    // 0.3 + (totalStock / maxStockCapacity) * 0.7  (range 0.3-1.0)
+    const totalStock = b.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
+    const maxStockCapacity = b.inventories.reduce((sum, inv) => {
+      const prodDef = PRODUCTS[b.type]?.find(p => p.name === inv.productName);
+      return sum + (prodDef?.maxStock || 100);
+    }, 0);
+    const stockRatio = maxStockCapacity > 0 ? totalStock / maxStockCapacity : 0;
+    const inventoryFactor = 0.3 + stockRatio * 0.7;
+
+    // Pricing factor: lower prices attract more customers
+    // Compare average sell price to market average; cheaper = more attractive
+    const bizPrices = b.inventories
+      .filter(inv => inv.sellPrice > 0)
+      .map(inv => inv.sellPrice);
+    const avgBizPrice = bizPrices.length > 0
+      ? bizPrices.reduce((sum, p) => sum + p, 0) / bizPrices.length
+      : avgMarketPrice;
+    // If price is at market average → factor = 1.0
+    // If price is 20% below market → factor = 1.2
+    // If price is 20% above market → factor = 0.8
+    // Clamped to [0.5, 1.5]
+    const pricingFactor = Math.max(0.5, Math.min(1.5, avgMarketPrice / Math.max(avgBizPrice, 1)));
+
+    // Revenue factor: businesses selling more attract more customers (momentum)
+    // 0.5 + min(dailyRevenue / avgRevenue, 2.0) * 0.25  (range ~0.5-1.0)
+    const revenueFactor = 0.5 + Math.min(b.dailyRevenue / Math.max(avgRevenue, 1), 2.0) * 0.25;
+
+    const score = repFactor * levelFactor * healthFactor * inventoryFactor * pricingFactor * revenueFactor;
     return {
       businessId: b.id,
       businessName: b.name,

@@ -183,47 +183,44 @@ async function executeChangePrice(
   if (!business) return { action: 'CHANGE_PRICE', success: false };
 
   try {
-    const inventories = await db.inventory.findMany({ where: { businessId } });
-    if (inventories.length === 0) return { action: 'CHANGE_PRICE', success: false };
+    return await db.$transaction(async (tx) => {
+      const inventories = await tx.inventory.findMany({ where: { businessId } });
+      if (inventories.length === 0) return { action: 'CHANGE_PRICE', success: false };
 
-    const productDefs = PRODUCTS[business.type] || [];
-    const config = getPersonalityConfig(ctx.personality);
+      const productDefs = PRODUCTS[business.type] || [];
+      const config = getPersonalityConfig(ctx.personality);
 
-    // Get market prices for the city
-    const marketPrices = await db.marketPrice.findMany({ where: { city: business.city } });
-    const marketMap = new Map(marketPrices.map(mp => [mp.productName, mp.priceMultiplier]));
+      // Get market prices for the city
+      const marketPrices = await tx.marketPrice.findMany({ where: { city: business.city } });
+      const marketMap = new Map(marketPrices.map(mp => [mp.productName, mp.priceMultiplier]));
 
-    let priceChanges = 0;
-    const updates: Promise<unknown>[] = [];
+      let priceChanges = 0;
 
-    for (const inv of inventories) {
-      const prodDef = productDefs.find(p => p.name === inv.productName);
-      if (!prodDef) continue;
+      for (const inv of inventories) {
+        const prodDef = productDefs.find(p => p.name === inv.productName);
+        if (!prodDef) continue;
 
-      const marketRef = prodDef.basePrice * (1 + prodDef.suggestedMarkup) * (marketMap.get(inv.productName) || 1);
-      const stockRatio = inv.quantity / prodDef.maxStock;
-      const strategy = selectPricingStrategy(ctx.personality, business.healthScore, stockRatio);
-      const newPrice = calculateAIPrice(marketRef, ctx.personality, strategy, business.healthScore, stockRatio);
+        const marketRef = prodDef.basePrice * (1 + prodDef.suggestedMarkup) * (marketMap.get(inv.productName) || 1);
+        const stockRatio = inv.quantity / prodDef.maxStock;
+        const strategy = selectPricingStrategy(ctx.personality, business.healthScore, stockRatio);
+        const newPrice = calculateAIPrice(marketRef, ctx.personality, strategy, business.healthScore, stockRatio);
 
-      // Only update if price changed meaningfully (>5% difference)
-      if (Math.abs(newPrice - inv.sellPrice) / inv.sellPrice > 0.05) {
-        updates.push(
-          db.inventory.update({
+        // Only update if price changed meaningfully (>5% difference)
+        if (Math.abs(newPrice - inv.sellPrice) / inv.sellPrice > 0.05) {
+          await tx.inventory.update({
             where: { id: inv.id },
             data: { sellPrice: newPrice },
-          })
-        );
-        priceChanges++;
+          });
+          priceChanges++;
+        }
       }
-    }
 
-    await Promise.all(updates);
-
-    return {
-      action: 'CHANGE_PRICE',
-      success: priceChanges > 0,
-      message: priceChanges > 0 ? `Adjusted ${priceChanges} prices` : 'No price changes needed',
-    };
+      return {
+        action: 'CHANGE_PRICE',
+        success: priceChanges > 0,
+        message: priceChanges > 0 ? `Adjusted ${priceChanges} prices` : 'No price changes needed',
+      };
+    });
   } catch (err) {
     console.error('[AI] CHANGE_PRICE failed:', err);
     return { action: 'CHANGE_PRICE', success: false };

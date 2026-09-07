@@ -71,74 +71,75 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
   }
 
   // ---- CHANGE_PRICE ----
-  if (Math.random() < config.priceAdjustFrequency) {
-    for (const biz of ctx.businesses) {
-      // Score based on business performance - if losing money, more incentive to adjust
-      const performanceScore = biz.dailyProfit < 0 ? 40 : 10;
-      const score = BASE_ACTION_SCORES.CHANGE_PRICE + performanceScore;
+  // Always evaluate but adjust score based on priceAdjustFrequency
+  const priceFreqBonus = config.priceAdjustFrequency * 20; // Higher frequency = higher base score
+  for (const biz of ctx.businesses) {
+    // Score based on business performance - if losing money, more incentive to adjust
+    const performanceScore = biz.dailyProfit < 0 ? 40 : 10;
+    const score = BASE_ACTION_SCORES.CHANGE_PRICE + performanceScore + priceFreqBonus;
+    actions.push({
+      action: 'CHANGE_PRICE',
+      score,
+      target: biz.id,
+    });
+  }
+
+  // ---- HIRE_EMPLOYEE ----
+  // Always evaluate but adjust score based on hiringPreference
+  const hireFreqBonus = config.hiringPreference * 15; // Higher preference = higher base score
+  for (const biz of ctx.businesses) {
+    if (biz.employeeCount < 5) { // max employees
+      // More incentive to hire if business is doing well
+      const bizScore = biz.dailyProfit > 0 ? 20 : -10;
+      const cashOk = ctx.cash > 50000 ? 0 : -25;
+      const score = BASE_ACTION_SCORES.HIRE_EMPLOYEE + bizScore + cashOk + hireFreqBonus;
       actions.push({
-        action: 'CHANGE_PRICE',
+        action: 'HIRE_EMPLOYEE',
         score,
         target: biz.id,
       });
     }
   }
 
-  // ---- HIRE_EMPLOYEE ----
-  if (Math.random() < config.hiringPreference) {
-    for (const biz of ctx.businesses) {
-      if (biz.employeeCount < 5) { // max employees
-        // More incentive to hire if business is doing well
-        const bizScore = biz.dailyProfit > 0 ? 20 : -10;
-        const cashOk = ctx.cash > 50000 ? 0 : -25;
-        const score = BASE_ACTION_SCORES.HIRE_EMPLOYEE + bizScore + cashOk;
-        actions.push({
-          action: 'HIRE_EMPLOYEE',
-          score,
-          target: biz.id,
-        });
-      }
-    }
-  }
-
   // ---- UPGRADE_BUSINESS ----
-  if (Math.random() < config.upgradeEagerness) {
-    for (const biz of ctx.businesses) {
-      if (biz.level < 10 && biz.dailyProfit > 0) {
-        const bType = BUSINESS_TYPES.find(b => b.id === biz.type);
-        const upgradeCost = bType ? bType.investment * biz.level * 0.5 : 100000;
-        const canAfford = ctx.cash > upgradeCost * 1.5;
-        const score = BASE_ACTION_SCORES.UPGRADE_BUSINESS
-          + (canAfford ? 30 : -40)
-          + (biz.healthScore > 60 ? 15 : -10);
-        actions.push({
-          action: 'UPGRADE_BUSINESS',
-          score,
-          target: biz.id,
-          params: { upgradeCost },
-        });
-      }
+  // Always evaluate but adjust score based on upgradeEagerness
+  const upgradeFreqBonus = config.upgradeEagerness * 15; // Higher eagerness = higher base score
+  for (const biz of ctx.businesses) {
+    if (biz.level < 10 && biz.dailyProfit > 0) {
+      const bType = BUSINESS_TYPES.find(b => b.id === biz.type);
+      const upgradeCost = bType ? bType.investment * biz.level * 0.5 : 100000;
+      const canAfford = ctx.cash > upgradeCost * 1.5;
+      const score = BASE_ACTION_SCORES.UPGRADE_BUSINESS
+        + (canAfford ? 30 : -40)
+        + (biz.healthScore > 60 ? 15 : -10)
+        + upgradeFreqBonus;
+      actions.push({
+        action: 'UPGRADE_BUSINESS',
+        score,
+        target: biz.id,
+        params: { upgradeCost },
+      });
     }
   }
 
   // ---- CREATE_BUSINESS ----
-  if (Math.random() < config.expansionEagerness * 0.3) { // Only evaluate sometimes
-    const existingTypes = new Set(ctx.businesses.map(b => b.type));
-    const affordableTypes = BUSINESS_TYPES.filter(b => ctx.cash > b.investment * 1.5);
-    const newTypes = affordableTypes.filter(b => !existingTypes.has(b.id));
+  // Always evaluate but adjust score based on expansionEagerness
+  const expandFreqBonus = config.expansionEagerness * 10; // Higher eagerness = higher base score
+  const existingTypes = new Set(ctx.businesses.map(b => b.type));
+  const affordableTypes = BUSINESS_TYPES.filter(b => ctx.cash > b.investment * 1.5);
+  const newTypes = affordableTypes.filter(b => !existingTypes.has(b.id));
 
-    for (const bType of newTypes) {
-      // Score based on profitability, cash available, diversification
-      const diversificationBonus = 20;
-      const cashAfter = ctx.cash - bType.investment;
-      const cashPressure = cashAfter < ctx.netWorth * config.cashReserveRatio ? -50 : 0;
-      const score = BASE_ACTION_SCORES.CREATE_BUSINESS + diversificationBonus + cashPressure;
-      actions.push({
-        action: 'CREATE_BUSINESS',
-        score,
-        params: { businessType: bType.id },
-      });
-    }
+  for (const bType of newTypes) {
+    // Score based on profitability, cash available, diversification
+    const diversificationBonus = 20;
+    const cashAfter = ctx.cash - bType.investment;
+    const cashPressure = cashAfter < ctx.netWorth * config.cashReserveRatio ? -50 : 0;
+    const score = BASE_ACTION_SCORES.CREATE_BUSINESS + diversificationBonus + cashPressure + expandFreqBonus;
+    actions.push({
+      action: 'CREATE_BUSINESS',
+      score,
+      params: { businessType: bType.id },
+    });
   }
 
   // ---- SELL_BUSINESS ----
@@ -155,19 +156,20 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
   }
 
   // ---- TAKE_LOAN ----
-  if (Math.random() < config.loanWillingness * 0.2) { // Evaluate occasionally
-    const activeLoans = ctx.activeLoans.length;
-    if (activeLoans < 2) { // Max 2 loans at a time
-      const cashReserve = ctx.netWorth * config.cashReserveRatio;
-      const needsCash = ctx.cash < cashReserve;
-      const score = BASE_ACTION_SCORES.TAKE_LOAN
-        + (needsCash ? 30 : -20)
-        + (ctx.businesses.some(b => b.dailyProfit > 0) ? 15 : -15);
-      actions.push({
-        action: 'TAKE_LOAN',
-        score,
-      });
-    }
+  // Always evaluate but adjust score based on loanWillingness
+  const loanFreqBonus = config.loanWillingness * 10; // Higher willingness = higher base score
+  const activeLoans = ctx.activeLoans.length;
+  if (activeLoans < 2) { // Max 2 loans at a time
+    const cashReserve = ctx.netWorth * config.cashReserveRatio;
+    const needsCash = ctx.cash < cashReserve;
+    const score = BASE_ACTION_SCORES.TAKE_LOAN
+      + (needsCash ? 30 : -20)
+      + (ctx.businesses.some(b => b.dailyProfit > 0) ? 15 : -15)
+      + loanFreqBonus;
+    actions.push({
+      action: 'TAKE_LOAN',
+      score,
+    });
   }
 
   // ---- REPAY_LOAN ----

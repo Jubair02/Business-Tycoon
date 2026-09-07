@@ -818,7 +818,7 @@ export async function seedAIPlayers(): Promise<void> {
   for (const ai of aiDefinitions) {
     const config = getPersonalityConfig(ai.personality);
     // Starting cash varies by personality
-    const baseCash = 400000 + Math.random() * 600000; // 400K-1M starting cash
+    const baseCash = 600000 + Math.random() * 600000; // 600K-1.2M starting cash
     const netWorth = baseCash;
 
     const player = await db.player.create({
@@ -834,18 +834,30 @@ export async function seedAIPlayers(): Promise<void> {
       },
     });
 
+    // Track remaining cash for affordability checks
+    let remainingCash = baseCash;
+
     // Each AI starts with 1-2 businesses (depending on personality)
     const numBusinesses = ai.personality === 'EXPANSIONIST' ? 2 : 1;
     const usedTypes = new Set<string>();
 
     for (let i = 0; i < numBusinesses; i++) {
-      // Pick business type (try to pick different ones)
-      let bType = BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)];
-      let attempts = 0;
-      while (usedTypes.has(bType.id) && attempts < 10) {
-        bType = BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)];
-        attempts++;
+      let bType: typeof BUSINESS_TYPES[number] | undefined;
+
+      if (i === 0) {
+        // First business: prefer cheaper, stable types (TEA_STALL, GROCERY)
+        const starterTypes = BUSINESS_TYPES.filter(b => b.investment <= 300000);
+        bType = starterTypes.length > 0
+          ? starterTypes[Math.floor(Math.random() * starterTypes.length)]
+          : BUSINESS_TYPES[0]; // fallback
+      } else {
+        // Second business (EXPANSIONIST only): any affordable type keeping 200K cash reserve
+        const affordableTypes = BUSINESS_TYPES.filter(b => !usedTypes.has(b.id) && remainingCash > b.investment + 200000);
+        if (affordableTypes.length === 0) break; // Can't afford any second business
+        bType = affordableTypes[Math.floor(Math.random() * affordableTypes.length)];
       }
+
+      if (!bType) break;
       usedTypes.add(bType.id);
 
       // Pick city
@@ -853,7 +865,7 @@ export async function seedAIPlayers(): Promise<void> {
 
       // Deduct investment from AI cash
       const investmentCost = bType.investment;
-      if (baseCash - investmentCost < 0) continue; // Can't afford
+      remainingCash -= investmentCost;
 
       // Create business
       const business = await db.business.create({
@@ -884,6 +896,9 @@ export async function seedAIPlayers(): Promise<void> {
         const marketRef = prod.basePrice * (1 + prod.suggestedMarkup);
         const sellPrice = calculateAIPrice(marketRef, ai.personality, config.defaultPricingStrategy, 50, 0.4);
 
+        const invCost = Math.round(costPerUnit * initialStock);
+        remainingCash -= invCost;
+
         await db.inventory.create({
           data: {
             businessId: business.id,
@@ -899,7 +914,7 @@ export async function seedAIPlayers(): Promise<void> {
         // Deduct inventory cost
         await db.player.update({
           where: { id: player.id },
-          data: { cash: { decrement: Math.round(costPerUnit * initialStock) } },
+          data: { cash: { decrement: invCost } },
         });
       }
 

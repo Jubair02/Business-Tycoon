@@ -19,7 +19,7 @@ export const PERSONALITY_CONFIGS: Record<AIPersonality, PersonalityConfig> = {
     upgradeEagerness: 0.25,        // Upgrades slowly and carefully
     expansionEagerness: 0.15,      // Rarely opens new businesses
     inventoryBuyThreshold: 0.3,    // Buys when stock drops below 30%
-    actionCooldownDays: 3,         // Acts every 3 days
+    actionCooldownDays: 2,         // Acts every 2 days (was 3, too slow for game pace)
     riskTolerance: 0.2,            // Very risk averse
     priceAdjustFrequency: 0.2,     // Rarely adjusts prices
     hiringPreference: 0.3,         // Hires minimally

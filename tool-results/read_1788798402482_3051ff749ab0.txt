@@ -1,0 +1,975 @@
+     1→// ============================================
+     2→// Bangladesh Business Tycoon - AI Simulation Test
+     3→// Deterministic multi-day simulation WITHOUT database
+     4→//
+     5→// Tests AI behavior over 100 game days to:
+     6→// - Verify per-personality balance
+     7→// - Detect infinite growth / bankruptcy patterns
+     8→// - Ensure no single personality dominates
+     9→// ============================================
+    10→
+    11→import type {
+    12→  AIPersonality,
+    13→  AIDecisionContext,
+    14→  ScoredAction,
+    15→  AIBusinessSnapshot,
+    16→  AIInventorySnapshot,
+    17→  AILoanSnapshot,
+    18→} from './types';
+    19→import { evaluateActions, selectBestAction } from './ai-evaluation';
+    20→import { getPersonalityConfig, calculateAIPrice, selectPricingStrategy } from './ai-strategy';
+    21→import { BUSINESS_TYPES, CITIES, PRODUCTS, EMPLOYEE_ROLES } from '@/lib/game-data';
+    22→import type { ProductDef } from '@/lib/game-data';
+    23→import {
+    24→  calculatePotentialCustomers,
+    25→  calculatePriceDemandMultiplier,
+    26→  calculateProductDemand,
+    27→  calculateItemsSold,
+    28→  calculateRevenue,
+    29→  calculateCostOfGoodsSold,
+    30→  calculateBusinessExpenses,
+    31→  calculateNetProfit,
+    32→  calculateBusinessHealth,
+    33→  roundTaka,
+    34→} from '@/lib/game/economy/formulas';
+    35→import { getBusinessEconomyConfig } from '@/lib/game/economy/business-config';
+    36→import { getProductDemandConfig } from '@/lib/game/economy/product-demand';
+    37→import { ECONOMY_CONFIG } from '@/lib/game/economy/economy-config';
+    38→
+    39→// ---- Seeded PRNG (deterministic) ----
+    40→class SeededRNG {
+    41→  private seed: number;
+    42→  constructor(seed: number) {
+    43→    this.seed = seed;
+    44→  }
+    45→  /** Mulberry32 PRNG */
+    46→  next(): number {
+    47→    let t = (this.seed += 0x6d2b79f5);
+    48→    t = Math.imul(t ^ (t >>> 15), t | 1);
+    49→    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    50→    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    51→  }
+    52→  /** Random float in [0, 1) */
+    53→  random(): number {
+    54→    return this.next();
+    55→  }
+    56→  /** Random int in [min, max) */
+    57→  randInt(min: number, max: number): number {
+    58→    return min + Math.floor(this.random() * (max - min));
+    59→  }
+    60→  /** Random float in [min, max) */
+    61→  randFloat(min: number, max: number): number {
+    62→    return min + this.random() * (max - min);
+    63→  }
+    64→  /** Pick random element from array */
+    65→  pick<T>(arr: T[]): T {
+    66→    return arr[Math.floor(this.random() * arr.length)];
+    67→  }
+    68→}
+    69→
+    70→// ---- In-Memory State Types ----
+    71→interface SimInventory {
+    72→  id: string;
+    73→  productName: string;
+    74→  category: string;
+    75→  quantity: number;
+    76→  maxStock: number;
+    77→  purchasePrice: number;
+    78→  sellPrice: number;
+    79→}
+    80→
+    81→interface SimEmployee {
+    82→  role: string;
+    83→  salary: number;
+    84→  skill: number;
+    85→  efficiency: number;
+    86→}
+    87→
+    88→interface SimBusiness {
+    89→  id: string;
+    90→  type: string;
+    91→  city: string;
+    92→  name: string;
+    93→  level: number;
+    94→  reputation: number;
+    95→  cash: number;
+    96→  dailyRevenue: number;
+    97→  dailyExpense: number;
+    98→  dailyProfit: number;
+    99→  totalProfit: number;
+   100→  healthScore: number;
+   101→  inventories: SimInventory[];
+   102→  employees: SimEmployee[];
+   103→}
+   104→
+   105→interface SimLoan {
+   106→  id: string;
+   107→  amount: number;
+   108→  remainingDebt: number;
+   109→  dailyPayment: number;
+   110→  daysRemaining: number;
+   111→  interestRate: number;
+   112→}
+   113→
+   114→interface SimPlayer {
+   115→  id: string;
+   116→  name: string;
+   117→  personality: AIPersonality;
+   118→  cash: number;
+   119→  netWorth: number;
+   120→  businesses: SimBusiness[];
+   121→  loans: SimLoan[];
+   122→  lastActionAt: number;
+   123→}
+   124→
+   125→// ---- Metrics Tracking ----
+   126→interface DayMetrics {
+   127→  day: number;
+   128→  playerNetWorth: Record<string, number>;
+   129→  playerCash: Record<string, number>;
+   130→  playerDailyProfit: Record<string, number>;
+   131→  playerBusinessCount: Record<string, number>;
+   132→  playerLoanCount: Record<string, number>;
+   133→  playerInventoryAvg: Record<string, number>;
+   134→}
+   135→
+   136→// ---- Create 8 AI Players (matching seedAIPlayers) ----
+   137→function createAIPlayers(rng: SeededRNG): SimPlayer[] {
+   138→  const definitions = [
+   139→    { name: 'Rahim Enterprises', personality: 'CONSERVATIVE' as AIPersonality },
+   140→    { name: 'Fatima Holdings', personality: 'AGGRESSIVE' as AIPersonality },
+   141→    { name: 'Khan & Sons', personality: 'BALANCED' as AIPersonality },
+   142→    { name: 'Chowdhury Corp', personality: 'TRADER' as AIPersonality },
+   143→    { name: 'Sylhet Trading Co', personality: 'EXPANSIONIST' as AIPersonality },
+   144→    { name: 'Dhaka Business Group', personality: 'BALANCED' as AIPersonality },
+   145→    { name: 'Bengal Ventures', personality: 'AGGRESSIVE' as AIPersonality },
+   146→    { name: 'Padma Industries', personality: 'CONSERVATIVE' as AIPersonality },
+   147→  ];
+   148→
+   149→  const players: SimPlayer[] = [];
+   150→  let nextId = 1;
+   151→
+   152→  for (const def of definitions) {
+   153→    const baseCash = 600000 + rng.random() * 600000;
+   154→    const player: SimPlayer = {
+   155→      id: `player-${nextId++}`,
+   156→      name: def.name,
+   157→      personality: def.personality,
+   158→      cash: baseCash,
+   159→      netWorth: baseCash,
+   160→      businesses: [],
+   161→      loans: [],
+   162→      lastActionAt: 0,
+   163→    };
+   164→
+   165→    // Each AI starts with 1-2 businesses
+   166→    const numBusinesses = def.personality === 'EXPANSIONIST' ? 2 : 1;
+   167→    const usedTypes = new Set<string>();
+   168→
+   169→    for (let i = 0; i < numBusinesses; i++) {
+   170→      // Pick business type — prefer affordable ones to ensure cash reserve
+   171→      const affordableTypes = BUSINESS_TYPES.filter(b => !usedTypes.has(b.id) && player.cash > b.investment * 1.5);
+   172→      if (affordableTypes.length === 0) break;
+   173→      let bType = rng.pick(affordableTypes);
+   174→      usedTypes.add(bType.id);
+   175→
+   176→      const city = rng.pick(CITIES);
+   177→      const investmentCost = bType.investment;
+   178→      if (player.cash - investmentCost < 0) continue;
+   179→
+   180→      player.cash -= investmentCost;
+   181→
+   182→      const biz: SimBusiness = {
+   183→        id: `biz-${nextId++}`,
+   184→        type: bType.id,
+   185→        city: city.id,
+   186→        name: `${bType.name} - ${city.name}`,
+   187→        level: 1,
+   188→        reputation: 40 + rng.random() * 20,
+   189→        cash: 0,
+   190→        dailyRevenue: 0,
+   191→        dailyExpense: 0,
+   192→        dailyProfit: 0,
+   193→        totalProfit: 0,
+   194→        healthScore: 50,
+   195→        inventories: [],
+   196→        employees: [],
+   197→      };
+   198→
+   199→      // Create initial inventory
+   200→      const productDefs = PRODUCTS[bType.id] || [];
+   201→      const config = getPersonalityConfig(def.personality);
+   202→      for (const prod of productDefs) {
+   203→        const initialStock = Math.floor(prod.maxStock * 0.4);
+   204→        const marketRef = prod.basePrice * (1 + prod.suggestedMarkup);
+   205→        const sellPrice = calculateAIPrice(marketRef, def.personality, config.defaultPricingStrategy, 50, 0.4);
+   206→
+   207→        biz.inventories.push({
+   208→          id: `inv-${nextId++}`,
+   209→          productName: prod.name,
+   210→          category: prod.category,
+   211→          quantity: initialStock,
+   212→          maxStock: prod.maxStock,
+   213→          purchasePrice: prod.basePrice,
+   214→          sellPrice,
+   215→        });
+   216→
+   217→        player.cash -= prod.basePrice * initialStock;
+   218→      }
+   219→
+   220→      player.businesses.push(biz);
+   221→    }
+   222→
+   223→    // Ensure cash is not negative
+   224→    player.cash = Math.max(0, player.cash);
+   225→    player.netWorth = calculateNetWorth(player);
+   226→    players.push(player);
+   227→  }
+   228→
+   229→  return players;
+   230→}
+   231→
+   232→// ---- Calculate Net Worth ----
+   233→function calculateNetWorth(player: SimPlayer): number {
+   234→  const businessCash = player.businesses.reduce((sum, b) => sum + b.cash, 0);
+   235→  const inventoryValue = player.businesses.reduce(
+   236→    (sum, b) => sum + b.inventories.reduce((iSum, inv) => iSum + inv.quantity * inv.purchasePrice, 0),
+   237→    0,
+   238→  );
+   239→  const outstandingDebt = player.loans.reduce((sum, l) => sum + l.remainingDebt, 0);
+   240→  return roundTaka(player.cash + businessCash + inventoryValue - outstandingDebt);
+   241→}
+   242→
+   243→// ---- Simulate One Business Day (Economy) ----
+   244→function simulateBusinessDay(biz: SimBusiness, rng: SeededRNG): void {
+   245→  const bType = BUSINESS_TYPES.find(b => b.id === biz.type);
+   246→  const cityData = CITIES.find(c => c.id === biz.city);
+   247→  if (!bType || !cityData) return;
+   248→
+   249→  const bizConfig = getBusinessEconomyConfig(biz.type);
+   250→
+   251→  // Calculate potential customers
+   252→  const totalStock = biz.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
+   253→  const maxStockCapacity = biz.inventories.reduce((sum, inv) => sum + inv.maxStock, 0);
+   254→  const avgEmployeeSkill = biz.employees.length > 0
+   255→    ? biz.employees.reduce((sum, e) => sum + e.skill, 0) / biz.employees.length
+   256→    : 0;
+   257→
+   258→  const potentialCustomers = calculatePotentialCustomers({
+   259→    baseCustomers: bType.baseCustomers,
+   260→    cityMultiplier: cityData.customerMultiplier,
+   261→    level: biz.level,
+   262→    reputation: biz.reputation,
+   263→    totalStock,
+   264→    maxStockCapacity,
+   265→    employeeCount: biz.employees.length,
+   266→    avgEmployeeSkill,
+   267→    eventCustomerEffect: 0, // No events in simulation
+   268→    businessDemandEffect: 0,
+   269→    businessTypeId: biz.type,
+   270→  });
+   271→
+   272→  // Simulate sales for each product
+   273→  let totalRevenue = 0;
+   274→  let totalCOGS = 0;
+   275→
+   276→  for (const inv of biz.inventories) {
+   277→    const prodDef = (PRODUCTS[biz.type] || []).find((p: ProductDef) => p.name === inv.productName);
+   278→    if (!prodDef) continue;
+   279→
+   280→    const demandConfig = getProductDemandConfig(inv.productName);
+   281→    const marketRef = prodDef.basePrice * (1 + prodDef.suggestedMarkup);
+   282→
+   283→    // Product demand
+   284→    const demand = calculateProductDemand({
+   285→      baseDemand: demandConfig.baseDemand,
+   286→      demandMultiplier: 1.0,
+   287→      eventDemandEffect: 0,
+   288→      productVolatility: demandConfig.volatility,
+   289→    });
+   290→
+   291→    // Price demand
+   292→    const priceMult = calculatePriceDemandMultiplier({
+   293→      sellPrice: inv.sellPrice,
+   294→      marketReferencePrice: marketRef,
+   295→      productPriceSensitivity: demandConfig.priceSensitivity,
+   296→      businessPriceSensitivity: bizConfig.priceSensitivity,
+   297→    });
+   298→
+   299→    // Total demand
+   300→    const totalDemand = potentialCustomers * demand * priceMult;
+   301→    const itemsSold = calculateItemsSold(totalDemand, inv.quantity);
+   302→    const revenue = calculateRevenue(itemsSold, inv.sellPrice);
+   303→    const cogs = calculateCostOfGoodsSold(itemsSold, inv.purchasePrice);
+   304→
+   305→    // Update inventory
+   306→    inv.quantity = Math.max(0, inv.quantity - itemsSold);
+   307→
+   308→    totalRevenue += revenue;
+   309→    totalCOGS += cogs;
+   310→  }
+   311→
+   312→  // Calculate expenses
+   313→  const totalMonthlySalaries = biz.employees.reduce((sum, e) => sum + e.salary, 0);
+   314→  const grossProfit = totalRevenue - totalCOGS;
+   315→
+   316→  const expenses = calculateBusinessExpenses({
+   317→    baseRent: bType.rent,
+   318→    level: biz.level,
+   319→    cityRentMultiplier: cityData.rentMultiplier,
+   320→    totalMonthlySalaries,
+   321→    businessLevel: biz.level,
+   322→    businessTypeId: biz.type,
+   323→    revenue: totalRevenue,
+   324→    grossProfit,
+   325→  });
+   326→
+   327→  const netProfit = calculateNetProfit(totalRevenue, totalCOGS, expenses.totalExpense);
+   328→
+   329→  // Update business state
+   330→  biz.dailyRevenue = totalRevenue;
+   331→  biz.dailyExpense = expenses.totalExpense;
+   332→  biz.dailyProfit = netProfit;
+   333→  biz.totalProfit += netProfit;
+   334→  biz.cash += netProfit;
+   335→
+   336→  // Update health score
+   337→  const healthResult = calculateBusinessHealth({
+   338→    dailyProfit: netProfit,
+   339→    dailyRevenue: totalRevenue,
+   340→    businessCash: biz.cash,
+   341→    totalStock: biz.inventories.reduce((sum, inv) => sum + inv.quantity, 0),
+   342→    maxStockCapacity,
+   343→    reputation: biz.reputation,
+   344→    businessTypeId: biz.type,
+   345→  });
+   346→  biz.healthScore = healthResult.score;
+   347→
+   348→  // Update reputation
+   349→  if (netProfit > 0) {
+   350→    biz.reputation = Math.min(100, biz.reputation + ECONOMY_CONFIG.reputationGainProfitable);
+   351→  } else {
+   352→    biz.reputation = Math.max(0, biz.reputation - ECONOMY_CONFIG.reputationLossUnprofitable);
+   353→  }
+   354→  const outOfStockRatio = biz.inventories.filter(inv => inv.quantity === 0).length / Math.max(biz.inventories.length, 1);
+   355→  biz.reputation = Math.max(0, biz.reputation - ECONOMY_CONFIG.reputationLossStockout * outOfStockRatio);
+   356→  biz.reputation = Math.max(0, biz.reputation - ECONOMY_CONFIG.reputationDecay);
+   357→}
+   358→
+   359→// ---- Execute AI Action (In-Memory) ----
+   360→function executeSimAction(player: SimPlayer, action: ScoredAction, rng: SeededRNG): void {
+   361→  const config = getPersonalityConfig(player.personality);
+   362→
+   363→  switch (action.action) {
+   364→    case 'BUY_INVENTORY': {
+   365→      const bizId = action.target;
+   366→      const biz = player.businesses.find(b => b.id === bizId);
+   367→      if (!biz) break;
+   368→
+   369→      const productDefs = PRODUCTS[biz.type] || [];
+   370→      let totalSpent = 0;
+   371→
+   372→      for (const inv of biz.inventories) {
+   373→        const prodDef = productDefs.find((p: ProductDef) => p.name === inv.productName);
+   374→        if (!prodDef) continue;
+   375→
+   376→        const stockRatio = inv.quantity / inv.maxStock;
+   377→        if (stockRatio >= config.inventoryBuyThreshold) continue;
+   378→
+   379→        const targetStock = Math.floor(inv.maxStock * (config.inventoryBuyThreshold + 0.2));
+   380→        const needed = targetStock - inv.quantity;
+   381→        if (needed <= 0) continue;
+   382→
+   383→        const costPerUnit = prodDef.basePrice;
+   384→        const cost = costPerUnit * needed;
+   385→
+   386→        if (player.cash - totalSpent < cost) continue;
+   387→
+   388→        inv.quantity += needed;
+   389→        inv.purchasePrice = costPerUnit;
+   390→        totalSpent += cost;
+   391→      }
+   392→
+   393→      if (totalSpent > 0) {
+   394→        player.cash -= roundTaka(totalSpent);
+   395→      }
+   396→      break;
+   397→    }
+   398→
+   399→    case 'CHANGE_PRICE': {
+   400→      const bizId = action.target;
+   401→      const biz = player.businesses.find(b => b.id === bizId);
+   402→      if (!biz) break;
+   403→
+   404→      const productDefs = PRODUCTS[biz.type] || [];
+   405→      for (const inv of biz.inventories) {
+   406→        const prodDef = productDefs.find((p: ProductDef) => p.name === inv.productName);
+   407→        if (!prodDef) continue;
+   408→
+   409→        const marketRef = prodDef.basePrice * (1 + prodDef.suggestedMarkup);
+   410→        const stockRatio = inv.quantity / inv.maxStock;
+   411→        const strategy = selectPricingStrategy(player.personality, biz.healthScore, stockRatio);
+   412→        const newPrice = calculateAIPrice(marketRef, player.personality, strategy, biz.healthScore, stockRatio);
+   413→
+   414→        if (Math.abs(newPrice - inv.sellPrice) / inv.sellPrice > 0.05) {
+   415→          inv.sellPrice = newPrice;
+   416→        }
+   417→      }
+   418→      break;
+   419→    }
+   420→
+   421→    case 'HIRE_EMPLOYEE': {
+   422→      const bizId = action.target;
+   423→      const biz = player.businesses.find(b => b.id === bizId);
+   424→      if (!biz || biz.employees.length >= 5) break;
+   425→
+   426→      const existingRoles = new Set(biz.employees.map(e => e.role));
+   427→      const hirePriority = ['SALESPERSON', 'CASHIER', 'MANAGER', 'CLEANER', 'DELIVERY_RIDER'];
+   428→      const roleToHire = hirePriority.find(r => !existingRoles.has(r)) || 'CASHIER';
+   429→      const roleDef = EMPLOYEE_ROLES.find(r => r.role === roleToHire);
+   430→      if (!roleDef) break;
+   431→
+   432→      if (player.cash < roleDef.baseSalary * 2) break;
+   433→
+   434→      const skill = 3 + rng.random() * 7;
+   435→      const efficiency = 0.5 + rng.random() * 0.5;
+   436→
+   437→      biz.employees.push({
+   438→        role: roleDef.role,
+   439→        salary: roleDef.baseSalary,
+   440→        skill: roundTaka(skill * 10) / 10,
+   441→        efficiency: roundTaka(efficiency * 100) / 100,
+   442→      });
+   443→      break;
+   444→    }
+   445→
+   446→    case 'UPGRADE_BUSINESS': {
+   447→      const bizId = action.target;
+   448→      const biz = player.businesses.find(b => b.id === bizId);
+   449→      if (!biz || biz.level >= 10) break;
+   450→
+   451→      const bType = BUSINESS_TYPES.find(b => b.id === biz.type);
+   452→      if (!bType) break;
+   453→
+   454→      const upgradeCost = Math.round(bType.investment * biz.level * 0.5);
+   455→      if (player.cash < upgradeCost) break;
+   456→
+   457→      player.cash -= upgradeCost;
+   458→      biz.level += 1;
+   459→      break;
+   460→    }
+   461→
+   462→    case 'CREATE_BUSINESS': {
+   463→      const businessType = action.params?.businessType as string | undefined;
+   464→      if (!businessType) break;
+   465→
+   466→      const bType = BUSINESS_TYPES.find(b => b.id === businessType);
+   467→      if (!bType) break;
+   468→
+   469→      if (player.cash < bType.investment * 1.2) break;
+   470→
+   471→      const existingCities = player.businesses.map(b => b.city);
+   472→      const newCities = CITIES.filter(c => !existingCities.includes(c.id));
+   473→      const cityPool = newCities.length > 0 ? newCities : CITIES;
+   474→      const city = rng.pick(cityPool);
+   475→
+   476→      player.cash -= bType.investment;
+   477→
+   478→      const newBiz: SimBusiness = {
+   479→        id: `biz-new-${Date.now()}-${Math.floor(rng.random() * 10000)}`,
+   480→        type: bType.id,
+   481→        city: city.id,
+   482→        name: `${bType.name} - ${city.name}`,
+   483→        level: 1,
+   484→        reputation: 50,
+   485→        cash: 0,
+   486→        dailyRevenue: 0,
+   487→        dailyExpense: 0,
+   488→        dailyProfit: 0,
+   489→        totalProfit: 0,
+   490→        healthScore: 50,
+   491→        inventories: [],
+   492→        employees: [],
+   493→      };
+   494→
+   495→      const productDefs = PRODUCTS[bType.id] || [];
+   496→      let invCost = 0;
+   497→      for (const prod of productDefs) {
+   498→        const initialStock = Math.floor(prod.maxStock * 0.4);
+   499→        const marketRef = prod.basePrice * (1 + prod.suggestedMarkup);
+   500→        const sellPrice = calculateAIPrice(marketRef, player.personality, config.defaultPricingStrategy, 50, 0.4);
+   501→
+   502→        newBiz.inventories.push({
+   503→          id: `inv-new-${Date.now()}-${Math.floor(rng.random() * 10000)}`,
+   504→          productName: prod.name,
+   505→          category: prod.category,
+   506→          quantity: initialStock,
+   507→          maxStock: prod.maxStock,
+   508→          purchasePrice: prod.basePrice,
+   509→          sellPrice,
+   510→        });
+   511→        invCost += prod.basePrice * initialStock;
+   512→      }
+   513→
+   514→      player.cash -= invCost;
+   515→      player.businesses.push(newBiz);
+   516→      break;
+   517→    }
+   518→
+   519→    case 'SELL_BUSINESS': {
+   520→      const bizId = action.target;
+   521→      const bizIdx = player.businesses.findIndex(b => b.id === bizId);
+   522→      if (bizIdx === -1) break;
+   523→
+   524→      const biz = player.businesses[bizIdx];
+   525→      const bType = BUSINESS_TYPES.find(b => b.id === biz.type);
+   526→      if (!bType) break;
+   527→
+   528→      const inventoryValue = biz.inventories.reduce((sum, inv) => sum + inv.quantity * inv.purchasePrice, 0);
+   529→      const sellPrice = Math.round(bType.investment * 0.4 + inventoryValue * 0.5);
+   530→
+   531→      player.cash += sellPrice;
+   532→      player.businesses.splice(bizIdx, 1);
+   533→      break;
+   534→    }
+   535→
+   536→    case 'TAKE_LOAN': {
+   537→      if (player.loans.length >= 2) break;
+   538→
+   539→      const loanAmount = Math.min(
+   540→        roundTaka(player.netWorth * (0.3 + rng.random() * 0.3)),
+   541→        2000000,
+   542→      );
+   543→      if (loanAmount < 100000) break;
+   544→
+   545→      const interestRate = 0.05 + rng.random() * 0.03;
+   546→      const durationDays = 30 + Math.floor(rng.random() * 30);
+   547→      const totalOwed = roundTaka(loanAmount * (1 + interestRate));
+   548→      const dailyPayment = roundTaka(totalOwed / durationDays);
+   549→
+   550→      player.loans.push({
+   551→        id: `loan-${Date.now()}-${Math.floor(rng.random() * 10000)}`,
+   552→        amount: loanAmount,
+   553→        remainingDebt: totalOwed,
+   554→        dailyPayment,
+   555→        daysRemaining: durationDays,
+   556→        interestRate,
+   557→      });
+   558→
+   559→      player.cash += loanAmount;
+   560→      break;
+   561→    }
+   562→
+   563→    case 'REPAY_LOAN': {
+   564→      const loanId = action.target;
+   565→      const loan = player.loans.find(l => l.id === loanId);
+   566→      if (!loan) break;
+   567→
+   568→      const repayment = Math.min(loan.remainingDebt, Math.max(0, player.cash * 0.5));
+   569→      if (repayment < loan.dailyPayment) break;
+   570→
+   571→      const newRemaining = Math.max(0, loan.remainingDebt - repayment);
+   572→      loan.remainingDebt = newRemaining;
+   573→      player.cash -= roundTaka(repayment);
+   574→
+   575→      if (newRemaining <= 0) {
+   576→        player.loans = player.loans.filter(l => l.id !== loanId);
+   577→      }
+   578→      break;
+   579→    }
+   580→
+   581→    case 'HOLD':
+   582→    default:
+   583→      break;
+   584→  }
+   585→}
+   586→
+   587→// ---- Build Decision Context ----
+   588→function buildDecisionContext(player: SimPlayer, gameDay: number): AIDecisionContext {
+   589→  return {
+   590→    playerId: player.id,
+   591→    personality: player.personality,
+   592→    cash: player.cash,
+   593→    netWorth: player.netWorth,
+   594→    gameDay,
+   595→    lastActionAt: player.lastActionAt,
+   596→    businesses: player.businesses.map(b => ({
+   597→      id: b.id,
+   598→      type: b.type,
+   599→      city: b.city,
+   600→      name: b.name,
+   601→      level: b.level,
+   602→      reputation: b.reputation,
+   603→      cash: b.cash,
+   604→      dailyRevenue: b.dailyRevenue,
+   605→      dailyExpense: b.dailyExpense,
+   606→      dailyProfit: b.dailyProfit,
+   607→      totalProfit: b.totalProfit,
+   608→      healthScore: b.healthScore,
+   609→      inventories: b.inventories.map(inv => ({
+   610→        id: inv.id,
+   611→        productName: inv.productName,
+   612→        quantity: inv.quantity,
+   613→        maxStock: inv.maxStock,
+   614→        purchasePrice: inv.purchasePrice,
+   615→        sellPrice: inv.sellPrice,
+   616→      })),
+   617→      employeeCount: b.employees.length,
+   618→    })),
+   619→    activeLoans: player.loans.map(l => ({
+   620→      id: l.id,
+   621→      amount: l.amount,
+   622→      remainingDebt: l.remainingDebt,
+   623→      dailyPayment: l.dailyPayment,
+   624→      daysRemaining: l.daysRemaining,
+   625→    })),
+   626→    activeEvents: [],
+   627→    marketPrices: {},
+   628→  };
+   629→}
+   630→
+   631→// ---- Process Loan Payments ----
+   632→function processLoanPayments(player: SimPlayer): void {
+   633→  const remainingLoans: SimLoan[] = [];
+   634→  for (const loan of player.loans) {
+   635→    player.cash -= loan.dailyPayment;
+   636→    loan.remainingDebt -= loan.dailyPayment;
+   637→    loan.daysRemaining -= 1;
+   638→    if (loan.remainingDebt <= 0 || loan.daysRemaining <= 0) {
+   639→      // Loan paid off or expired
+   640→      if (loan.remainingDebt > 0) {
+   641→        player.cash -= loan.remainingDebt; // Pay remaining
+   642→      }
+   643→    } else {
+   644→      remainingLoans.push(loan);
+   645→    }
+   646→  }
+   647→  player.loans = remainingLoans;
+   648→}
+   649→
+   650→// ---- Mandatory Restock (Simulation Version) ----
+   651→function performSimMandatoryRestock(player: SimPlayer): void {
+   652→  const MANDATORY_RESTOCK_THRESHOLD = 0.20; // Below 20% → restock
+   653→  const MANDATORY_RESTOCK_TARGET = 0.40;    // Restock to 40% of maxStock
+   654→
+   655→  if (player.cash <= 0) return;
+   656→
+   657→  let totalSpent = 0;
+   658→
+   659→  for (const biz of player.businesses) {
+   660→    const productDefs = PRODUCTS[biz.type] || [];
+   661→
+   662→    for (const inv of biz.inventories) {
+   663→      const prodDef = productDefs.find((p: ProductDef) => p.name === inv.productName);
+   664→      if (!prodDef) continue;
+   665→
+   666→      const maxStock = inv.maxStock;
+   667→      const stockRatio = inv.quantity / maxStock;
+   668→
+   669→      // Only restock if below threshold
+   670→      if (stockRatio >= MANDATORY_RESTOCK_THRESHOLD) continue;
+   671→
+   672→      // Calculate how much to buy (bring to 40% of maxStock)
+   673→      const targetQuantity = Math.floor(maxStock * MANDATORY_RESTOCK_TARGET);
+   674→      const quantityToAdd = Math.max(0, targetQuantity - inv.quantity);
+   675→      if (quantityToAdd <= 0) continue;
+   676→
+   677→      const costPerUnit = prodDef.basePrice;
+   678→      const cost = costPerUnit * quantityToAdd;
+   679→
+   680→      // Check if player can afford this restock
+   681→      if (player.cash - totalSpent - cost < 0) continue;
+   682→
+   683→      inv.quantity += quantityToAdd;
+   684→      totalSpent += cost;
+   685→    }
+   686→  }
+   687→
+   688→  if (totalSpent > 0) {
+   689→    player.cash -= roundTaka(totalSpent);
+   690→  }
+   691→}
+   692→
+   693→// ---- Run Full Simulation ----
+   694→function runSimulation(): void {
+   695→  const rng = new SeededRNG(42); // Deterministic seed
+   696→  const players = createAIPlayers(rng);
+   697→
+   698→  console.log('='.repeat(80));
+   699→  console.log('🤖 AI SIMULATION TEST — 100 Game Days');
+   700→  console.log('='.repeat(80));
+   701→  console.log(`\n📊 Initial State:`);
+   702→  for (const p of players) {
+   703→    console.log(`  ${p.name} (${p.personality}): ৳${Math.round(p.netWorth).toLocaleString()} cash, ${p.businesses.length} businesses`);
+   704→  }
+   705→
+   706→  const metrics: DayMetrics[] = [];
+   707→  const TOTAL_DAYS = 100;
+   708→
+   709→  for (let day = 1; day <= TOTAL_DAYS; day++) {
+   710→    // Process each player
+   711→    for (const player of players) {
+   712→      // 1. Run economy for each business
+   713→      for (const biz of player.businesses) {
+   714→        simulateBusinessDay(biz, rng);
+   715→        // Distribute business profit to player cash (same as real game engine)
+   716→        player.cash += biz.dailyProfit;
+   717→      }
+   718→
+   719→      // 2. Process loan payments
+   720→      processLoanPayments(player);
+   721→
+   722→      // 3. Mandatory restock of critically low inventory (background action)
+   723→      performSimMandatoryRestock(player);
+   724→
+   725→      // 4. AI decision
+   726→      const ctx = buildDecisionContext(player, day);
+   727→      const bestAction = selectBestAction(ctx);
+   728→
+   729→      if (bestAction.action !== 'HOLD') {
+   730→        executeSimAction(player, bestAction, rng);
+   731→        player.lastActionAt = day;
+   732→      }
+   733→
+   734→      // 5. Recalculate net worth
+   735→      player.netWorth = calculateNetWorth(player);
+   736→
+   737→      // 6. Safety: prevent infinite negative
+   738→      if (player.cash < -1000000) {
+   739→        player.cash = -1000000; // Cap losses
+   740→      }
+   741→    }
+   742→
+   743→    // Record metrics
+   744→    const dayMetrics: DayMetrics = {
+   745→      day,
+   746→      playerNetWorth: {},
+   747→      playerCash: {},
+   748→      playerDailyProfit: {},
+   749→      playerBusinessCount: {},
+   750→      playerLoanCount: {},
+   751→      playerInventoryAvg: {},
+   752→    };
+   753→    for (const p of players) {
+   754→      dayMetrics.playerNetWorth[p.id] = p.netWorth;
+   755→      dayMetrics.playerCash[p.id] = p.cash;
+   756→      dayMetrics.playerDailyProfit[p.id] = p.businesses.reduce((s, b) => s + b.dailyProfit, 0);
+   757→      dayMetrics.playerBusinessCount[p.id] = p.businesses.length;
+   758→      dayMetrics.playerLoanCount[p.id] = p.loans.length;
+   759→      const totalStock = p.businesses.reduce((s, b) => s + b.inventories.reduce((is2, inv) => is2 + inv.quantity, 0), 0);
+   760→      const totalMax = p.businesses.reduce((s, b) => s + b.inventories.reduce((is2, inv) => is2 + inv.maxStock, 0), 0);
+   761→      dayMetrics.playerInventoryAvg[p.id] = totalMax > 0 ? totalStock / totalMax : 0;
+   762→    }
+   763→    metrics.push(dayMetrics);
+   764→  }
+   765→
+   766→  // ---- Print Results ----
+   767→  printSummary('30-DAY SUMMARY', players, metrics, 30);
+   768→  printSummary('100-DAY SUMMARY', players, metrics, 100);
+   769→  checkBalance(players, metrics);
+   770→}
+   771→
+   772→// ---- Print Per-Personality Summary ----
+   773→function printSummary(
+   774→  title: string,
+   775→  players: SimPlayer[],
+   776→  metrics: DayMetrics[],
+   777→  atDay: number,
+   778→): void {
+   779→  const snapshot = metrics[atDay - 1]; // 0-indexed
+   780→  if (!snapshot) return;
+   781→
+   782→  console.log('\n' + '='.repeat(80));
+   783→  console.log(`📈 ${title} (Day ${atDay})`);
+   784→  console.log('='.repeat(80));
+   785→
+   786→  // Group by personality
+   787→  const personalities: AIPersonality[] = ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'TRADER', 'EXPANSIONIST'];
+   788→
+   789→  for (const personality of personalities) {
+   790→    const matching = players.filter(p => p.personality === personality);
+   791→    if (matching.length === 0) continue;
+   792→
+   793→    const avgNetWorth = matching.reduce((s, p) => s + snapshot.playerNetWorth[p.id], 0) / matching.length;
+   794→    const avgCash = matching.reduce((s, p) => s + snapshot.playerCash[p.id], 0) / matching.length;
+   795→    const avgProfit = matching.reduce((s, p) => s + snapshot.playerDailyProfit[p.id], 0) / matching.length;
+   796→    const avgBizCount = matching.reduce((s, p) => s + snapshot.playerBusinessCount[p.id], 0) / matching.length;
+   797→    const avgLoanCount = matching.reduce((s, p) => s + snapshot.playerLoanCount[p.id], 0) / matching.length;
+   798→    const avgInventory = matching.reduce((s, p) => s + snapshot.playerInventoryAvg[p.id], 0) / matching.length;
+   799→
+   800→    const config = getPersonalityConfig(personality);
+   801→    console.log(`\n  ${config.icon} ${personality} (${matching.length} players):`);
+   802→    console.log(`    Avg Net Worth:  ৳${Math.round(avgNetWorth).toLocaleString()}`);
+   803→    console.log(`    Avg Cash:       ৳${Math.round(avgCash).toLocaleString()}`);
+   804→    console.log(`    Avg Daily Profit: ৳${Math.round(avgProfit).toLocaleString()}`);
+   805→    console.log(`    Avg Businesses: ${avgBizCount.toFixed(1)}`);
+   806→    console.log(`    Avg Loans:      ${avgLoanCount.toFixed(1)}`);
+   807→    console.log(`    Avg Inventory:  ${(avgInventory * 100).toFixed(1)}%`);
+   808→  }
+   809→
+   810→  // Overall
+   811→  const overallNetWorth = players.reduce((s, p) => s + snapshot.playerNetWorth[p.id], 0) / players.length;
+   812→  const overallProfit = players.reduce((s, p) => s + snapshot.playerDailyProfit[p.id], 0) / players.length;
+   813→  const totalNetWorth = players.reduce((s, p) => s + snapshot.playerNetWorth[p.id], 0);
+   814→
+   815→  console.log(`\n  📊 Overall:`);
+   816→  console.log(`    Avg Net Worth:  ৳${Math.round(overallNetWorth).toLocaleString()}`);
+   817→  console.log(`    Total Net Worth: ৳${Math.round(totalNetWorth).toLocaleString()}`);
+   818→  console.log(`    Avg Daily Profit: ৳${Math.round(overallProfit).toLocaleString()}`);
+   819→
+   820→  // Per-player detail
+   821→  console.log(`\n  📋 Per-Player Detail:`);
+   822→  for (const p of players) {
+   823→    const config = getPersonalityConfig(p.personality);
+   824→    console.log(
+   825→      `    ${p.name} (${config.icon}): NW=৳${Math.round(snapshot.playerNetWorth[p.id]).toLocaleString()}, ` +
+   826→      `Cash=৳${Math.round(snapshot.playerCash[p.id]).toLocaleString()}, ` +
+   827→      `Profit=৳${Math.round(snapshot.playerDailyProfit[p.id]).toLocaleString()}, ` +
+   828→      `Biz=${snapshot.playerBusinessCount[p.id]}, Loans=${snapshot.playerLoanCount[p.id]}`,
+   829→    );
+   830→  }
+   831→}
+   832→
+   833→// ---- Check Balance Issues ----
+   834→function checkBalance(players: SimPlayer[], metrics: DayMetrics[]): void {
+   835→  console.log('\n' + '='.repeat(80));
+   836→  console.log('⚖️  BALANCE CHECK');
+   837→  console.log('='.repeat(80));
+   838→
+   839→  const issues: string[] = [];
+   840→  const finalSnapshot = metrics[metrics.length - 1];
+   841→  const personalities: AIPersonality[] = ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'TRADER', 'EXPANSIONIST'];
+   842→
+   843→  // Per-personality final net worths
+   844→  const personalityNetWorths: Record<string, number[]> = {};
+   845→  for (const personality of personalities) {
+   846→    personalityNetWorths[personality] = [];
+   847→    const matching = players.filter(p => p.personality === personality);
+   848→    for (const p of matching) {
+   849→      personalityNetWorths[personality].push(finalSnapshot.playerNetWorth[p.id]);
+   850→    }
+   851→  }
+   852→
+   853→  // 1. Check for personality domination
+   854→  const personalityAvgs: Record<string, number> = {};
+   855→  for (const [personality, nws] of Object.entries(personalityNetWorths)) {
+   856→    personalityAvgs[personality] = nws.reduce((s, v) => s + v, 0) / nws.length;
+   857→  }
+   858→  const allAvgs = Object.values(personalityAvgs);
+   859→  const maxAvg = Math.max(...allAvgs);
+   860→  const minAvg = Math.min(...allAvgs);
+   861→  const overallAvg = allAvgs.reduce((s, v) => s + v, 0) / allAvgs.length;
+   862→
+   863→  console.log(`\n  📊 Personality Net Worth Comparison:`);
+   864→  for (const [personality, avg] of Object.entries(personalityAvgs)) {
+   865→    const ratio = overallAvg > 0 ? avg / overallAvg : 0;
+   866→    const bar = '█'.repeat(Math.max(0, Math.round(ratio * 20)));
+   867→    console.log(`    ${personality.padEnd(15)}: ৳${Math.round(avg).toLocaleString().padStart(12)} (${ratio.toFixed(2)}x) ${bar}`);
+   868→  }
+   869→
+   870→  if (maxAvg > minAvg * 3 && minAvg > 0) {
+   871→    const dominating = Object.entries(personalityAvgs).find(([, v]) => v === maxAvg)?.[0];
+   872→    issues.push(`❌ ${dominating} dominates: best avg (৳${Math.round(maxAvg).toLocaleString()}) is >3x worst avg (৳${Math.round(minAvg).toLocaleString()})`);
+   873→  } else if (maxAvg > minAvg * 2 && minAvg > 0) {
+   874→    const dominating = Object.entries(personalityAvgs).find(([, v]) => v === maxAvg)?.[0];
+   875→    issues.push(`⚠️  ${dominating} slightly dominant: best avg is >2x worst avg`);
+   876→  } else {
+   877→    console.log(`  ✅ No personality dominates (max/min ratio: ${minAvg > 0 ? (maxAvg / minAvg).toFixed(2) : 'N/A'})`);
+   878→  }
+   879→
+   880→  // 2. Check for bankruptcy
+   881→  console.log(`\n  💰 Bankruptcy Check:`);
+   882→  for (const p of players) {
+   883→    const nw = finalSnapshot.playerNetWorth[p.id];
+   884→    if (nw < 0) {
+   885→      issues.push(`❌ ${p.name} (${p.personality}) is BANKRUPT: net worth = ৳${Math.round(nw).toLocaleString()}`);
+   886→      console.log(`    ❌ ${p.name} is BANKRUPT: ৳${Math.round(nw).toLocaleString()}`);
+   887→    } else if (nw < 100000) {
+   888→      issues.push(`⚠️  ${p.name} (${p.personality}) near bankruptcy: net worth = ৳${Math.round(nw).toLocaleString()}`);
+   889→      console.log(`    ⚠️  ${p.name} near bankruptcy: ৳${Math.round(nw).toLocaleString()}`);
+   890→    }
+   891→  }
+   892→  if (!issues.some(i => i.includes('BANKRUPT') || i.includes('near bankruptcy'))) {
+   893→    console.log(`    ✅ No bankruptcies detected`);
+   894→  }
+   895→
+   896→  // 3. Check for infinite growth
+   897→  console.log(`\n  📈 Growth Pattern Check:`);
+   898→  const day30 = metrics[29];
+   899→  const day60 = metrics[59];
+   900→  const day100 = metrics[99];
+   901→
+   902→  for (const p of players) {
+   903→    const nw30 = day30.playerNetWorth[p.id];
+   904→    const nw60 = day60.playerNetWorth[p.id];
+   905→    const nw100 = day100.playerNetWorth[p.id];
+   906→
+   907→    // Check exponential growth (quadrupling from day 30 to day 100)
+   908→    if (nw30 > 0 && nw100 > nw30 * 4) {
+   909→      issues.push(`⚠️  ${p.name} shows explosive growth: ৳${Math.round(nw30).toLocaleString()} → ৳${Math.round(nw100).toLocaleString()}`);
+   910→      console.log(`    ⚠️  ${p.name}: explosive growth (4x+)`);
+   911→    }
+   912→    // Check steady decline
+   913→    if (nw30 > 0 && nw100 < nw30 * 0.3) {
+   914→      issues.push(`⚠️  ${p.name} shows severe decline: ৳${Math.round(nw30).toLocaleString()} → ৳${Math.round(nw100).toLocaleString()}`);
+   915→      console.log(`    ⚠️  ${p.name}: severe decline`);
+   916→    }
+   917→  }
+   918→
+   919→  // 4. Check net worth divergence
+   920→  console.log(`\n  📉 Net Worth Divergence Check:`);
+   921→  const finalNWs = players.map(p => finalSnapshot.playerNetWorth[p.id]);
+   922→  const avgNW = finalNWs.reduce((s, v) => s + v, 0) / finalNWs.length;
+   923→  const stdDev = Math.sqrt(finalNWs.reduce((s, v) => s + (v - avgNW) ** 2, 0) / finalNWs.length);
+   924→  const coefficientOfVariation = avgNW !== 0 ? stdDev / Math.abs(avgNW) : Infinity;
+   925→
+   926→  console.log(`    Mean: ৳${Math.round(avgNW).toLocaleString()}`);
+   927→  console.log(`    Std Dev: ৳${Math.round(stdDev).toLocaleString()}`);
+   928→  console.log(`    CoV: ${coefficientOfVariation.toFixed(2)}`);
+   929→
+   930→  if (coefficientOfVariation > 1.0) {
+   931→    issues.push(`❌ High net worth divergence: CoV = ${coefficientOfVariation.toFixed(2)} (should be <1.0)`);
+   932→  } else if (coefficientOfVariation > 0.7) {
+   933→    issues.push(`⚠️  Moderate net worth divergence: CoV = ${coefficientOfVariation.toFixed(2)}`);
+   934→  } else {
+   935→    console.log(`    ✅ Net worth divergence is acceptable`);
+   936→  }
+   937→
+   938→  // 5. Growth trajectory analysis
+   939→  console.log(`\n  📊 Growth Trajectory (Avg Net Worth by Period):`);
+   940→  const periods = [
+   941→    { label: 'Day 10', day: 10 },
+   942→    { label: 'Day 30', day: 30 },
+   943→    { label: 'Day 50', day: 50 },
+   944→    { label: 'Day 70', day: 70 },
+   945→    { label: 'Day 100', day: 100 },
+   946→  ];
+   947→  for (const period of periods) {
+   948→    const snap = metrics[period.day - 1];
+   949→    if (!snap) continue;
+   950→    const avg = players.reduce((s, p) => s + snap.playerNetWorth[p.id], 0) / players.length;
+   951→    console.log(`    ${period.label}: ৳${Math.round(avg).toLocaleString()}`);
+   952→  }
+   953→
+   954→  // ---- Summary ----
+   955→  console.log('\n' + '='.repeat(80));
+   956→  console.log('📋 BALANCE ISSUES SUMMARY');
+   957→  console.log('='.repeat(80));
+   958→
+   959→  if (issues.length === 0) {
+   960→    console.log('\n  ✅ No balance issues detected! All personalities are well-balanced.');
+   961→  } else {
+   962→    console.log(`\n  Found ${issues.length} issue(s):`);
+   963→    for (const issue of issues) {
+   964→      console.log(`    ${issue}`);
+   965→    }
+   966→  }
+   967→
+   968→  console.log('\n' + '='.repeat(80));
+   969→  console.log('🏁 SIMULATION COMPLETE');
+   970→  console.log('='.repeat(80));
+   971→}
+   972→
+   973→// ---- Run ----
+   974→runSimulation();
+   975→
