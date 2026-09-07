@@ -1,0 +1,1408 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→import { useState, useEffect, useCallback } from 'react';
+     4→     4→import { useGameStore } from '@/store/game-store';
+     5→     5→import { formatTaka, formatTakaShort, getBusinessType, getCity, getEmployeeRole, GAME_CONFIG, EMPLOYEE_ROLES } from '@/lib/game-data';
+     6→     6→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+     7→     7→import { Button } from '@/components/ui/button';
+     8→     8→import { Badge } from '@/components/ui/badge';
+     9→     9→import { Progress } from '@/components/ui/progress';
+    10→    10→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    11→    11→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+    12→    12→import { Input } from '@/components/ui/input';
+    13→    13→import { Label } from '@/components/ui/label';
+    14→    14→import { Separator } from '@/components/ui/separator';
+    15→    15→import { ScrollArea } from '@/components/ui/scroll-area';
+    16→    16→import { Skeleton } from '@/components/ui/skeleton';
+    17→    17→import { toast } from 'sonner';
+    18→    18→import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3, Lightbulb, Sparkles, Activity, DollarSign, Clock, Target } from 'lucide-react';
+    19→    19→import { motion } from 'framer-motion';
+    20→    20→import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+    21→    21→
+    22→    22→const BUSINESS_COLORS: Record<string, string> = {
+    23→    23→  TEA_STALL: 'bg-amber-100 border-amber-300 text-amber-800',
+    24→    24→  GROCERY: 'bg-green-100 border-green-300 text-green-800',
+    25→    25→  CLOTHING: 'bg-purple-100 border-purple-300 text-purple-800',
+    26→    26→  MOBILE: 'bg-blue-100 border-blue-300 text-blue-800',
+    27→    27→  RESTAURANT: 'bg-red-100 border-red-300 text-red-800',
+    28→    28→};
+    29→    29→
+    30→    30→export default function BusinessDetail() {
+    31→    31→  const { currentBusiness, setView, setCurrentBusiness, setBusinesses, player } = useGameStore();
+    32→    32→  const [isEditingPrice, setIsEditingPrice] = useState<string | null>(null);
+    33→    33→  const [editPrice, setEditPrice] = useState('');
+    34→    34→  const [showHireDialog, setShowHireDialog] = useState(false);
+    35→    35→  const [hireRole, setHireRole] = useState('');
+    36→    36→  const [showBuyDialog, setShowBuyDialog] = useState(false);
+    37→    37→  const [buyProduct, setBuyProduct] = useState<any>(null);
+    38→    38→  const [buyQuantity, setBuyQuantity] = useState(1);
+    39→    39→  const [buying, setBuying] = useState(false);
+    40→    40→  const [showSellDialog, setShowSellDialog] = useState(false);
+    41→    41→  const [sellInventory, setSellInventory] = useState<any>(null);
+    42→    42→  const [sellQuantity, setSellQuantity] = useState(1);
+    43→    43→  const [selling, setSelling] = useState(false);
+    44→    44→  const [hiring, setHiring] = useState(false);
+    45→    45→  const [upgrading, setUpgrading] = useState(false);
+    46→    46→  const [firingId, setFiringId] = useState<string | null>(null);
+    47→    47→  const [marketProducts, setMarketProducts] = useState<any[]>([]);
+    48→    48→  const [logs, setLogs] = useState<any[]>([]);
+    49→    49→  const [logsLoading, setLogsLoading] = useState(false);
+    50→    50→  const [showSellBusinessDialog, setShowSellBusinessDialog] = useState(false);
+    51→    51→  const [sellingBusiness, setSellingBusiness] = useState(false);
+    52→    52→  const [sellBusinessConfirm, setSellBusinessConfirm] = useState('');
+    53→    53→  const [pricingAdvice, setPricingAdvice] = useState<any>(null);
+    54→    54→  const [loadingPricing, setLoadingPricing] = useState(false);
+    55→    55→  const [showPricingPanel, setShowPricingPanel] = useState(false);
+    56→    56→  const [analyticsData, setAnalyticsData] = useState<any>(null);
+    57→    57→  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+    58→    58→
+    59→    59→  const fetchBusiness = useCallback(async () => {
+    60→    60→    if (!currentBusiness?.id) return;
+    61→    61→    try {
+    62→    62→      const res = await fetch(`/api/businesses/${currentBusiness.id}`);
+    63→    63→      if (res.ok) {
+    64→    64→        const data = await res.json();
+    65→    65→        setCurrentBusiness(data);
+    66→    66→      }
+    67→    67→    } catch {
+    68→    68→      toast.error('Failed to load business data');
+    69→    69→    }
+    70→    70→  }, [currentBusiness?.id, setCurrentBusiness]);
+    71→    71→
+    72→    72→  const refreshPlayer = useCallback(async () => {
+    73→    73→    try {
+    74→    74→      const res = await fetch('/api/player');
+    75→    75→      if (res.ok) {
+    76→    76→        const data = await res.json();
+    77→    77→        useGameStore.getState().setPlayer(data);
+    78→    78→      }
+    79→    79→    } catch { /* silent */ }
+    80→    80→  }, []);
+    81→    81→
+    82→    82→  const fetchMarketProducts = useCallback(async () => {
+    83→    83→    if (!currentBusiness) return;
+    84→    84→    try {
+    85→    85→      const res = await fetch(`/api/market/products?type=${currentBusiness.type}&city=${currentBusiness.city}`);
+    86→    86→      if (res.ok) {
+    87→    87→        setMarketProducts(await res.json());
+    88→    88→      }
+    89→    89→    } catch {
+    90→    90→      // silent
+    91→    91→    }
+    92→    92→  }, [currentBusiness?.type, currentBusiness?.city]);
+    93→    93→
+    94→    94→  const fetchLogs = useCallback(async () => {
+    95→    95→    if (!currentBusiness?.id) return;
+    96→    96→    setLogsLoading(true);
+    97→    97→    try {
+    98→    98→      const res = await fetch(`/api/businesses/${currentBusiness.id}/logs`);
+    99→    99→      if (res.ok) {
+   100→   100→        setLogs(await res.json());
+   101→   101→      }
+   102→   102→    } catch {
+   103→   103→      // silent
+   104→   104→    } finally {
+   105→   105→      setLogsLoading(false);
+   106→   106→    }
+   107→   107→  }, [currentBusiness?.id]);
+   108→   108→
+   109→   109→  const fetchAnalytics = useCallback(async () => {
+   110→   110→    if (!currentBusiness?.id) return;
+   111→   111→    setAnalyticsLoading(true);
+   112→   112→    try {
+   113→   113→      const res = await fetch(`/api/businesses/${currentBusiness.id}/analytics`);
+   114→   114→      if (res.ok) {
+   115→   115→        const data = await res.json();
+   116→   116→        setAnalyticsData(data.data || data);
+   117→   117→      }
+   118→   118→    } catch {
+   119→   119→      // silent
+   120→   120→    } finally {
+   121→   121→      setAnalyticsLoading(false);
+   122→   122→    }
+   123→   123→  }, [currentBusiness?.id]);
+   124→   124→
+   125→   125→  const handleFetchPricingAdvice = async () => {
+   126→   126→    if (!currentBusiness?.id) return;
+   127→   127→    setLoadingPricing(true);
+   128→   128→    try {
+   129→   129→      const res = await fetch(`/api/businesses/${currentBusiness.id}/pricing-advice`);
+   130→   130→      if (res.ok) {
+   131→   131→        const data = await res.json();
+   132→   132→        setPricingAdvice(data);
+   133→   133→        setShowPricingPanel(true);
+   134→   134→      } else {
+   135→   135→        toast.error('Failed to get pricing advice');
+   136→   136→      }
+   137→   137→    } catch { toast.error('Network error'); }
+   138→   138→    finally { setLoadingPricing(false); }
+   139→   139→  };
+   140→   140→
+   141→   141→  const handleApplyPricing = async (productName: string, price: number) => {
+   142→   142→    const inv = inventories.find((i: any) => i.productName === productName);
+   143→   143→    if (!inv) {
+   144→   144→      toast.error('No inventory for this product. Buy stock first.');
+   145→   145→      return;
+   146→   146→    }
+   147→   147→    try {
+   148→   148→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/${inv.id}/price`, {
+   149→   149→        method: 'PATCH',
+   150→   150→        headers: { 'Content-Type': 'application/json' },
+   151→   151→        body: JSON.stringify({ sellPrice: price }),
+   152→   152→      });
+   153→   153→      if (res.ok) {
+   154→   154→        toast.success(`${productName}: price set to ${formatTaka(price)}`);
+   155→   155→        fetchBusiness();
+   156→   156→        refreshPlayer();
+   157→   157→      } else {
+   158→   158→        const err = await res.json();
+   159→   159→        toast.error(err.error || 'Failed to set price');
+   160→   160→      }
+   161→   161→    } catch { toast.error('Network error'); }
+   162→   162→  };
+   163→   163→
+   164→   164→  useEffect(() => {
+   165→   165→    if (currentBusiness?.id) {
+   166→   166→      fetchBusiness();
+   167→   167→      fetchMarketProducts();
+   168→   168→      fetchLogs();
+   169→   169→      fetchAnalytics();
+   170→   170→    }
+   171→   171→  }, [currentBusiness?.id, fetchBusiness, fetchMarketProducts, fetchLogs, fetchAnalytics]);
+   172→   172→
+   173→   173→  if (!currentBusiness) {
+   174→   174→    return (
+   175→   175→      <div className="p-4 text-center">
+   176→   176→        <p className="text-muted-foreground">No business selected</p>
+   177→   177→        <Button variant="outline" className="mt-2" onClick={() => setView('businesses')}>Back to Businesses</Button>
+   178→   178→      </div>
+   179→   179→    );
+   180→   180→  }
+   181→   181→
+   182→   182→  const bt = getBusinessType(currentBusiness.type);
+   183→   183→  const city = getCity(currentBusiness.city);
+   184→   184→  const profit = currentBusiness.dailyProfit || 0;
+   185→   185→  const inventories = currentBusiness.inventories || [];
+   186→   186→  const employees = currentBusiness.employees || [];
+   187→   187→  const upgradeCost = Math.round((bt?.investment || 0) * (currentBusiness.level || 1) * 0.5);
+   188→   188→  const bannerClass = BUSINESS_COLORS[currentBusiness.type] || 'bg-gray-100 border-gray-300';
+   189→   189→  const revenue = currentBusiness.dailyRevenue || 0;
+   190→   190→  const expenses = currentBusiness.dailyExpense || 0;
+   191→   191→
+   192→   192→  const handleUpdatePrice = async (invId: string) => {
+   193→   193→    const price = parseFloat(editPrice);
+   194→   194→    if (isNaN(price) || price <= 0) {
+   195→   195→      toast.error('Enter a valid price');
+   196→   196→      return;
+   197→   197→    }
+   198→   198→    try {
+   199→   199→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/${invId}/price`, {
+   200→   200→        method: 'PATCH',
+   201→   201→        headers: { 'Content-Type': 'application/json' },
+   202→   202→        body: JSON.stringify({ sellPrice: price }),
+   203→   203→      });
+   204→   204→      if (res.ok) {
+   205→   205→        toast.success('Price updated!');
+   206→   206→        setIsEditingPrice(null);
+   207→   207→        fetchBusiness();
+   208→   208→        refreshPlayer();
+   209→   209→      } else {
+   210→   210→        const err = await res.json();
+   211→   211→        toast.error(err.error || 'Failed to update price');
+   212→   212→      }
+   213→   213→    } catch {
+   214→   214→      toast.error('Failed to update price');
+   215→   215→    }
+   216→   216→  };
+   217→   217→
+   218→   218→  const handleBuy = async () => {
+   219→   219→    if (!buyProduct || buyQuantity < 1) return;
+   220→   220→    setBuying(true);
+   221→   221→    try {
+   222→   222→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/buy`, {
+   223→   223→        method: 'POST',
+   224→   224→        headers: { 'Content-Type': 'application/json' },
+   225→   225→        body: JSON.stringify({
+   226→   226→          productId: buyProduct.id || buyProduct.productId,
+   227→   227→          productName: buyProduct.name,
+   228→   228→          category: currentBusiness.type,
+   229→   229→          quantity: buyQuantity,
+   230→   230→        }),
+   231→   231→      });
+   232→   232→      if (res.ok) {
+   233→   233→        toast.success(`Bought ${buyQuantity}x ${buyProduct.name}`);
+   234→   234→        setShowBuyDialog(false);
+   235→   235→        setBuyQuantity(1);
+   236→   236→        fetchBusiness();
+   237→   237→        refreshPlayer();
+   238→   238→      } else {
+   239→   239→        const err = await res.json();
+   240→   240→        toast.error(err.error || 'Purchase failed');
+   241→   241→      }
+   242→   242→    } catch {
+   243→   243→      toast.error('Purchase failed');
+   244→   244→    } finally {
+   245→   245→      setBuying(false);
+   246→   246→    }
+   247→   247→  };
+   248→   248→
+   249→   249→  const handleSell = async () => {
+   250→   250→    if (!sellInventory || sellQuantity < 1) return;
+   251→   251→    setSelling(true);
+   252→   252→    try {
+   253→   253→      const res = await fetch(`/api/businesses/${currentBusiness.id}/inventory/sell`, {
+   254→   254→        method: 'POST',
+   255→   255→        headers: { 'Content-Type': 'application/json' },
+   256→   256→        body: JSON.stringify({
+   257→   257→          inventoryId: sellInventory.id,
+   258→   258→          quantity: sellQuantity,
+   259→   259→        }),
+   260→   260→      });
+   261→   261→      if (res.ok) {
+   262→   262→        const data = await res.json();
+   263→   263→        // Use server-returned sale data for the toast instead of client-side calculation
+   264→   264→        if (data.sale) {
+   265→   265→          toast.success(`Sold ${data.sale.quantity}x ${data.sale.productName} for ${formatTaka(data.sale.totalReceived)}`);
+   266→   266→        } else {
+   267→   267→          toast.success('Inventory sold successfully');
+   268→   268→        }
+   269→   269→        setShowSellDialog(false);
+   270→   270→        setSellInventory(null);
+   271→   271→        setSellQuantity(1);
+   272→   272→        setCurrentBusiness(data.business || data);
+   273→   273→        refreshPlayer();
+   274→   274→      } else {
+   275→   275→        const err = await res.json();
+   276→   276→        toast.error(err.error || 'Sale failed');
+   277→   277→      }
+   278→   278→    } catch {
+   279→   279→      toast.error('Sale failed');
+   280→   280→    } finally {
+   281→   281→      setSelling(false);
+   282→   282→    }
+   283→   283→  };
+   284→   284→
+   285→   285→  const handleHire = async () => {
+   286→   286→    if (!hireRole) return;
+   287→   287→    setHiring(true);
+   288→   288→    try {
+   289→   289→      const res = await fetch(`/api/businesses/${currentBusiness.id}/employees/hire`, {
+   290→   290→        method: 'POST',
+   291→   291→        headers: { 'Content-Type': 'application/json' },
+   292→   292→        body: JSON.stringify({ role: hireRole }),
+   293→   293→      });
+   294→   294→      if (res.ok) {
+   295→   295→        toast.success('Employee hired!');
+   296→   296→        setShowHireDialog(false);
+   297→   297→        setHireRole('');
+   298→   298→        fetchBusiness();
+   299→   299→        refreshPlayer();
+   300→   300→      } else {
+   301→   301→        const err = await res.json();
+   302→   302→        toast.error(err.error || 'Hiring failed');
+   303→   303→      }
+   304→   304→    } catch {
+   305→   305→      toast.error('Hiring failed');
+   306→   306→    } finally {
+   307→   307→      setHiring(false);
+   308→   308→    }
+   309→   309→  };
+   310→   310→
+   311→   311→  const handleFire = async (empId: string) => {
+   312→   312→    setFiringId(empId);
+   313→   313→    try {
+   314→   314→      const res = await fetch(`/api/businesses/${currentBusiness.id}/employees/${empId}`, { method: 'DELETE' });
+   315→   315→      if (res.ok) {
+   316→   316→        toast.success('Employee fired');
+   317→   317→        fetchBusiness();
+   318→   318→        refreshPlayer();
+   319→   319→      } else {
+   320→   320→        const err = await res.json();
+   321→   321→        toast.error(err.error || 'Failed to fire employee');
+   322→   322→      }
+   323→   323→    } catch {
+   324→   324→      toast.error('Failed to fire employee');
+   325→   325→    } finally {
+   326→   326→      setFiringId(null);
+   327→   327→    }
+   328→   328→  };
+   329→   329→
+   330→   330→  const handleUpgrade = async () => {
+   331→   331→    if ((player?.cash || 0) < upgradeCost) {
+   332→   332→      toast.error('Not enough cash!');
+   333→   333→      return;
+   334→   334→    }
+   335→   335→    setUpgrading(true);
+   336→   336→    try {
+   337→   337→      const res = await fetch(`/api/businesses/${currentBusiness.id}/upgrade`, { method: 'POST' });
+   338→   338→      if (res.ok) {
+   339→   339→        toast.success('Business upgraded!');
+   340→   340→        fetchBusiness();
+   341→   341→        refreshPlayer();
+   342→   342→      } else {
+   343→   343→        const err = await res.json();
+   344→   344→        toast.error(err.error || 'Upgrade failed');
+   345→   345→      }
+   346→   346→    } catch {
+   347→   347→      toast.error('Upgrade failed');
+   348→   348→    } finally {
+   349→   349→      setUpgrading(false);
+   350→   350→    }
+   351→   351→  };
+   352→   352→
+   353→   353→  const getDemandColor = (demand: number) => {
+   354→   354→    if (demand >= 1.2) return 'text-green-600 bg-green-50 border-green-200';
+   355→   355→    if (demand >= 0.8) return 'text-amber-600 bg-amber-50 border-amber-200';
+   356→   356→    return 'text-red-500 bg-red-50 border-red-200';
+   357→   357→  };
+   358→   358→
+   359→   359→  const getDemandLabel = (demand: number) => {
+   360→   360→    if (demand >= 1.2) return 'High';
+   361→   361→    if (demand >= 0.8) return 'Medium';
+   362→   362→    return 'Low';
+   363→   363→  };
+   364→   364→
+   365→   365→  return (
+   366→   366→    <div className="pb-24 md:pb-4">
+   367→   367→      <Tabs defaultValue="overview" className="w-full">
+   368→   368→      {/* Sticky header with tabs integrated */}
+   369→   369→      <div className="sticky top-14 z-40 bg-white border-b">
+   370→   370→        <div className={`px-3 md:px-4 py-3 md:py-4 game-hero-banner ${bannerClass}`}>
+   371→   371→          <div className="flex items-center gap-2">
+   372→   372→            <Button variant="ghost" size="icon" className="shrink-0 hover:bg-white/50" onClick={() => setView('businesses')}>
+   373→   373→              <ArrowLeft className="h-4 w-4" />
+   374→   374→            </Button>
+   375→   375→            <div className="flex-1 min-w-0">
+   376→   376→              <div className="flex items-center gap-2.5">
+   377→   377→                <span className="text-2xl game-float">{bt?.icon}</span>
+   378→   378→                <div className="min-w-0">
+   379→   379→                  <h2 className="font-bold text-base truncate">{currentBusiness.name}</h2>
+   380→   380→                  <div className="flex items-center gap-2 mt-0.5">
+   381→   381→                    <Badge variant="outline" className={`text-[10px] shrink-0 ${bannerClass}`}>{bt?.name}</Badge>
+   382→   382→                    <span className="text-[10px] opacity-80 flex items-center gap-1">📍 {city?.name}</span>
+   383→   383→                  </div>
+   384→   384→                </div>
+   385→   385→              </div>
+   386→   386→            </div>
+   387→   387→            <div className="flex items-center gap-1.5 shrink-0">
+   388→   388→              {analyticsData?.health && (
+   389→   389→                <Badge
+   390→   390→                  className={`text-[10px] font-bold ${
+   391→   391→                    analyticsData.health.score >= 80 ? 'bg-green-600 text-white' :
+   392→   392→                    analyticsData.health.score >= 60 ? 'bg-emerald-600 text-white' :
+   393→   393→                    analyticsData.health.score >= 40 ? 'bg-amber-500 text-white' :
+   394→   394→                    analyticsData.health.score >= 20 ? 'bg-orange-500 text-white' :
+   395→   395→                    'bg-red-600 text-white'
+   396→   396→                  }`}
+   397→   397→                >
+   398→   398→                  <Activity className="h-3 w-3 mr-0.5" />{analyticsData.health.score}
+   399→   399→                </Badge>
+   400→   400→              )}
+   401→   401→              <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
+   402→   402→            </div>
+   403→   403→          </div>
+   404→   404→        </div>
+   405→   405→        {/* Tabs inside the sticky block */}
+   406→   406→        <div className="px-3 md:px-4 pt-2">
+   407→   407→          <TabsList className="w-full grid grid-cols-6">
+   408→   408→            <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
+   409→   409→            <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
+   410→   410→            <TabsTrigger value="analytics" className="text-xs">Analytics</TabsTrigger>
+   411→   411→            <TabsTrigger value="employees" className="text-xs">Staff</TabsTrigger>
+   412→   412→            <TabsTrigger value="logs" className="text-xs">Log</TabsTrigger>
+   413→   413→            <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
+   414→   414→          </TabsList>
+   415→   415→        </div>
+   416→   416→      </div>
+   417→   417→
+   418→   418→      <div className="p-3 md:p-4">
+   419→   419→
+   420→   420→          <TabsContent value="overview">
+   421→   421→            <div className="grid grid-cols-2 gap-3 mb-4">
+   422→   422→              <Card className="border-l-4 border-l-green-500 game-stat-card game-shine">
+   423→   423→                <CardContent className="p-3">
+   424→   424→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Revenue</div>
+   425→   425→                  <div className="text-lg font-bold text-green-600 mt-0.5">{formatTakaShort(revenue)}</div>
+   426→   426→                </CardContent>
+   427→   427→              </Card>
+   428→   428→              <Card className={`${profit >= 0 ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500'} game-stat-card game-shine`}>
+   429→   429→                <CardContent className="p-3">
+   430→   430→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Profit</div>
+   431→   431→                  <div className={`text-lg font-bold mt-0.5 ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   432→   432→                    {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
+   433→   433→                  </div>
+   434→   434→                </CardContent>
+   435→   435→              </Card>
+   436→   436→              <Card className="border-l-4 border-l-amber-500 game-stat-card game-shine">
+   437→   437→                <CardContent className="p-3">
+   438→   438→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Daily Expenses</div>
+   439→   439→                  <div className="text-lg font-bold text-amber-600 mt-0.5">{formatTakaShort(expenses)}</div>
+   440→   440→                </CardContent>
+   441→   441→              </Card>
+   442→   442→              <Card className="border-l-4 border-l-purple-500 game-stat-card game-shine">
+   443→   443→                <CardContent className="p-3">
+   444→   444→                  <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.08em' }}>Reputation</div>
+   445→   445→                  <div className="text-lg font-bold mt-0.5">{currentBusiness.reputation || 0}%</div>
+   446→   446→                </CardContent>
+   447→   447→              </Card>
+   448→   448→            </div>
+   449→   449→
+   450→   450→            {/* Profit Breakdown */}
+   451→   451→            <Card className="mb-4 game-gradient-card game-shine">
+   452→   452→              <CardHeader className="pb-2 pt-4 px-4">
+   453→   453→                <CardTitle className="text-sm font-semibold game-gradient-text">Profit Breakdown</CardTitle>
+   454→   454→              </CardHeader>
+   455→   455→              <CardContent className="px-4 pb-4 space-y-2">
+   456→   456→                <div className="flex items-center justify-between text-sm">
+   457→   457→                  <div className="flex items-center gap-2">
+   458→   458→                    <TrendingUp className="h-4 w-4 text-green-600" />
+   459→   459→                    <span className="text-muted-foreground">Revenue</span>
+   460→   460→                  </div>
+   461→   461→                  <span className="font-medium text-green-600">+{formatTakaShort(revenue)}</span>
+   462→   462→                </div>
+   463→   463→                <div className="flex items-center justify-between text-sm">
+   464→   464→                  <div className="flex items-center gap-2">
+   465→   465→                    <TrendingDown className="h-4 w-4 text-red-500" />
+   466→   466→                    <span className="text-muted-foreground">Expenses</span>
+   467→   467→                  </div>
+   468→   468→                  <span className="font-medium text-red-500">-{formatTakaShort(expenses)}</span>
+   469→   469→                </div>
+   470→   470→                <Separator />
+   471→   471→                <div className="flex items-center justify-between text-sm font-bold">
+   472→   472→                  <span>Net Profit</span>
+   473→   473→                  <span className={profit >= 0 ? 'text-green-600' : 'text-red-500'}>
+   474→   474→                    {profit >= 0 ? '+' : ''}{formatTakaShort(profit)}
+   475→   475→                  </span>
+   476→   476→                </div>
+   477→   477→              </CardContent>
+   478→   478→            </Card>
+   479→   479→
+   480→   480→            <Card className="mb-4 game-shine">
+   481→   481→              <CardHeader className="pb-2 pt-4 px-4">
+   482→   482→                <CardTitle className="text-sm font-semibold game-gradient-text">Reputation</CardTitle>
+   483→   483→              </CardHeader>
+   484→   484→              <CardContent className="px-4 pb-4">
+   485→   485→                <Progress value={currentBusiness.reputation || 0} className="h-3" />
+   486→   486→                <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground">
+   487→   487→                  <span>Poor</span><span>Average</span><span>Excellent</span>
+   488→   488→                </div>
+   489→   489→              </CardContent>
+   490→   490→            </Card>
+   491→   491→
+   492→   492→            {/* Business Performance chart from logs */}
+   493→   493→            <Card className="game-shine">
+   494→   494→              <CardHeader className="pb-2 pt-4 px-4">
+   495→   495→                <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+   496→   496→                  <BarChart3 className="h-4 w-4" /> Performance History
+   497→   497→                </CardTitle>
+   498→   498→              </CardHeader>
+   499→   499→              <CardContent className="px-4 pb-4">
+   500→   500→                {logs.length > 0 ? (() => {
+   501→   501→                  const profitLogs = logs.filter((l: any) => l.type === 'PROFIT' || l.type === 'LOSS').slice(-14);
+   502→   502→                  if (profitLogs.length === 0) return (
+   503→   503→                    <div className="h-24 flex items-center justify-center">
+   504→   504→                      <div className="text-center">
+   505→   505→                        <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+   506→   506→                        <p className="text-xs text-muted-foreground">No profit data yet. Advance days to see your chart.</p>
+   507→   507→                      </div>
+   508→   508→                    </div>
+   509→   509→                  );
+   510→   510→                  const maxAbs = Math.max(...profitLogs.map((l: any) => Math.abs(l.amount || 0)), 1);
+   511→   511→                  return (
+   512→   512→                    <div className="space-y-0.5">
+   513→   513→                      <div className="h-24 flex items-end gap-[3px]">
+   514→   514→                        {profitLogs.map((log: any, i: number) => {
+   515→   515→                          const amount = log.amount || 0;
+   516→   516→                          const h = Math.max(5, (Math.abs(amount) / maxAbs) * 85 + 10);
+   517→   517→                          const isPositive = amount >= 0;
+   518→   518→                          return (
+   519→   519→                            <motion.div
+   520→   520→                              key={log.id || i}
+   521→   521→                              className="flex-1 rounded-t"
+   522→   522→                              style={{
+   523→   523→                                height: `${h}%`,
+   524→   524→                                background: isPositive
+   525→   525→                                  ? 'linear-gradient(to top, rgba(0, 106, 78, 0.7), rgba(0, 168, 107, 0.4))'
+   526→   526→                                  : 'linear-gradient(to top, rgba(244, 42, 65, 0.6), rgba(244, 42, 65, 0.3))',
+   527→   527→                              }}
+   528→   528→                              initial={{ height: 0 }}
+   529→   529→                              animate={{ height: `${h}%` }}
+   530→   530→                              transition={{ delay: i * 0.03, duration: 0.3 }}
+   531→   531→                              title={`${formatTaka(amount)}`}
+   532→   532→                            />
+   533→   533→                          );
+   534→   534→                        })}
+   535→   535→                      </div>
+   536→   536→                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1.5">
+   537→   537→                        <span>Last {profitLogs.length} days</span>
+   538→   538→                        <div className="flex items-center gap-2">
+   539→   539→                          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-green-600/60 inline-block" /> Profit</span>
+   540→   540→                          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-red-500/60 inline-block" /> Loss</span>
+   541→   541→                        </div>
+   542→   542→                      </div>
+   543→   543→                    </div>
+   544→   544→                  );
+   545→   545→                })() : (
+   546→   546→                  <div className="h-24 flex items-center justify-center">
+   547→   547→                    <div className="text-center">
+   548→   548→                      <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+   549→   549→                      <p className="text-xs text-muted-foreground">No data yet. Advance days to see your chart.</p>
+   550→   550→                    </div>
+   551→   551→                  </div>
+   552→   552→                )}
+   553→   553→              </CardContent>
+   554→   554→            </Card>
+   555→   555→          </TabsContent>
+   556→   556→
+   557→   557→          <TabsContent value="inventory">
+   558→   558→            <div className="space-y-3">
+   559→   559→              <div className="flex items-center justify-between">
+   560→   560→                <h3 className="text-sm font-semibold">Inventory ({inventories.length})</h3>
+   561→   561→                <div className="flex items-center gap-1.5">
+   562→   562→                  <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={handleFetchPricingAdvice} disabled={loadingPricing}>
+   563→   563→                    <Lightbulb className="h-3.5 w-3.5" /> {loadingPricing ? '...' : 'Pricing'}
+   564→   564→                  </Button>
+   565→   565→                  <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => { if (marketProducts.length === 0) { fetchMarketProducts(); } setShowBuyDialog(true); }}>
+   566→   566→                    <ShoppingCart className="h-3.5 w-3.5" /> Buy Stock
+   567→   567→                  </Button>
+   568→   568→                </div>
+   569→   569→              </div>
+   570→   570→
+   571→   571→              <Dialog open={showBuyDialog} onOpenChange={setShowBuyDialog}>
+   572→   572→                  <DialogContent className="max-w-md">
+   573→   573→                    <DialogHeader>
+   574→   574→                      <DialogTitle>Buy Inventory</DialogTitle>
+   575→   575→                      <DialogDescription>Choose a product and quantity to buy</DialogDescription>
+   576→   576→                    </DialogHeader>
+   577→   577→                    {!buyProduct ? (
+   578→   578→                      <ScrollArea className="max-h-64">
+   579→   579→                        <div className="space-y-2">
+   580→   580→                          {marketProducts.map((p: any) => (
+   581→   581→                            <button key={p.id || p.name} onClick={() => setBuyProduct(p)} className="w-full text-left p-3 rounded-lg border hover:border-green-400 transition-all hover:shadow-md hover:shadow-green-100 hover:-translate-y-0.5">
+   582→   582→                              <div className="flex items-center gap-2">
+   583→   583→                                <span className="text-lg">{p.icon}</span>
+   584→   584→                                <div className="flex-1 min-w-0">
+   585→   585→                                  <div className="text-sm font-medium">{p.name}</div>
+   586→   586→                                  <div className="text-xs text-muted-foreground">Market: ৳{p.currentPrice?.toLocaleString() || p.basePrice?.toLocaleString()}</div>
+   587→   587→                                </div>
+   588→   588→                                <Badge className={`text-[10px] border ${getDemandColor(p.currentDemand || 1)}`} variant="outline">
+   589→   589→                                  {getDemandLabel(p.currentDemand || 1)}
+   590→   590→                                </Badge>
+   591→   591→                              </div>
+   592→   592→                            </button>
+   593→   593→                          ))}
+   594→   594→                        </div>
+   595→   595→                      </ScrollArea>
+   596→   596→                    ) : (
+   597→   597→                      <div className="space-y-4">
+   598→   598→                        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50/60 border border-green-100">
+   599→   599→                          <span className="text-2xl">{buyProduct.icon}</span>
+   600→   600→                          <div>
+   601→   601→                            <div className="font-medium">{buyProduct.name}</div>
+   602→   602→                            <div className="text-sm text-muted-foreground">Unit price: ৳{(buyProduct.currentPrice || buyProduct.basePrice || 0).toLocaleString()}</div>
+   603→   603→                          </div>
+   604→   604→                        </div>
+   605→   605→                        <div className="space-y-2">
+   606→   606→                          <Label>Quantity</Label>
+   607→   607→                          <Input type="number" min={1} max={buyProduct.maxStock || 100} value={buyQuantity} onChange={(e) => setBuyQuantity(Math.max(1, parseInt(e.target.value) || 1))} />
+   608→   608→                          <div className="text-sm text-muted-foreground">
+   609→   609→                            Total cost: <span className="font-bold text-foreground">{formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}</span>
+   610→   610→                          </div>
+   611→   611→                        </div>
+   612→   612→                      </div>
+   613→   613→                    )}
+   614→   614→                    <DialogFooter className="gap-2">
+   615→   615→                      {buyProduct && (
+   616→   616→                        <Button variant="outline" onClick={() => { setBuyProduct(null); setBuyQuantity(1); }}>Back</Button>
+   617→   617→                      )}
+   618→   618→                      <Button onClick={buyProduct ? handleBuy : () => setShowBuyDialog(false)} disabled={buying || (!buyProduct)} className="text-white game-shine" style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' }}>
+   619→   619→                        {buying ? 'Buying...' : buyProduct ? `Buy for ${formatTaka((buyProduct.currentPrice || buyProduct.basePrice || 0) * buyQuantity)}` : 'Close'}
+   620→   620→                      </Button>
+   621→   621→                    </DialogFooter>
+   622→   622→                  </DialogContent>
+   623→   623→                </Dialog>
+   624→   624→
+   625→   625→                <Dialog open={showSellDialog} onOpenChange={(open) => { if (!open) { setSellInventory(null); setSellQuantity(1); } setShowSellDialog(open); }}>
+   626→   626→                <DialogContent className="max-w-md">
+   627→   627→                  <DialogHeader>
+   628→   628→                    <DialogTitle>Sell Inventory</DialogTitle>
+   629→   629→                    <DialogDescription>Liquidate stock at 70% of purchase price</DialogDescription>
+   630→   630→                  </DialogHeader>
+   631→   631→                  {sellInventory && (
+   632→   632→                    <div className="space-y-4">
+   633→   633→                      <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50/60 border border-amber-100">
+   634→   634→                        <span className="text-2xl">📦</span>
+   635→   635→                        <div className="flex-1">
+   636→   636→                          <div className="font-medium">{sellInventory.productName}</div>
+   637→   637→                          <div className="text-xs text-muted-foreground">In stock: {sellInventory.quantity} units</div>
+   638→   638→                        </div>
+   639→   639→                      </div>
+   640→   640→                      <div className="space-y-2">
+   641→   641→                        <Label>Quantity</Label>
+   642→   642→                        <Input
+   643→   643→                          type="number"
+   644→   644→                          min={1}
+   645→   645→                          max={sellInventory.quantity}
+   646→   646→                          value={sellQuantity}
+   647→   647→                          onChange={(e) => setSellQuantity(Math.max(1, Math.min(sellInventory.quantity, parseInt(e.target.value) || 1)))}
+   648→   648→                        />
+   649→   649→                        <div className="text-sm text-muted-foreground">
+   650→   650→                          Purchase price: <span className="font-medium">৳{(sellInventory.purchasePrice || 0).toLocaleString()}</span>/unit
+   651→   651→                        </div>
+   652→   652→                        <div className="text-sm text-muted-foreground">
+   653→   653→                          Liquidation rate: <span className="font-medium">70%</span>
+   654→   654→                        </div>
+   655→   655→                        <div className="text-sm text-muted-foreground">
+   656→   656→                          You receive: <span className="font-bold text-amber-600">৳{(Math.round((sellInventory.purchasePrice || 0) * 0.7) * sellQuantity).toLocaleString()}</span>
+   657→   657→                        </div>
+   658→   658→                      </div>
+   659→   659→                    </div>
+   660→   660→                  )}
+   661→   661→                  <DialogFooter className="gap-2">
+   662→   662→                    <Button variant="outline" onClick={() => { setShowSellDialog(false); setSellInventory(null); setSellQuantity(1); }}>Cancel</Button>
+   663→   663→                    <Button onClick={handleSell} disabled={selling || !sellInventory} className="text-white" style={{ background: '#d97706' }}>
+   664→   664→                      {selling ? 'Selling...' : sellInventory ? `Sell for ৳${(Math.round((sellInventory.purchasePrice || 0) * 0.7) * sellQuantity).toLocaleString()}` : 'Sell'}
+   665→   665→                    </Button>
+   666→   666→                  </DialogFooter>
+   667→   667→                </DialogContent>
+   668→   668→              </Dialog>
+   669→   669→
+   670→   670→              {inventories.length === 0 ? (
+   671→   671→                <Card className="border-dashed">
+   672→   672→                  <CardContent className="py-8 text-center">
+   673→   673→                    <div className="text-4xl mb-2">📦</div>
+   674→   674→                    <p className="text-sm text-muted-foreground">No inventory. Buy stock to start selling!</p>
+   675→   675→                  </CardContent>
+   676→   676→                </Card>
+   677→   677→              ) : (
+   678→   678→                <div className="space-y-1.5 rounded-lg overflow-hidden border border-green-100/60">
+   679→   679→                  {inventories.map((inv: any) => {
+   680→   680→                    const mp = marketProducts.find((p: any) => p.id === inv.productId || p.name === inv.productName);
+   681→   681→                    const liquidationPrice = Math.round((inv.purchasePrice || 0) * 0.7);
+   682→   682→                    return (
+   683→   683→                      <div key={inv.id} className="inventory-row flex items-center gap-3 p-3">
+   684→   684→                        <span className="text-xl">{mp?.icon || inv.productName?.charAt(0)}</span>
+   685→   685→                        <div className="flex-1 min-w-0">
+   686→   686→                          <div className="text-sm font-medium truncate">{inv.productName}</div>
+   687→   687→                          <div className="flex items-center gap-2 mt-0.5">
+   688→   688→                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getDemandColor(mp?.currentDemand || 1)}`}>
+   689→   689→                              {(() => {
+   690→   690→                                const di = analyticsData?.demandIndicators?.[inv.productName];
+   691→   691→                                if (di) {
+   692→   692→                                  const icon = di.level === 'VERY_HIGH' ? '🔥' : di.level === 'HIGH' ? '📈' : di.level === 'NORMAL' ? '➡️' : di.level === 'LOW' ? '📉' : '❄️';
+   693→   693→                                  const label = di.level === 'VERY_HIGH' ? 'Very High' : di.level === 'HIGH' ? 'High' : di.level === 'NORMAL' ? 'Normal' : di.level === 'LOW' ? 'Low' : 'Very Low';
+   694→   694→                                  return `${icon} ${label}`;
+   695→   695→                                }
+   696→   696→                                return `${getDemandLabel(mp?.currentDemand || 1)} demand`;
+   697→   697→                              })()}
+   698→   698→                            </span>
+   699→   699→                            <span className="text-[10px] text-muted-foreground">Stock: {inv.quantity || 0}</span>
+   700→   700→                          </div>
+   701→   701→                          <div className="text-[10px] text-muted-foreground mt-0.5">Liq. price: ৳{liquidationPrice.toLocaleString()}/unit</div>
+   702→   702→                        </div>
+   703→   703→                        <div className="flex items-center gap-1.5 shrink-0">
+   704→   704→                          <div className="text-right">
+   705→   705→                            {isEditingPrice === inv.id ? (
+   706→   706→                              <div className="flex items-center gap-1 game-price-edit rounded-md p-0.5">
+   707→   707→                                <Input
+   708→   708→                                  type="number"
+   709→   709→                                  value={editPrice}
+   710→   710→                                  onChange={(e) => setEditPrice(e.target.value)}
+   711→   711→                                  className="w-20 h-7 text-xs"
+   712→   712→                                  autoFocus
+   713→   713→                                  onKeyDown={(e) => { if (e.key === 'Enter') handleUpdatePrice(inv.id); if (e.key === 'Escape') setIsEditingPrice(null); }}
+   714→   714→                                />
+   715→   715→                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleUpdatePrice(inv.id)}><Check className="h-3 w-3 text-green-600" /></Button>
+   716→   716→                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingPrice(null)}><X className="h-3 w-3" /></Button>
+   717→   717→                              </div>
+   718→   718→                            ) : (
+   719→   719→                              <button onClick={() => { setIsEditingPrice(inv.id); setEditPrice(String(inv.sellPrice || 0)); }} className="text-sm font-bold hover:underline transition-colors hover:text-green-700" style={{ color: '#006a4e' }}>
+   720→   720→                                ৳{(inv.sellPrice || 0).toLocaleString()}
+   721→   721→                              </button>
+   722→   722→                            )}
+   723→   723→                            <div className="text-[10px] text-muted-foreground">sell price</div>
+   724→   724→                          </div>
+   725→   725→                          <Button
+   726→   726→                            size="icon"
+   727→   727→                            variant="ghost"
+   728→   728→                            className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 shrink-0"
+   729→   729→                            onClick={() => { setSellInventory(inv); setSellQuantity(Math.min(1, inv.quantity)); setShowSellDialog(true); }}
+   730→   730→                          >
+   731→   731→                            <PackageOpen className="h-3.5 w-3.5" />
+   732→   732→                          </Button>
+   733→   733→                        </div>
+   734→   734→                      </div>
+   735→   735→                    );
+   736→   736→                  })}
+   737→   737→                </div>
+   738→   738→              )}
+   739→   739→
+   740→   740→              {/* Pricing Advice Panel */}
+   741→   741→              {showPricingPanel && pricingAdvice && (
+   742→   742→                <motion.div
+   743→   743→                  initial={{ opacity: 0, height: 0 }}
+   744→   744→                  animate={{ opacity: 1, height: 'auto' }}
+   745→   745→                  exit={{ opacity: 0, height: 0 }}
+   746→   746→                >
+   747→   747→                  <Card className="border-green-200/60 bg-gradient-to-br from-green-50/40 to-white">
+   748→   748→                    <CardHeader className="pb-2 pt-3 px-4">
+   749→   749→                      <div className="flex items-center justify-between">
+   750→   750→                        <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+   751→   751→                          <Lightbulb className="h-4 w-4 text-amber-500" /> Pricing Assistant
+   752→   752→                        </CardTitle>
+   753→   753→                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowPricingPanel(false)}><X className="h-3 w-3" /></Button>
+   754→   754→                      </div>
+   755→   755→                      <CardDescription className="text-xs">AI-powered pricing recommendations based on market demand, reputation & staff</CardDescription>
+   756→   756→                    </CardHeader>
+   757→   757→                    <CardContent className="px-4 pb-4">
+   758→   758→                      <div className="space-y-2">
+   759→   759→                        {pricingAdvice.advice.map((item: any, i: number) => (
+   760→   760→                          <div key={item.productName} className="flex items-start gap-2.5 p-2.5 rounded-lg border border-green-100/50 bg-white/60">
+   761→   761→                            <span className="text-lg mt-0.5 shrink-0">{item.icon}</span>
+   762→   762→                            <div className="flex-1 min-w-0">
+   763→   763→                              <div className="flex items-center gap-1.5">
+   764→   764→                                <span className="text-xs font-semibold truncate">{item.productName}</span>
+   765→   765→                                <Badge variant="outline" className={`text-[9px] ${item.demandLevel === 'High' ? 'border-green-300 text-green-700' : item.demandLevel === 'Low' ? 'border-red-300 text-red-600' : 'border-amber-200 text-amber-700'}`}>
+   766→   766→                                  {item.demandLevel}
+   767→   767→                                </Badge>
+   768→   768→                                {item.weeklyTrend === 'up' && <TrendingUp className="h-3 w-3 text-green-600" />}
+   769→   769→                                {item.weeklyTrend === 'down' && <TrendingDown className="h-3 w-3 text-red-500" />}
+   770→   770→                              </div>
+   771→   771→                              <div className="flex items-center gap-3 mt-1 text-[10px]">
+   772→   772→                                <span className="text-muted-foreground">Buy: <span className="text-foreground font-medium">৳{item.purchasePrice.toLocaleString()}</span></span>
+   773→   773→                                <span className="text-muted-foreground">Suggest: <span className="font-bold" style={{ color: '#006a4e' }}>৳{item.suggestedPrice.toLocaleString()}</span></span>
+   774→   774→                                <span className="text-muted-foreground">Markup: <span className="font-medium">{item.suggestedMarkup}%</span></span>
+   775→   775→                              </div>
+   776→   776→                              <div className="text-[10px] text-muted-foreground mt-0.5 italic">💡 {item.reason}</div>
+   777→   777→                              {item.currentSellPrice && (
+   778→   778→                                <div className="flex items-center gap-2 mt-1">
+   779→   779→                                  <span className="text-[10px] text-muted-foreground">Current: ৳{item.currentSellPrice.toLocaleString()}</span>
+   780→   780→                                  {item.currentSellPrice > item.maxPrice && <span className="text-[9px] text-red-600 font-medium">⚠️ Overpriced!</span>}
+   781→   781→                                  {item.currentSellPrice < item.minPrice && <span className="text-[9px] text-red-600 font-medium">⚠️ Below cost!</span>}
+   782→   782→                                </div>
+   783→   783→                              )}
+   784→   784→                            </div>
+   785→   785→                            <Button
+   786→   786→                              size="sm"
+   787→   787→                              variant="outline"
+   788→   788→                              className="h-7 text-[10px] gap-1 shrink-0 border-green-300 text-green-700 hover:bg-green-50"
+   789→   789→                              onClick={() => handleApplyPricing(item.productName, item.suggestedPrice)}
+   790→   790→                            >
+   791→   791→                              <Sparkles className="h-3 w-3" /> Apply
+   792→   792→                            </Button>
+   793→   793→                          </div>
+   794→   794→                        ))}
+   795→   795→                      </div>
+   796→   796→                    </CardContent>
+   797→   797→                  </Card>
+   798→   798→                </motion.div>
+   799→   799→              )}
+   800→   800→            </div>
+   801→   801→          </TabsContent>
+   802→   802→
+   803→   803→          {/* ====== ANALYTICS TAB ====== */}
+   804→   804→          <TabsContent value="analytics">
+   805→   805→            <div className="space-y-4">
+   806→   806→              {analyticsLoading && !analyticsData ? (
+   807→   807→                <div className="space-y-3">
+   808→   808→                  {[...Array(4)].map((_, i) => (
+   809→   809→                    <Card key={i}><CardContent className="p-4"><Skeleton className="h-20 w-full" /></CardContent></Card>
+   810→   810→                  ))}
+   811→   811→                </div>
+   812→   812→              ) : !analyticsData ? (
+   813→   813→                <Card className="border-dashed">
+   814→   814→                  <CardContent className="py-8 text-center">
+   815→   815→                    <Activity className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+   816→   816→                    <p className="text-sm text-muted-foreground">No analytics data available yet.</p>
+   817→   817→                    <Button size="sm" variant="outline" className="mt-2 text-xs" onClick={fetchAnalytics}>Load Analytics</Button>
+   818→   818→                  </CardContent>
+   819→   819→                </Card>
+   820→   820→              ) : (
+   821→   821→                <>
+   822→   822→                  {/* ---- Health Score ---- */}
+   823→   823→                  <Card className={`border-2 ${
+   824→   824→                    analyticsData.health?.score >= 80 ? 'border-green-400 bg-gradient-to-br from-green-50/60 to-white' :
+   825→   825→                    analyticsData.health?.score >= 60 ? 'border-emerald-400 bg-gradient-to-br from-emerald-50/60 to-white' :
+   826→   826→                    analyticsData.health?.score >= 40 ? 'border-amber-400 bg-gradient-to-br from-amber-50/60 to-white' :
+   827→   827→                    analyticsData.health?.score >= 20 ? 'border-orange-400 bg-gradient-to-br from-orange-50/60 to-white' :
+   828→   828→                    'border-red-400 bg-gradient-to-br from-red-50/60 to-white'
+   829→   829→                  }`}>
+   830→   830→                    <CardHeader className="pb-2 pt-4 px-4">
+   831→   831→                      <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+   832→   832→                        <Activity className="h-4 w-4" /> Business Health Score
+   833→   833→                      </CardTitle>
+   834→   834→                    </CardHeader>
+   835→   835→                    <CardContent className="px-4 pb-4">
+   836→   836→                      <div className="flex items-center gap-4">
+   837→   837→                        <div className={`text-4xl font-bold ${
+   838→   838→                          analyticsData.health?.score >= 80 ? 'text-green-600' :
+   839→   839→                          analyticsData.health?.score >= 60 ? 'text-emerald-600' :
+   840→   840→                          analyticsData.health?.score >= 40 ? 'text-amber-600' :
+   841→   841→                          analyticsData.health?.score >= 20 ? 'text-orange-600' :
+   842→   842→                          'text-red-600'
+   843→   843→                        }`}>
+   844→   844→                          {analyticsData.health?.score ?? 0}
+   845→   845→                        </div>
+   846→   846→                        <div className="flex-1">
+   847→   847→                          <Progress
+   848→   848→                            value={analyticsData.health?.score ?? 0}
+   849→   849→                            className="h-3"
+   850→   850→                          />
+   851→   851→                          <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground">
+   852→   852→                            <span>Critical</span><span>Struggling</span><span>Attention</span><span>Healthy</span><span>Excellent</span>
+   853→   853→                          </div>
+   854→   854→                          <Badge className={`mt-2 text-[10px] ${
+   855→   855→                            analyticsData.health?.score >= 80 ? 'bg-green-600' :
+   856→   856→                            analyticsData.health?.score >= 60 ? 'bg-emerald-600' :
+   857→   857→                            analyticsData.health?.score >= 40 ? 'bg-amber-500' :
+   858→   858→                            analyticsData.health?.score >= 20 ? 'bg-orange-500' :
+   859→   859→                            'bg-red-600'
+   860→   860→                          } text-white`}>
+   861→   861→                            {analyticsData.health?.status?.replace('_', ' ') || 'Unknown'}
+   862→   862→                          </Badge>
+   863→   863→                        </div>
+   864→   864→                      </div>
+   865→   865→                      {/* Factors */}
+   866→   866→                      {analyticsData.health && (
+   867→   867→                        <div className="mt-3 grid grid-cols-2 gap-2">
+   868→   868→                          {analyticsData.health.positiveFactors?.length > 0 && (
+   869→   869→                            <div className="space-y-1">
+   870→   870→                              <div className="text-[10px] font-medium text-green-700 uppercase" style={{ letterSpacing: '0.05em' }}>✅ Strengths</div>
+   871→   871→                              {analyticsData.health.positiveFactors.map((f: string, i: number) => (
+   872→   872→                                <div key={i} className="text-[11px] text-muted-foreground">• {f}</div>
+   873→   873→                              ))}
+   874→   874→                            </div>
+   875→   875→                          )}
+   876→   876→                          {analyticsData.health.negativeFactors?.length > 0 && (
+   877→   877→                            <div className="space-y-1">
+   878→   878→                              <div className="text-[10px] font-medium text-red-700 uppercase" style={{ letterSpacing: '0.05em' }}>⚠️ Risks</div>
+   879→   879→                              {analyticsData.health.negativeFactors.map((f: string, i: number) => (
+   880→   880→                                <div key={i} className="text-[11px] text-muted-foreground">• {f}</div>
+   881→   881→                              ))}
+   882→   882→                            </div>
+   883→   883→                          )}
+   884→   884→                        </div>
+   885→   885→                      )}
+   886→   886→                    </CardContent>
+   887→   887→                  </Card>
+   888→   888→
+   889→   889→                  {/* ---- Financial Breakdown ---- */}
+   890→   890→                  <Card className="game-gradient-card game-shine">
+   891→   891→                    <CardHeader className="pb-2 pt-4 px-4">
+   892→   892→                      <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+   893→   893→                        <DollarSign className="h-4 w-4" /> Financial Breakdown
+   894→   894→                      </CardTitle>
+   895→   895→                    </CardHeader>
+   896→   896→                    <CardContent className="px-4 pb-4 space-y-2">
+   897→   897→                      {(() => {
+   898→   898→                        const fb = analyticsData.financialBreakdown;
+   899→   899→                        if (!fb) return <div className="text-xs text-muted-foreground">No breakdown data</div>;
+   900→   900→                        return (
+   901→   901→                          <>
+   902→   902→                            <div className="flex items-center justify-between text-sm">
+   903→   903→                              <div className="flex items-center gap-2">
+   904→   904→                                <TrendingUp className="h-4 w-4 text-green-600" />
+   905→   905→                                <span className="text-muted-foreground">Revenue</span>
+   906→   906→                              </div>
+   907→   907→                              <span className="font-medium text-green-600">+{formatTakaShort(fb.revenue)}</span>
+   908→   908→                            </div>
+   909→   909→                            <div className="flex items-center justify-between text-sm">
+   910→   910→                              <div className="flex items-center gap-2">
+   911→   911→                                <TrendingDown className="h-4 w-4 text-red-400" />
+   912→   912→                                <span className="text-muted-foreground">COGS</span>
+   913→   913→                              </div>
+   914→   914→                              <span className="font-medium text-red-500">-{formatTakaShort(fb.costOfGoodsSold)}</span>
+   915→   915→                            </div>
+   916→   916→                            <div className="flex items-center justify-between text-sm">
+   917→   917→                              <span className="text-muted-foreground pl-6">Gross Profit</span>
+   918→   918→                              <span className={`font-medium ${fb.grossProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   919→   919→                                {fb.grossProfit >= 0 ? '+' : ''}{formatTakaShort(fb.grossProfit)}
+   920→   920→                              </span>
+   921→   921→                            </div>
+   922→   922→                            <Separator />
+   923→   923→                            {(fb.salaries > 0 || fb.rent > 0 || fb.utilities > 0 || fb.taxes > 0) && (
+   924→   924→                              <>
+   925→   925→                                {fb.rent > 0 && (
+   926→   926→                                  <div className="flex items-center justify-between text-sm">
+   927→   927→                                    <span className="text-muted-foreground">Rent</span>
+   928→   928→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.rent)}</span>
+   929→   929→                                  </div>
+   930→   930→                                )}
+   931→   931→                                {fb.salaries > 0 && (
+   932→   932→                                  <div className="flex items-center justify-between text-sm">
+   933→   933→                                    <span className="text-muted-foreground">Salaries</span>
+   934→   934→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.salaries)}</span>
+   935→   935→                                  </div>
+   936→   936→                                )}
+   937→   937→                                {fb.utilities > 0 && (
+   938→   938→                                  <div className="flex items-center justify-between text-sm">
+   939→   939→                                    <span className="text-muted-foreground">Utilities</span>
+   940→   940→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.utilities)}</span>
+   941→   941→                                  </div>
+   942→   942→                                )}
+   943→   943→                                {fb.taxes > 0 && (
+   944→   944→                                  <div className="flex items-center justify-between text-sm">
+   945→   945→                                    <span className="text-muted-foreground">Taxes</span>
+   946→   946→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.taxes)}</span>
+   947→   947→                                  </div>
+   948→   948→                                )}
+   949→   949→                                <Separator />
+   950→   950→                              </>
+   951→   951→                            )}
+   952→   952→                            <div className="flex items-center justify-between text-sm font-bold">
+   953→   953→                              <span>Net Profit</span>
+   954→   954→                              <span className={fb.netProfit >= 0 ? 'text-green-600' : 'text-red-500'}>
+   955→   955→                                {fb.netProfit >= 0 ? '+' : ''}{formatTakaShort(fb.netProfit)}
+   956→   956→                              </span>
+   957→   957→                            </div>
+   958→   958→                            {fb.customers > 0 && (
+   959→   959→                              <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+   960→   960→                                <span>Customers today</span>
+   961→   961→                                <span className="font-medium">{fb.customers}</span>
+   962→   962→                              </div>
+   963→   963→                            )}
+   964→   964→                          </>
+   965→   965→                        );
+   966→   966→                      })()}
+   967→   967→                    </CardContent>
+   968→   968→                  </Card>
+   969→   969→
+   970→   970→                  {/* ---- ROI & Payback ---- */}
+   971→   971→                  {analyticsData.roi && (
+   972→   972→                    <Card className="game-shine">
+   973→   973→                      <CardHeader className="pb-2 pt-4 px-4">
+   974→   974→                        <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+   975→   975→                          <Target className="h-4 w-4" /> ROI &amp; Payback
+   976→   976→                        </CardTitle>
+   977→   977→                      </CardHeader>
+   978→   978→                      <CardContent className="px-4 pb-4">
+   979→   979→                        <div className="grid grid-cols-2 gap-3">
+   980→   980→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   981→   981→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Total Investment</div>
+   982→   982→                            <div className="text-sm font-bold mt-0.5">{formatTakaShort(analyticsData.roi.investment)}</div>
+   983→   983→                          </div>
+   984→   984→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   985→   985→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Cumulative Profit</div>
+   986→   986→                            <div className={`text-sm font-bold mt-0.5 ${(analyticsData.roi.cumulativeProfit || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   987→   987→                              {formatTakaShort(analyticsData.roi.cumulativeProfit)}
+   988→   988→                            </div>
+   989→   989→                          </div>
+   990→   990→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   991→   991→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>ROI</div>
+   992→   992→                            <div className={`text-sm font-bold mt-0.5 ${(analyticsData.roi.roiPercentage || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   993→   993→                              {(analyticsData.roi.roiPercentage || 0).toFixed(1)}%
+   994→   994→                            </div>
+   995→   995→                          </div>
+   996→   996→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   997→   997→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Payback</div>
+   998→   998→                            <div className="text-sm font-bold mt-0.5 flex items-center justify-center gap-1">
+   999→   999→                              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+  1000→  1000→                              {analyticsData.roi.estimatedPaybackDays != null
+  1001→  1001→                                ? `${analyticsData.roi.estimatedPaybackDays} days`
+  1002→  1002→                                : '∞'}
+  1003→  1003→                            </div>
+  1004→  1004→                          </div>
+  1005→  1005→                        </div>
+  1006→  1006→                        <div className="mt-3 text-center">
+  1007→  1007→                          <div className="text-[10px] text-muted-foreground">Avg. Daily Profit</div>
+  1008→  1008→                          <div className={`text-base font-bold ${(analyticsData.roi.averageDailyProfit || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+  1009→  1009→                            {formatTaka(analyticsData.roi.averageDailyProfit || 0)}
+  1010→  1010→                          </div>
+  1011→  1011→                        </div>
+  1012→  1012→                      </CardContent>
+  1013→  1013→                    </Card>
+  1014→  1014→                  )}
+  1015→  1015→
+  1016→  1016→                  {/* ---- Product Performance ---- */}
+  1017→  1017→                  {analyticsData.productPerformance?.length > 0 && (
+  1018→  1018→                    <Card className="game-shine">
+  1019→  1019→                      <CardHeader className="pb-2 pt-4 px-4">
+  1020→  1020→                        <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+  1021→  1021→                          <ShoppingCart className="h-4 w-4" /> Product Performance
+  1022→  1022→                        </CardTitle>
+  1023→  1023→                      </CardHeader>
+  1024→  1024→                      <CardContent className="px-4 pb-4">
+  1025→  1025→                        <div className="space-y-2">
+  1026→  1026→                          {analyticsData.productPerformance.map((pp: any, i: number) => {
+  1027→  1027→                            const demandIcon = pp.demandScore === 'VERY_HIGH' ? '🔥' : pp.demandScore === 'HIGH' ? '📈' : pp.demandScore === 'NORMAL' ? '➡️' : pp.demandScore === 'LOW' ? '📉' : '❄️';
+  1028→  1028→                            const demandLabel = pp.demandScore === 'VERY_HIGH' ? 'Very High' : pp.demandScore === 'HIGH' ? 'High' : pp.demandScore === 'NORMAL' ? 'Normal' : pp.demandScore === 'LOW' ? 'Low' : 'Very Low';
+  1029→  1029→                            const demandColor = pp.demandScore === 'VERY_HIGH' || pp.demandScore === 'HIGH' ? 'text-green-600' : pp.demandScore === 'NORMAL' ? 'text-amber-600' : 'text-red-500';
+  1030→  1030→                            return (
+  1031→  1031→                              <div key={i} className="flex items-center gap-2.5 p-2.5 rounded-lg border bg-muted/20">
+  1032→  1032→                                <div className="flex-1 min-w-0">
+  1033→  1033→                                  <div className="flex items-center gap-1.5">
+  1034→  1034→                                    <span className="text-sm font-medium truncate">{pp.productName}</span>
+  1035→  1035→                                    <span className={`text-[10px] ${demandColor}`}>{demandIcon} {demandLabel}</span>
+  1036→  1036→                                  </div>
+  1037→  1037→                                  <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+  1038→  1038→                                    <span>Stock: {pp.remainingStock}</span>
+  1039→  1039→                                    <span>Margin: {(pp.profitMargin * 100).toFixed(0)}%</span>
+  1040→  1040→                                    {pp.priceScore > 0 && <span>Price Score: {(pp.priceScore * 100).toFixed(0)}%</span>}
+  1041→  1041→                                  </div>
+  1042→  1042→                                </div>
+  1043→  1043→                              </div>
+  1044→  1044→                            );
+  1045→  1045→                          })}
+  1046→  1046→                        </div>
+  1047→  1047→                      </CardContent>
+  1048→  1048→                    </Card>
+  1049→  1049→                  )}
+  1050→  1050→
+  1051→  1051→                  {/* ---- Performance History Chart (Recharts) ---- */}
+  1052→  1052→                  <Card className="game-shine">
+  1053→  1053→                    <CardHeader className="pb-2 pt-4 px-4">
+  1054→  1054→                      <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+  1055→  1055→                        <BarChart3 className="h-4 w-4" /> Performance History
+  1056→  1056→                      </CardTitle>
+  1057→  1057→                    </CardHeader>
+  1058→  1058→                    <CardContent className="px-4 pb-4">
+  1059→  1059→                      {analyticsData.history?.length > 0 ? (
+  1060→  1060→                        <ResponsiveContainer width="100%" height={220}>
+  1061→  1061→                          <LineChart data={analyticsData.history} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+  1062→  1062→                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+  1063→  1063→                            <XAxis
+  1064→  1064→                              dataKey="gameDay"
+  1065→  1065→                              tick={{ fontSize: 10, fill: '#9ca3af' }}
+  1066→  1066→                              tickFormatter={(v: number) => `D${v}`}
+  1067→  1067→                            />
+  1068→  1068→                            <YAxis
+  1069→  1069→                              tick={{ fontSize: 10, fill: '#9ca3af' }}
+  1070→  1070→                              tickFormatter={(v: number) => {
+  1071→  1071→                                if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(0)}k`;
+  1072→  1072→                                return String(v);
+  1073→  1073→                              }}
+  1074→  1074→                            />
+  1075→  1075→                            <Tooltip
+  1076→  1076→                              contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+  1077→  1077→                              formatter={(value: number, name: string) => [formatTakaShort(value), name.charAt(0).toUpperCase() + name.slice(1)]}
+  1078→  1078→                              labelFormatter={(label: number) => `Day ${label}`}
+  1079→  1079→                            />
+  1080→  1080→                            <Legend
+  1081→  1081→                              wrapperStyle={{ fontSize: 10 }}
+  1082→  1082→                            />
+  1083→  1083→                            <Line
+  1084→  1084→                              type="monotone"
+  1085→  1085→                              dataKey="revenue"
+  1086→  1086→                              stroke="#16a34a"
+  1087→  1087→                              strokeWidth={2}
+  1088→  1088→                              dot={false}
+  1089→  1089→                              name="revenue"
+  1090→  1090→                            />
+  1091→  1091→                            <Line
+  1092→  1092→                              type="monotone"
+  1093→  1093→                              dataKey="expenses"
+  1094→  1094→                              stroke="#f59e0b"
+  1095→  1095→                              strokeWidth={2}
+  1096→  1096→                              dot={false}
+  1097→  1097→                              name="expenses"
+  1098→  1098→                            />
+  1099→  1099→                            <Line
+  1100→  1100→                              type="monotone"
+  1101→  1101→                              dataKey="profit"
+  1102→  1102→                              stroke="#006a4e"
+  1103→  1103→                              strokeWidth={2}
+  1104→  1104→                              dot={false}
+  1105→  1105→                              name="profit"
+  1106→  1106→                            />
+  1107→  1107→                          </LineChart>
+  1108→  1108→                        </ResponsiveContainer>
+  1109→  1109→                      ) : (
+  1110→  1110→                        <div className="h-32 flex items-center justify-center">
+  1111→  1111→                          <div className="text-center">
+  1112→  1112→                            <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+  1113→  1113→                            <p className="text-xs text-muted-foreground">No history yet. Advance days to generate data.</p>
+  1114→  1114→                          </div>
+  1115→  1115→                        </div>
+  1116→  1116→                      )}
+  1117→  1117→                    </CardContent>
+  1118→  1118→                  </Card>
+  1119→  1119→                </>
+  1120→  1120→              )}
+  1121→  1121→            </div>
+  1122→  1122→          </TabsContent>
+  1123→  1123→
+  1124→  1124→          <TabsContent value="employees">
+  1125→  1125→            <div className="space-y-3">
+  1126→  1126→              <div className="flex items-center justify-between">
+  1127→  1127→                <h3 className="text-sm font-semibold">Staff ({employees.length}/{GAME_CONFIG.maxEmployees})</h3>
+  1128→  1128→                <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => setShowHireDialog(true)} disabled={employees.length >= GAME_CONFIG.maxEmployees}>
+  1129→  1129→                  <Users className="h-3.5 w-3.5" /> Hire
+  1130→  1130→                </Button>
+  1131→  1131→              </div>
+  1132→  1132→
+  1133→  1133→              <Dialog open={showHireDialog} onOpenChange={setShowHireDialog}>
+  1134→  1134→                <DialogContent className="max-w-md">
+  1135→  1135→                  <DialogHeader>
+  1136→  1136→                    <DialogTitle>Hire Employee</DialogTitle>
+  1137→  1137→                    <DialogDescription>Choose a role for your new employee</DialogDescription>
+  1138→  1138→                  </DialogHeader>
+  1139→  1139→                  <div className="space-y-2">
+  1140→  1140→                    {EMPLOYEE_ROLES.map((role) => (
+  1141→  1141→                      <button
+  1142→  1142→                        key={role.role}
+  1143→  1143→                        onClick={() => setHireRole(role.role)}
+  1144→  1144→                        className={`w-full text-left p-3 rounded-lg border transition-colors ${hireRole === role.role ? 'border-green-500 bg-green-50' : 'hover:border-green-300'}`}
+  1145→  1145→                      >
+  1146→  1146→                        <div className="flex items-center gap-2">
+  1147→  1147→                          <span className="text-xl">{role.icon}</span>
+  1148→  1148→                          <div className="flex-1">
+  1149→  1149→                            <div className="text-sm font-medium">{role.label}</div>
+  1150→  1150→                            <div className="text-xs text-muted-foreground">{role.description}</div>
+  1151→  1151→                            <div className="text-xs mt-0.5">Salary: ~৳{role.baseSalary.toLocaleString()}/day</div>
+  1152→  1152→                          </div>
+  1153→  1153→                        </div>
+  1154→  1154→                      </button>
+  1155→  1155→                    ))}
+  1156→  1156→                  </div>
+  1157→  1157→                  <DialogFooter>
+  1158→  1158→                    <Button variant="outline" onClick={() => setShowHireDialog(false)}>Cancel</Button>
+  1159→  1159→                    <Button onClick={handleHire} disabled={!hireRole || hiring} className="text-white" style={{ background: '#006a4e' }}>
+  1160→  1160→                      {hiring ? 'Hiring...' : 'Hire'}
+  1161→  1161→                    </Button>
+  1162→  1162→                  </DialogFooter>
+  1163→  1163→                </DialogContent>
+  1164→  1164→              </Dialog>
+  1165→  1165→
+  1166→  1166→              {employees.length === 0 ? (
+  1167→  1167→                <Card className="border-dashed">
+  1168→  1168→                  <CardContent className="py-8 text-center">
+  1169→  1169→                    <div className="text-4xl mb-2">👥</div>
+  1170→  1170→                    <p className="text-sm text-muted-foreground">No employees. Hire staff to boost your business!</p>
+  1171→  1171→                  </CardContent>
+  1172→  1172→                </Card>
+  1173→  1173→              ) : (
+  1174→  1174→                <div className="space-y-2">
+  1175→  1175→                  {employees.map((emp: any) => {
+  1176→  1176→                    const role = getEmployeeRole(emp.role);
+  1177→  1177→                    return (
+  1178→  1178→                      <Card key={emp.id}>
+  1179→  1179→                        <CardContent className="p-3">
+  1180→  1180→                          <div className="flex items-center gap-3">
+  1181→  1181→                            <div className="text-2xl p-1.5 rounded-lg bg-muted">{role?.icon || '👤'}</div>
+  1182→  1182→                            <div className="flex-1 min-w-0">
+  1183→  1183→                              <div className="text-sm font-medium truncate">{emp.name}</div>
+  1184→  1184→                              <div className="text-xs text-muted-foreground">{role?.label || emp.role}</div>
+  1185→  1185→                              <div className="flex gap-2 mt-1">
+  1186→  1186→                                <Badge variant="outline" className="text-[10px]">Skill: {emp.skill}/10</Badge>
+  1187→  1187→                                <Badge variant="outline" className="text-[10px]">Eff: {emp.efficiency || 0}%</Badge>
+  1188→  1188→                              </div>
+  1189→  1189→                            </div>
+  1190→  1190→                            <div className="text-right shrink-0">
+  1191→  1191→                              <div className="text-sm font-medium">৳{(emp.salary || 0).toLocaleString()}</div>
+  1192→  1192→                              <div className="text-[10px] text-muted-foreground">salary/day</div>
+  1193→  1193→                              <Button size="icon" variant="ghost" className="h-7 w-7 mt-1 text-red-400 hover:text-red-600" onClick={() => handleFire(emp.id)} disabled={firingId === emp.id}>
+  1194→  1194→                                <Trash2 className="h-3.5 w-3.5" />
+  1195→  1195→                              </Button>
+  1196→  1196→                            </div>
+  1197→  1197→                          </div>
+  1198→  1198→                        </CardContent>
+  1199→  1199→                      </Card>
+  1200→  1200→                    );
+  1201→  1201→                  })}
+  1202→  1202→                </div>
+  1203→  1203→              )}
+  1204→  1204→            </div>
+  1205→  1205→          </TabsContent>
+  1206→  1206→
+  1207→  1207→          <TabsContent value="logs">
+  1208→  1208→            <div className="space-y-3">
+  1209→  1209→              <div className="flex items-center justify-between">
+  1210→  1210→                <h3 className="text-sm font-semibold flex items-center gap-2">
+  1211→  1211→                  <FileText className="h-4 w-4" style={{ color: '#006a4e' }} /> Activity Log
+  1212→  1212→                </h3>
+  1213→  1213→                <Button size="sm" variant="outline" className="text-xs" onClick={fetchLogs}>
+  1214→  1214→                  Refresh
+  1215→  1215→                </Button>
+  1216→  1216→              </div>
+  1217→  1217→
+  1218→  1218→              {logsLoading ? (
+  1219→  1219→                <div className="space-y-2">
+  1220→  1220→                  {[...Array(5)].map((_, i) => (
+  1221→  1221→                    <Card key={i}><CardContent className="p-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+  1222→  1222→                  ))}
+  1223→  1223→                </div>
+  1224→  1224→              ) : logs.length === 0 ? (
+  1225→  1225→                <Card className="border-dashed">
+  1226→  1226→                  <CardContent className="py-12 text-center">
+  1227→  1227→                    <div className="text-4xl mb-2">📋</div>
+  1228→  1228→                    <p className="text-sm text-muted-foreground">No activity yet. Advance to the next day to generate logs!</p>
+  1229→  1229→                  </CardContent>
+  1230→  1230→                </Card>
+  1231→  1231→              ) : (
+  1232→  1232→                <div className="space-y-2">
+  1233→  1233→                  {logs.map((log: any, i: number) => {
+  1234→  1234→                    const isProfit = log.type === 'PROFIT';
+  1235→  1235→                    return (
+  1236→  1236→                      <motion.div
+  1237→  1237→                        key={log.id}
+  1238→  1238→                        initial={{ opacity: 0, x: -10 }}
+  1239→  1239→                        animate={{ opacity: 1, x: 0 }}
+  1240→  1240→                        transition={{ delay: i * 0.03 }}
+  1241→  1241→                      >
+  1242→  1242→                        <Card className={isProfit ? 'border-l-4 border-l-green-400 game-gradient-card' : 'border-l-4 border-l-red-400 game-gradient-card'}>
+  1243→  1243→                          <CardContent className="p-3">
+  1244→  1244→                            <div className="flex items-start gap-3">
+  1245→  1245→                              <div className={`mt-0.5 ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+  1246→  1246→                                {isProfit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+  1247→  1247→                              </div>
+  1248→  1248→                              <div className="flex-1 min-w-0">
+  1249→  1249→                                <div className="text-sm">{log.message}</div>
+  1250→  1250→                                <div className="flex items-center gap-2 mt-1">
+  1251→  1251→                                  <span className={`text-xs font-bold ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+  1252→  1252→                                    {isProfit ? '+' : '-'}{formatTakaShort(Math.abs(log.amount || 0))}
+  1253→  1253→                                  </span>
+  1254→  1254→                                  {log.createdAt && (
+  1255→  1255→                                    <span className="text-[10px] text-muted-foreground">
+  1256→  1256→                                      {new Date(log.createdAt).toLocaleDateString()}
+  1257→  1257→                                    </span>
+  1258→  1258→                                  )}
+  1259→  1259→                                </div>
+  1260→  1260→                              </div>
+  1261→  1261→                            </div>
+  1262→  1262→                          </CardContent>
+  1263→  1263→                        </Card>
+  1264→  1264→                      </motion.div>
+  1265→  1265→                    );
+  1266→  1266→                  })}
+  1267→  1267→                </div>
+  1268→  1268→              )}
+  1269→  1269→            </div>
+  1270→  1270→          </TabsContent>
+  1271→  1271→
+  1272→  1272→          <TabsContent value="settings">
+  1273→  1273→            <div className="space-y-4">
+  1274→  1274→              <Card>
+  1275→  1275→                <CardHeader className="pb-2 pt-4 px-4">
+  1276→  1276→                  <CardTitle className="text-sm">Business Info</CardTitle>
+  1277→  1277→                </CardHeader>
+  1278→  1278→                <CardContent className="px-4 pb-4 space-y-2">
+  1279→  1279→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Name</span><span className="font-medium">{currentBusiness.name}</span></div>
+  1280→  1280→                  <Separator />
+  1281→  1281→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Type</span><span className="font-medium">{bt?.icon} {bt?.name}</span></div>
+  1282→  1282→                  <Separator />
+  1283→  1283→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">City</span><span className="font-medium">{city?.name}</span></div>
+  1284→  1284→                  <Separator />
+  1285→  1285→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Level</span><span className="font-medium">{currentBusiness.level || 1}</span></div>
+  1286→  1286→                  <Separator />
+  1287→  1287→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Reputation</span><span className="font-medium">{currentBusiness.reputation || 0}%</span></div>
+  1288→  1288→                </CardContent>
+  1289→  1289→              </Card>
+  1290→  1290→
+  1291→  1291→              <Card>
+  1292→  1292→                <CardHeader className="pb-2 pt-4 px-4">
+  1293→  1293→                  <CardTitle className="text-sm flex items-center gap-2"><ArrowUp className="h-4 w-4" /> Upgrade Business</CardTitle>
+  1294→  1294→                  <CardDescription>Upgrade to level {(currentBusiness.level || 1) + 1}. Increases capacity and +5 reputation.</CardDescription>
+  1295→  1295→                </CardHeader>
+  1296→  1296→                <CardContent className="px-4 pb-4">
+  1297→  1297→                  <div className="flex items-center justify-between">
+  1298→  1298→                    <div>
+  1299→  1299→                      <div className="text-sm text-muted-foreground">Upgrade Cost</div>
+  1300→  1300→                      <div className="text-lg font-bold">{formatTaka(upgradeCost)}</div>
+  1301→  1301→                      <div className="text-[10px] text-muted-foreground">Your cash: {formatTaka(player?.cash || 0)}</div>
+  1302→  1302→                    </div>
+  1303→  1303→                    <Button onClick={handleUpgrade} disabled={upgrading || (player?.cash || 0) < upgradeCost} className="text-white" style={{ background: '#006a4e' }}>
+  1304→  1304→                      {upgrading ? 'Upgrading...' : 'Upgrade'}
+  1305→  1305→                    </Button>
+  1306→  1306→                  </div>
+  1307→  1307→                </CardContent>
+  1308→  1308→              </Card>
+  1309→  1309→
+  1310→  1310→              <Card className="border-red-200/60">
+  1311→  1311→                <CardHeader className="pb-2 pt-4 px-4">
+  1312→  1312→                  <CardTitle className="text-sm flex items-center gap-2 text-red-600"><HandCoins className="h-4 w-4" /> Sell Business</CardTitle>
+  1313→  1313→                  <CardDescription>Sell and recover a portion of your investment based on reputation.</CardDescription>
+  1314→  1314→                </CardHeader>
+  1315→  1315→                <CardContent className="px-4 pb-4">
+  1316→  1316→                  <div className="flex items-center justify-between">
+  1317→  1317→                    <div>
+  1318→  1318→                      <div className="text-xs text-muted-foreground">Estimated Value</div>
+  1319→  1319→                      <div className="text-lg font-bold">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</div>
+  1320→  1320→                    </div>
+  1321→  1321→                    <Button
+  1322→  1322→                      variant="outline"
+  1323→  1323→                      className="text-red-600 border-red-300 hover:bg-red-50 gap-1.5"
+  1324→  1324→                      onClick={() => { setSellBusinessConfirm(''); setShowSellBusinessDialog(true); }}
+  1325→  1325→                    >
+  1326→  1326→                      <HandCoins className="h-4 w-4" />
+  1327→  1327→                      Sell
+  1328→  1328→                    </Button>
+  1329→  1329→                  </div>
+  1330→  1330→                </CardContent>
+  1331→  1331→              </Card>
+  1332→  1332→
+  1333→  1333→              <Dialog open={showSellBusinessDialog} onOpenChange={setShowSellBusinessDialog}>
+  1334→  1334→                <DialogContent className="sm:max-w-md">
+  1335→  1335→                  <DialogHeader>
+  1336→  1336→                    <DialogTitle className="flex items-center gap-2 text-red-600">
+  1337→  1337→                      <HandCoins className="h-5 w-5" />
+  1338→  1338→                      Sell Business
+  1339→  1339→                    </DialogTitle>
+  1340→  1340→                    <DialogDescription>
+  1341→  1341→                      Permanently remove this business, all inventory, and all staff.
+  1342→  1342→                    </DialogDescription>
+  1343→  1343→                  </DialogHeader>
+  1344→  1344→                  <div className="space-y-3 py-2">
+  1345→  1345→                    <div className="rounded-lg bg-red-50 border border-red-200 p-3 space-y-2">
+  1346→  1346→                      <div className="flex justify-between text-sm">
+  1347→  1347→                        <span className="text-muted-foreground">Business Value</span>
+  1348→  1348→                        <span className="font-medium">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</span>
+  1349→  1349→                      </div>
+  1350→  1350→                      <div className="flex justify-between text-sm">
+  1351→  1351→                        <span className="text-muted-foreground">Inventory Liquidation</span>
+  1352→  1352→                        <span className="font-medium">{formatTaka(inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+  1353→  1353→                      </div>
+  1354→  1354→                      <Separator />
+  1355→  1355→                      <div className="flex justify-between text-sm font-bold">
+  1356→  1356→                        <span>Total You Receive</span>
+  1357→  1357→                        <span className="text-green-700">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)) + inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+  1358→  1358→                      </div>
+  1359→  1359→                    </div>
+  1360→  1360→                    <div>
+  1361→  1361→                      <label className="text-sm font-medium">Type business name to confirm:</label>
+  1362→  1362→                      <input
+  1363→  1363→                        type="text"
+  1364→  1364→                        value={sellBusinessConfirm}
+  1365→  1365→                        onChange={(e) => setSellBusinessConfirm(e.target.value)}
+  1366→  1366→                        placeholder={currentBusiness.name}
+  1367→  1367→                        className="mt-1 w-full h-10 px-3 rounded-lg border border-red-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+  1368→  1368→                      />
+  1369→  1369→                    </div>
+  1370→  1370→                  </div>
+  1371→  1371→                  <DialogFooter className="gap-2">
+  1372→  1372→                    <Button variant="outline" onClick={() => setShowSellBusinessDialog(false)}>Cancel</Button>
+  1373→  1373→                    <Button
+  1374→  1374→                      onClick={async () => {
+  1375→  1375→                        if (sellBusinessConfirm !== currentBusiness.name) return;
+  1376→  1376→                        setSellingBusiness(true);
+  1377→  1377→                        try {
+  1378→  1378→                          const res = await fetch(`/api/businesses/${currentBusiness.id}/sell`, { method: 'POST' });
+  1379→  1379→                          if (res.ok) {
+  1380→  1380→                            const data = await res.json();
+  1381→  1381→                            toast.success(`Sold for ${formatTaka(data.totalReceived)}`);
+  1382→  1382→                            setView('businesses');
+  1383→  1383→                            const bRes = await fetch('/api/businesses');
+  1384→  1384→                            if (bRes.ok) useGameStore.getState().setBusinesses(await bRes.json());
+  1385→  1385→                            const pRes = await fetch('/api/player');
+  1386→  1386→                            if (pRes.ok) useGameStore.getState().setPlayer(await pRes.json());
+  1387→  1387→                          } else {
+  1388→  1388→                            const err = await res.json();
+  1389→  1389→                            toast.error(err.error || 'Failed to sell');
+  1390→  1390→                          }
+  1391→  1391→                        } catch { toast.error('Network error'); }
+  1392→  1392→                        finally { setSellingBusiness(false); }
+  1393→  1393→                      }}
+  1394→  1394→                      disabled={sellingBusiness || sellBusinessConfirm !== currentBusiness.name}
+  1395→  1395→                      className="bg-red-600 hover:bg-red-700 text-white"
+  1396→  1396→                    >
+  1397→  1397→                      {sellingBusiness ? 'Selling...' : 'Confirm Sale'}
+  1398→  1398→                    </Button>
+  1399→  1399→                  </DialogFooter>
+  1400→  1400→                </DialogContent>
+  1401→  1401→              </Dialog>
+  1402→  1402→            </div>
+  1403→  1403→          </TabsContent>
+  1404→  1404→        </div>
+  1405→  1405→      </Tabs>
+  1406→  1406→    </div>
+  1407→  1407→  );
+  1408→  1408→}

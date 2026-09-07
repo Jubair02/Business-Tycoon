@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
+type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'competition' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
 
 interface Employee {
   id: string;
@@ -73,8 +73,38 @@ interface LeaderboardEntry {
   name: string;
   netWorth: number;
   totalProfit: number;
+  totalRevenue?: number;
   businessCount: number;
   maxReputation: number;
+  isAI?: boolean;
+  personality?: string;
+}
+
+// Phase 2: Competition data
+interface CompetitionMarket {
+  city: string;
+  cityName: string;
+  businessType: string;
+  businessTypeName: string;
+  totalDemand: number;
+  totalBusinesses: number;
+  aiBusinesses: number;
+  playerBusinesses: number;
+  playerMarketShare: number;
+  playerRank: number;
+  averageRevenue: number;
+  topCompetitor: {
+    name: string;
+    share: number;
+    isAI: boolean;
+  } | null;
+  shares: {
+    businessName: string;
+    playerName: string;
+    isAI: boolean;
+    share: number;
+    revenue: number;
+  }[];
 }
 
 interface GameState {
@@ -90,6 +120,7 @@ interface GameState {
   achievements: Achievement[];
   gameDay: number;
   isLoading: boolean;
+  competition: CompetitionMarket[];
   setView: (view: GameView) => void;
   selectBusiness: (id: string) => void;
   setSelectedCity: (city: string) => void;
@@ -102,6 +133,7 @@ interface GameState {
   setAchievements: (achievements: Achievement[]) => void;
   setGameDay: (day: number) => void;
   setLoading: (loading: boolean) => void;
+  setCompetition: (competition: CompetitionMarket[]) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -117,6 +149,7 @@ export const useGameStore = create<GameState>((set) => ({
   achievements: [],
   gameDay: 1,
   isLoading: false,
+  competition: [],
   setView: (view) => set({ view }),
   selectBusiness: (id) => set({ selectedBusinessId: id, view: 'business-detail' }),
   setSelectedCity: (city) => set({ selectedCity: city }),
@@ -129,4 +162,5 @@ export const useGameStore = create<GameState>((set) => ({
   setAchievements: (achievements) => set({ achievements }),
   setGameDay: (gameDay) => set({ gameDay }),
   setLoading: (loading) => set({ isLoading: loading }),
+  setCompetition: (competition) => set({ competition }),
 }));

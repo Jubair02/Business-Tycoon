@@ -19,9 +19,17 @@ model Player {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  // Phase 2: AI Competitor Fields
+  isAI         Boolean  @default(false)
+  personality  String?  // CONSERVATIVE | BALANCED | AGGRESSIVE | TRADER | EXPANSIONIST
+  lastAction   String?  // Last AI action taken (e.g., BUY_INVENTORY, CHANGE_PRICE)
+  lastActionAt Int     @default(0)  // Game day when last action was taken (for cooldowns)
+
   businesses    Business[]
   gameLogs      GameLog[]
   loans         Loan[]
+
+  @@index([isAI])
 }
 
 model Business {

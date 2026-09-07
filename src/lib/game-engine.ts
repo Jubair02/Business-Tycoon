@@ -42,6 +42,9 @@ import { getProductDemandConfig } from './game/economy/product-demand';
 import { ECONOMY_CONFIG } from './game/economy/economy-config';
 import type { ProductSalesResult, ExpenseBreakdown, BusinessHealthResult } from './game/economy/types';
 
+// Phase 2: AI Competitors Engine
+import { simulateAIPlayersTick, randomPersonality, getPersonalityConfig, calculateAIPrice } from './game/ai';
+
 // ---- Prisma Transaction Client Type ----
 type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
@@ -662,9 +665,11 @@ export async function gameTick(): Promise<void> {
     console.error('[GameEngine] Failed to process loan payments:', err);
   }
 
-  // 3. Simulate AI player activity
+  // 3. Simulate AI player activity (Phase 2: Real AI decisions)
   try {
-    await simulateAITick();
+    const gameDayState2 = await db.gameState.findUnique({ where: { key: 'gameDay' } });
+    const currentGameDay = parseInt(gameDayState2?.value || '1', 10);
+    await simulateAIPlayersTick(currentGameDay);
   } catch (err) {
     console.error('[GameEngine] Failed to simulate AI tick:', err);
   }
@@ -789,96 +794,150 @@ export async function seedInitialData(): Promise<void> {
   await generateEvent();
 }
 
-// ---- Create AI Players for Leaderboard ----
+// ---- Create AI Players for Competition (Phase 2: Real Competitors) ----
 
+/**
+ * Phase 2: Seed AI players with real personalities, businesses, inventory, and employees.
+ * These are no longer decorative — they compete in the real economy.
+ */
 export async function seedAIPlayers(): Promise<void> {
-  const existingPlayers = await db.player.count();
-  if (existingPlayers > 1) return;
+  const existingAI = await db.player.count({ where: { isAI: true } });
+  if (existingAI > 0) return; // Already seeded
 
-  const aiNames = [
-    { name: 'Rahim Enterprises', email: 'ai-rahim@game.local' },
-    { name: 'Fatima Holdings', email: 'ai-fatima@game.local' },
-    { name: 'Khan & Sons', email: 'ai-khan@game.local' },
-    { name: 'Chowdhury Corp', email: 'ai-chowdhury@game.local' },
-    { name: 'Sylhet Trading Co', email: 'ai-sylhet@game.local' },
-    { name: 'Dhaka Business Group', email: 'ai-dhaka@game.local' },
-    { name: 'Bengal Ventures', email: 'ai-bengal@game.local' },
-    { name: 'Padma Industries', email: 'ai-padma@game.local' },
+  const aiDefinitions = [
+    { name: 'Rahim Enterprises', email: 'ai-rahim@game.local', personality: 'CONSERVATIVE' as const },
+    { name: 'Fatima Holdings', email: 'ai-fatima@game.local', personality: 'AGGRESSIVE' as const },
+    { name: 'Khan & Sons', email: 'ai-khan@game.local', personality: 'BALANCED' as const },
+    { name: 'Chowdhury Corp', email: 'ai-chowdhury@game.local', personality: 'TRADER' as const },
+    { name: 'Sylhet Trading Co', email: 'ai-sylhet@game.local', personality: 'EXPANSIONIST' as const },
+    { name: 'Dhaka Business Group', email: 'ai-dhaka@game.local', personality: 'BALANCED' as const },
+    { name: 'Bengal Ventures', email: 'ai-bengal@game.local', personality: 'AGGRESSIVE' as const },
+    { name: 'Padma Industries', email: 'ai-padma@game.local', personality: 'CONSERVATIVE' as const },
   ];
 
-  for (const ai of aiNames) {
-    const netWorth = 500000 + Math.random() * 3000000;
-    await db.player.create({
+  for (const ai of aiDefinitions) {
+    const config = getPersonalityConfig(ai.personality);
+    // Starting cash varies by personality
+    const baseCash = 400000 + Math.random() * 600000; // 400K-1M starting cash
+    const netWorth = baseCash;
+
+    const player = await db.player.create({
       data: {
         name: ai.name,
         email: ai.email,
-        cash: netWorth * 0.6,
+        cash: baseCash,
         netWorth,
-        level: Math.floor(Math.random() * 5) + 1,
+        level: 1,
+        isAI: true,
+        personality: ai.personality,
+        lastActionAt: 0,
       },
     });
-  }
 
-  // Create some AI businesses
-  const aiPlayers = await db.player.findMany({
-    where: { email: { contains: 'ai-' } },
-    select: { id: true },
-  });
-  for (const player of aiPlayers) {
-    const numBusinesses = Math.floor(Math.random() * 3) + 1;
+    // Each AI starts with 1-2 businesses (depending on personality)
+    const numBusinesses = ai.personality === 'EXPANSIONIST' ? 2 : 1;
     const usedTypes = new Set<string>();
+
     for (let i = 0; i < numBusinesses; i++) {
+      // Pick business type (try to pick different ones)
       let bType = BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)];
-      while (usedTypes.has(bType.id)) {
+      let attempts = 0;
+      while (usedTypes.has(bType.id) && attempts < 10) {
         bType = BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)];
+        attempts++;
       }
       usedTypes.add(bType.id);
 
+      // Pick city
       const city = CITIES[Math.floor(Math.random() * CITIES.length)];
-      await db.business.create({
+
+      // Deduct investment from AI cash
+      const investmentCost = bType.investment;
+      if (baseCash - investmentCost < 0) continue; // Can't afford
+
+      // Create business
+      const business = await db.business.create({
         data: {
           playerId: player.id,
           type: bType.id,
           city: city.id,
           name: `${bType.name} - ${city.name}`,
-          level: Math.floor(Math.random() * 3) + 1,
-          reputation: 30 + Math.random() * 60,
-          cash: Math.random() * 100000,
-          dailyRevenue: 10000 + Math.random() * 50000,
-          dailyExpense: 5000 + Math.random() * 25000,
-          dailyProfit: 5000 + Math.random() * 25000,
-          totalRevenue: Math.random() * 500000,
-          totalProfit: Math.random() * 200000,
+          level: 1,
+          reputation: 40 + Math.random() * 20, // Start at 40-60
+          cash: 0,
         },
       });
+
+      // Deduct investment
+      await db.player.update({
+        where: { id: player.id },
+        data: { cash: { decrement: investmentCost } },
+      });
+
+      // Create initial inventory for all products of this business type
+      const productDefs = PRODUCTS[bType.id] || [];
+      for (const prod of productDefs) {
+        const initialStock = Math.floor(prod.maxStock * 0.4); // 40% stock
+        const costPerUnit = prod.basePrice;
+
+        // Calculate AI sell price using personality
+        const marketRef = prod.basePrice * (1 + prod.suggestedMarkup);
+        const sellPrice = calculateAIPrice(marketRef, ai.personality, config.defaultPricingStrategy, 50, 0.4);
+
+        await db.inventory.create({
+          data: {
+            businessId: business.id,
+            productId: '',
+            productName: prod.name,
+            category: prod.category,
+            quantity: initialStock,
+            purchasePrice: costPerUnit,
+            sellPrice,
+          },
+        });
+
+        // Deduct inventory cost
+        await db.player.update({
+          where: { id: player.id },
+          data: { cash: { decrement: Math.round(costPerUnit * initialStock) } },
+        });
+      }
+
+      // Hire 1-2 employees based on personality
+      const hireCount = config.hiringPreference > 0.5 ? 2 : 1;
+      const rolesToHire = ['SALESPERSON', 'CASHIER'].slice(0, hireCount);
+      for (const role of rolesToHire) {
+        const roleDef = EMPLOYEE_ROLES.find(r => r.role === role);
+        if (roleDef) {
+          await db.employee.create({
+            data: {
+              businessId: business.id,
+              role: roleDef.role,
+              name: getRandomName(),
+              salary: roleDef.baseSalary,
+              skill: 4 + Math.random() * 4, // 4-8 skill
+              efficiency: 0.6 + Math.random() * 0.3, // 0.6-0.9
+            },
+          });
+        }
+      }
     }
+
+    // Recalculate net worth after all purchases
+    await recalculateNetWorth(db as any, player.id);
   }
 }
 
-// ---- Generate AI Business Activity ----
+// ---- AI Business Activity (Phase 2: Delegated to AI Engine) ----
 /**
- * Phase 1: AI players now have a slight negative bias (centered at -0.05)
- * and reduced range to be more balanced with real players.
+ * Phase 2: AI simulation is now handled by the AI Engine.
+ * This function is kept as a compatibility wrapper but delegates
+ * to simulateAIPlayersTick() in lib/game/ai/.
+ *
+ * The actual AI tick runs inside gameTick() where it has access to gameDay.
+ * This function is no longer called directly.
  */
 export async function simulateAITick(): Promise<void> {
-  const aiPlayers = await db.player.findMany({
-    where: { email: { contains: 'ai-' } },
-    select: { id: true },
-  });
-
-  if (aiPlayers.length === 0) return;
-
-  await db.$transaction(async (tx) => {
-    for (const player of aiPlayers) {
-      // Phase 1: Slight negative bias, reduced range
-      const profitChange = (Math.random() + ECONOMY_CONFIG.aiProfitCenter) * ECONOMY_CONFIG.aiProfitRange;
-      await tx.player.update({
-        where: { id: player.id },
-        data: {
-          cash: { increment: profitChange },
-          netWorth: { increment: profitChange * 0.8 },
-        },
-      });
-    }
-  });
+  // Phase 2: This is now handled inside gameTick() directly
+  // via simulateAIPlayersTick(gameDay). Kept as no-op for safety.
 }

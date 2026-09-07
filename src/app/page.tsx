@@ -19,6 +19,7 @@ import SettingsView from '@/components/game/SettingsView';
 import HintBar from '@/components/game/HintBar';
 import DailySummary from '@/components/game/DailySummary';
 import TutorialOverlay from '@/components/game/TutorialOverlay';
+import CompetitionView from '@/components/game/CompetitionView';
 import { toast } from 'sonner';
 import { AutoTickSync } from '@/components/game/AutoTickSync';
 
@@ -329,6 +330,8 @@ export default function Home() {
         return <NewBusiness />;
       case 'market':
         return <MarketView />;
+      case 'competition':
+        return <CompetitionView />;
       case 'bank':
         return <BankView />;
       case 'leaderboard':

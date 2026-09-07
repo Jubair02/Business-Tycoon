@@ -101,4 +101,4 @@ export const cityQuerySchema = z.object({
   city: z.string().min(1, 'City query parameter is required'),
 });
 
-export const leaderboardTypeSchema = z.enum(['networth', 'profit', 'reputation', 'businesses']);
+export const leaderboardTypeSchema = z.enum(['networth', 'profit', 'reputation', 'businesses', 'revenue', 'marketshare']);

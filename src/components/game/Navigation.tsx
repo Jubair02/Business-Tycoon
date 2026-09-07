@@ -1,11 +1,11 @@
 'use client';
 
 import { useGameStore } from '@/store/game-store';
-import { LayoutDashboard, Store, TrendingUp, Trophy, Newspaper, Medal, Landmark, Settings } from 'lucide-react';
+import { LayoutDashboard, Store, TrendingUp, Trophy, Newspaper, Medal, Landmark, Settings, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type NavItem = {
-  view: 'dashboard' | 'businesses' | 'market' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
+  view: 'dashboard' | 'businesses' | 'market' | 'competition' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
   label: string;
   mobileLabel: string;
   icon: React.ReactNode;
@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'dashboard', label: 'Dashboard', mobileLabel: 'Home', icon: <LayoutDashboard className="h-5 w-5" /> },
   { view: 'businesses', label: 'Businesses', mobileLabel: 'Biz', icon: <Store className="h-5 w-5" /> },
   { view: 'market', label: 'Market', mobileLabel: 'Market', icon: <TrendingUp className="h-5 w-5" /> },
+  { view: 'competition', label: 'Competition', mobileLabel: 'Compete', icon: <Users className="h-5 w-5" /> },
   { view: 'bank', label: 'Bank', mobileLabel: 'Bank', icon: <Landmark className="h-5 w-5" /> },
   { view: 'leaderboard', label: 'Ranks', mobileLabel: 'Ranks', icon: <Trophy className="h-5 w-5" /> },
   { view: 'news', label: 'News', mobileLabel: 'News', icon: <Newspaper className="h-5 w-5" /> },

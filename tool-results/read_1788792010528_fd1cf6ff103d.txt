@@ -1,0 +1,885 @@
+     1→// ============================================
+     2→// Bangladesh Business Tycoon - Game Engine (Optimized)
+     3→// Server-authoritative economy simulation
+     4→// Phase 0: Tick concurrency lock, stale lock recovery,
+     5→//   transaction safety, error handling, net worth consistency
+     6→// Phase 1: Economy & Balance Engine
+     7→//   - Price sensitivity (demand reacts to pricing)
+     8→//   - Product-level demand simulation
+     9→//   - COGS tracking
+    10→//   - Daily salary (monthly / 30)
+    11→//   - Market price retention (events persist)
+    12→//   - Business health score
+    13→//   - Historical metrics (BusinessMetric)
+    14→//   - Business profit distributed to player
+    15→// ============================================
+    16→
+    17→import { db } from './db';
+    18→import {
+    19→  GAME_CONFIG, EVENT_TEMPLATES, PRODUCTS, CITIES, BUSINESS_TYPES, EMPLOYEE_ROLES,
+    20→  getRandomName, getCity, getBusinessType
+    21→} from './game-data';
+    22→import type { EventTemplate } from './game-data';
+    23→import { AppError, tickLocked, internalError } from '@/lib/errors';
+    24→import { PrismaClient } from '@prisma/client';
+    25→
+    26→// Phase 1: Economy Engine
+    27→import {
+    28→  calculatePotentialCustomers,
+    29→  calculatePriceDemandMultiplier,
+    30→  simulateProductSales,
+    31→  calculateBusinessExpenses,
+    32→  calculateNetProfit,
+    33→  calculateBusinessHealth,
+    34→  calculateReputationChange,
+    35→  calculateROI,
+    36→  calculateMarketPriceUpdate,
+    37→  classifyDemandLevel,
+    38→  roundTaka,
+    39→} from './game/economy/formulas';
+    40→import { getBusinessEconomyConfig } from './game/economy/business-config';
+    41→import { getProductDemandConfig } from './game/economy/product-demand';
+    42→import { ECONOMY_CONFIG } from './game/economy/economy-config';
+    43→import type { ProductSalesResult, ExpenseBreakdown, BusinessHealthResult } from './game/economy/types';
+    44→
+    45→// ---- Prisma Transaction Client Type ----
+    46→type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+    47→
+    48→// ---- Tick Concurrency Lock Constants ----
+    49→const STALE_TICK_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+    50→
+    51→// ---- Tick Concurrency Lock ----
+    52→
+    53→/**
+    54→ * Atomically attempt to acquire the tick lock using the GameState key-value store.
+    55→ * Returns true if the lock was acquired, false if it was already held.
+    56→ *
+    57→ * Stale lock recovery: if the lock has been held for longer than
+    58→ * STALE_TICK_TIMEOUT_MS, the lock is stolen and a warning is logged.
+    59→ */
+    60→export async function acquireTickLock(): Promise<boolean> {
+    61→  const now = new Date();
+    62→
+    63→  return db.$transaction(async (tx) => {
+    64→    // Read current lock state
+    65→    const lockState = await tx.gameState.findUnique({ where: { key: 'tickInProgress' } });
+    66→    const startedAtState = await tx.gameState.findUnique({ where: { key: 'tickStartedAt' } });
+    67→
+    68→    const isLocked = lockState?.value === 'true';
+    69→    const startedAt = startedAtState?.value ? new Date(startedAtState.value) : null;
+    70→
+    71→    if (isLocked && startedAt) {
+    72→      const elapsed = now.getTime() - startedAt.getTime();
+    73→      if (elapsed < STALE_TICK_TIMEOUT_MS) {
+    74→        return false; // Lock is legitimately held
+    75→      }
+    76→      console.warn(`[GameEngine] Stale tick lock detected (held for ${Math.round(elapsed / 1000)}s). Stealing lock.`);
+    77→    } else if (isLocked) {
+    78→      console.warn('[GameEngine] Tick lock held with no timestamp. Stealing lock.');
+    79→    }
+    80→
+    81→    // Acquire the lock
+    82→    const nowISO = now.toISOString();
+    83→    await tx.gameState.upsert({
+    84→      where: { key: 'tickInProgress' },
+    85→      create: { key: 'tickInProgress', value: 'true' },
+    86→      update: { value: 'true' },
+    87→    });
+    88→    await tx.gameState.upsert({
+    89→      where: { key: 'tickStartedAt' },
+    90→      create: { key: 'tickStartedAt', value: nowISO },
+    91→      update: { value: nowISO },
+    92→    });
+    93→
+    94→    // Increment tick version
+    95→    const versionState = await tx.gameState.findUnique({ where: { key: 'tickVersion' } });
+    96→    const currentVersion = parseInt(versionState?.value || '0', 10);
+    97→    await tx.gameState.upsert({
+    98→      where: { key: 'tickVersion' },
+    99→      create: { key: 'tickVersion', value: '1' },
+   100→      update: { value: String(currentVersion + 1) },
+   101→    });
+   102→
+   103→    return true;
+   104→  });
+   105→}
+   106→
+   107→export async function releaseTickLock(): Promise<void> {
+   108→  await db.gameState.upsert({
+   109→    where: { key: 'tickInProgress' },
+   110→    create: { key: 'tickInProgress', value: 'false' },
+   111→    update: { value: 'false' },
+   112→  });
+   113→}
+   114→
+   115→// ---- Net Worth Recalculation ----
+   116→async function recalculateNetWorth(tx: PrismaTx, playerId: string): Promise<void> {
+   117→  const player = await tx.player.findUnique({
+   118→    where: { id: playerId },
+   119→    select: { id: true, cash: true },
+   120→  });
+   121→  if (!player) {
+   122→    console.error(`[GameEngine] recalculateNetWorth: Player ${playerId} not found`);
+   123→    return;
+   124→  }
+   125→
+   126→  const allBusinesses = await tx.business.findMany({
+   127→    where: { playerId },
+   128→    select: { cash: true },
+   129→  });
+   130→  const totalBusinessCash = allBusinesses.reduce((sum, b) => sum + b.cash, 0);
+   131→
+   132→  const allInventory = await tx.inventory.findMany({
+   133→    where: { business: { playerId } },
+   134→    select: { quantity: true, purchasePrice: true },
+   135→  });
+   136→  const totalInventoryValue = allInventory.reduce((sum, inv) => sum + inv.quantity * inv.purchasePrice, 0);
+   137→
+   138→  const activeLoans = await tx.loan.findMany({
+   139→    where: { playerId, status: 'ACTIVE' },
+   140→    select: { remainingDebt: true },
+   141→  });
+   142→  const outstandingDebt = activeLoans.reduce((sum, loan) => sum + loan.remainingDebt, 0);
+   143→
+   144→  const netWorth = player.cash + totalBusinessCash + totalInventoryValue - outstandingDebt;
+   145→  await tx.player.update({ where: { id: playerId }, data: { netWorth } });
+   146→}
+   147→
+   148→// ---- Event Generation ----
+   149→export async function generateEvent(): Promise<void> {
+   150→  const totalWeight = EVENT_TEMPLATES.reduce((sum, e) => sum + e.weight, 0);
+   151→  let random = Math.random() * totalWeight;
+   152→  let selected: EventTemplate | null = null;
+   153→  for (const event of EVENT_TEMPLATES) {
+   154→    random -= event.weight;
+   155→    if (random <= 0) {
+   156→      selected = event;
+   157→      break;
+   158→    }
+   159→  }
+   160→  if (!selected) selected = EVENT_TEMPLATES[0];
+   161→
+   162→  const now = new Date();
+   163→  const endAt = new Date(now.getTime() + selected.durationDays * 60 * 1000);
+   164→  await db.gameEvent.create({
+   165→    data: {
+   166→      title: selected.title,
+   167→      description: selected.description,
+   168→      type: selected.type,
+   169→      effects: JSON.stringify(selected.effects),
+   170→      active: true,
+   171→      startsAt: now,
+   172→      endsAt: endAt,
+   173→    },
+   174→  });
+   175→}
+   176→
+   177→// ---- Market Price Updates (Phase 1: Retention-based) ----
+   178→/**
+   179→ * Phase 1 improvement: Market prices now use retention blending.
+   180→ * Previous multiplier is retained (70%) and new random is blended (30%).
+   181→ * Event effects are applied on top and persist across updates.
+   182→ */
+   183→export async function updateMarketPrices(): Promise<void> {
+   184→  const allProducts = Object.values(PRODUCTS).flat();
+   185→  const cities = CITIES.map(c => c.id);
+   186→
+   187→  // Get active events for price modifiers
+   188→  const activeEvents = await db.gameEvent.findMany({ where: { active: true } });
+   189→  const categoryPriceMod: Record<string, number> = {};
+   190→  let allPriceMod = 0;
+   191→  for (const event of activeEvents) {
+   192→    const effects = JSON.parse(event.effects) as Record<string, number>;
+   193→    for (const [key, value] of Object.entries(effects)) {
+   194→      if (key === 'all_price' || key === 'all_imported') allPriceMod += value;
+   195→      if (key.endsWith('_price')) {
+   196→        const cat = key.replace('_price', '');
+   197→        categoryPriceMod[cat] = (categoryPriceMod[cat] || 0) + value;
+   198→      }
+   199→    }
+   200→  }
+   201→
+   202→  const updates: { productName: string; city: string; priceMultiplier: number; demandMultiplier: number }[] = [];
+   203→
+   204→  for (const city of cities) {
+   205→    for (const product of allProducts) {
+   206→      // Get current market price (for retention)
+   207→      const existing = await db.marketPrice.findUnique({
+   208→        where: { productName_city: { productName: product.name, city } },
+   209→      });
+   210→      const previousPriceMult = existing?.priceMultiplier ?? 1;
+   211→
+   212→      // Calculate event price modifier for this product
+   213→      const eventPriceMod = allPriceMod + (categoryPriceMod[product.category] || 0);
+   214→
+   215→      // Use Phase 1 retention-based update
+   216→      const { priceMultiplier, demandMultiplier } = calculateMarketPriceUpdate(
+   217→        previousPriceMult,
+   218→        eventPriceMod
+   219→      );
+   220→
+   221→      updates.push({ productName: product.name, city, priceMultiplier, demandMultiplier });
+   222→    }
+   223→  }
+   224→
+   225→  // Batch update in a transaction
+   226→  await db.$transaction(async (tx) => {
+   227→    for (const upd of updates) {
+   228→      await tx.marketPrice.upsert({
+   229→        where: { productName_city: { productName: upd.productName, city: upd.city } },
+   230→        create: upd,
+   231→        update: {
+   232→          priceMultiplier: upd.priceMultiplier,
+   233→          demandMultiplier: upd.demandMultiplier,
+   234→          updatedAt: new Date(),
+   235→        },
+   236→      });
+   237→    }
+   238→  });
+   239→}
+   240→
+   241→// ---- Apply Event Effects to Market (Phase 1: Integrated into updateMarketPrices) ----
+   242→/**
+   243→ * Phase 1: Event effects are now integrated into updateMarketPrices()
+   244→ * via the retention-based formula. This function is kept for backward
+   245→ * compatibility but delegates to the improved market update.
+   246→ */
+   247→export async function applyEventEffects(): Promise<void> {
+   248→  // No-op: Event effects are now handled by the retention-based updateMarketPrices()
+   249→  // This function is kept as a no-op to avoid breaking the tick flow.
+   250→}
+   251→
+   252→// ---- Business Simulation Tick (Phase 1: Economy Engine) ----
+   253→
+   254→/**
+   255→ * Phase 1 business simulation using the new Economy Engine.
+   256→ *
+   257→ * Flow:
+   258→ * 1. Calculate potential customers (layered model)
+   259→ * 2. For each inventory item:
+   260→ *    a. Get product demand config
+   261→ *    b. Calculate product demand (base + events + volatility)
+   262→ *    c. Apply price sensitivity (sellPrice vs market price)
+   263→ *    d. Calculate actual items sold (constrained by stock)
+   264→ *    e. Calculate revenue, COGS, gross profit
+   265→ * 3. Calculate expenses (rent + daily salaries + utilities + taxes)
+   266→ * 4. Calculate net profit
+   267→ * 5. Update reputation
+   268→ * 6. Calculate business health score
+   269→ * 7. Save daily metrics
+   270→ * 8. Distribute profit to player cash (Phase 1 fix)
+   271→ * 9. Recalculate net worth
+   272→ */
+   273→export async function simulateBusinessTick(businessId: string): Promise<void> {
+   274→  const business = await db.business.findUnique({
+   275→    where: { id: businessId },
+   276→    include: {
+   277→      inventories: true,
+   278→      employees: true,
+   279→      player: { select: { id: true, cash: true, netWorth: true } },
+   280→    },
+   281→  });
+   282→
+   283→  if (!business) return;
+   284→
+   285→  const businessType = getBusinessType(business.type);
+   286→  const city = getCity(business.city);
+   287→  if (!businessType || !city) return;
+   288→
+   289→  const economyConfig = getBusinessEconomyConfig(business.type);
+   290→
+   291→  // Get active event effects (combined)
+   292→  const activeEvents = await db.gameEvent.findMany({
+   293→    where: { active: true },
+   294→    select: { effects: true },
+   295→  });
+   296→  const combinedEffects: Record<string, number> = {};
+   297→  for (const event of activeEvents) {
+   298→    const effects = JSON.parse(event.effects) as Record<string, number>;
+   299→    for (const [key, value] of Object.entries(effects)) {
+   300→      combinedEffects[key] = (combinedEffects[key] || 0) + value;
+   301→    }
+   302→  }
+   303→
+   304→  // Get market prices for this city
+   305→  const marketPrices = await db.marketPrice.findMany({
+   306→    where: { city: business.city },
+   307→  });
+   308→  const marketPriceMap: Record<string, { priceMultiplier: number; demandMultiplier: number }> = {};
+   309→  for (const mp of marketPrices) {
+   310→    marketPriceMap[mp.productName] = {
+   311→      priceMultiplier: mp.priceMultiplier,
+   312→      demandMultiplier: mp.demandMultiplier,
+   313→    };
+   314→  }
+   315→
+   316→  // ---- Step 1: Calculate potential customers ----
+   317→  const totalStock = business.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
+   318→  // Max stock capacity: sum of product maxStock values for this business type
+   319→  const productDefs = PRODUCTS[business.type] || [];
+   320→  const maxStockCapacity = productDefs.reduce((sum, p) => sum + p.maxStock, 0);
+   321→  const avgEmployeeSkill = business.employees.length > 0
+   322→    ? business.employees.reduce((sum, e) => sum + e.skill, 0) / business.employees.length
+   323→    : 0;
+   324→
+   325→  const potentialCustomers = calculatePotentialCustomers({
+   326→    baseCustomers: businessType.baseCustomers,
+   327→    cityMultiplier: city.customerMultiplier,
+   328→    level: business.level,
+   329→    reputation: business.reputation,
+   330→    totalStock,
+   331→    maxStockCapacity,
+   332→    employeeCount: business.employees.length,
+   333→    avgEmployeeSkill,
+   334→    eventCustomerEffect: combinedEffects['all_customers'] || 0,
+   335→    businessDemandEffect: combinedEffects[`${businessType.id}_demand`] || 0,
+   336→    businessTypeId: business.type,
+   337→  });
+   338→
+   339→  // ---- Step 2: Product-level sales simulation ----
+   340→  let totalRevenue = 0;
+   341→  let totalCOGS = 0;
+   342→  const inventoryUpdates: { id: string; quantityDecrement: number }[] = [];
+   343→  const salesResults: ProductSalesResult[] = [];
+   344→
+   345→  for (const inventory of business.inventories) {
+   346→    if (inventory.quantity <= 0) continue;
+   347→
+   348→    const productDef = productDefs.find(p => p.name === inventory.productName);
+   349→    if (!productDef) continue;
+   350→
+   351→    // Product demand config
+   352→    const prodDemandConfig = getProductDemandConfig(inventory.productName);
+   353→
+   354→    // Market reference price = typical retail price (basePrice × (1 + suggestedMarkup) × priceMultiplier)
+   355→    // This represents what the MARKET typically charges, not the wholesale cost.
+   356→    // Players compare their price to market retail price, not to their own cost.
+   357→    const mp = marketPriceMap[inventory.productName];
+   358→    const typicalRetailPrice = productDef.basePrice * (1 + productDef.suggestedMarkup);
+   359→    const marketReferencePrice = Math.round(
+   360→      typicalRetailPrice * (mp?.priceMultiplier || 1)
+   361→    );
+   362→
+   363→    // Market demand multiplier from events
+   364→    const demandMult = mp?.demandMultiplier || 1;
+   365→
+   366→    // Event demand effect for this product's category
+   367→    const eventDemandEffect = combinedEffects[`${productDef.category}_demand`] || 0;
+   368→
+   369→    // Run the complete sales pipeline
+   370→    const salesResult = simulateProductSales({
+   371→      inventoryId: inventory.id,
+   372→      productName: inventory.productName,
+   373→      quantity: inventory.quantity,
+   374→      purchasePrice: inventory.purchasePrice,
+   375→      sellPrice: inventory.sellPrice,
+   376→      marketReferencePrice,
+   377→      baseDemand: prodDemandConfig.baseDemand,
+   378→      demandMultiplier: demandMult,
+   379→      eventDemandEffect,
+   380→      productPriceSensitivity: prodDemandConfig.priceSensitivity,
+   381→      productVolatility: prodDemandConfig.volatility,
+   382→      businessPriceSensitivity: economyConfig.priceSensitivity,
+   383→      potentialCustomers,
+   384→    });
+   385→
+   386→    if (salesResult.itemsSold > 0) {
+   387→      totalRevenue += salesResult.revenue;
+   388→      totalCOGS += salesResult.costOfGoodsSold;
+   389→      inventoryUpdates.push({
+   390→        id: inventory.id,
+   391→        quantityDecrement: salesResult.itemsSold,
+   392→      });
+   393→    }
+   394→
+   395→    salesResults.push(salesResult);
+   396→  }
+   397→
+   398→  // ---- Step 3: Calculate expenses ----
+   399→  const totalMonthlySalaries = business.employees.reduce((sum, emp) => sum + emp.salary, 0);
+   400→  const grossProfit = totalRevenue - totalCOGS;
+   401→
+   402→  const expenses = calculateBusinessExpenses({
+   403→    baseRent: businessType.rent,
+   404→    level: business.level,
+   405→    cityRentMultiplier: city.rentMultiplier,
+   406→    totalMonthlySalaries,
+   407→    businessLevel: business.level,
+   408→    businessTypeId: business.type,
+   409→    revenue: totalRevenue,
+   410→    grossProfit,
+   411→  });
+   412→
+   413→  // ---- Step 4: Calculate net profit ----
+   414→  const dailyProfit = calculateNetProfit(totalRevenue, totalCOGS, expenses.totalExpense);
+   415→
+   416→  // ---- Step 5: Calculate reputation change ----
+   417→  const outOfStockRatio = business.inventories.length > 0
+   418→    ? business.inventories.filter(inv => inv.quantity <= 0).length / business.inventories.length
+   419→    : 0;
+   420→  const managers = business.employees.filter(e => e.role === 'MANAGER');
+   421→  const cleaners = business.employees.filter(e => e.role === 'CLEANER');
+   422→
+   423→  const reputationChange = calculateReputationChange({
+   424→    dailyProfit,
+   425→    outOfStockRatio,
+   426→    managers: managers.map(m => ({ skill: m.skill })),
+   427→    cleaners: cleaners.map(c => ({ skill: c.skill })),
+   428→  });
+   429→
+   430→  const newReputation = Math.max(
+   431→    ECONOMY_CONFIG.minReputation,
+   432→    Math.min(ECONOMY_CONFIG.maxReputation, business.reputation + reputationChange)
+   433→  );
+   434→
+   435→  // ---- Step 6: Calculate business health score ----
+   436→  const healthResult = calculateBusinessHealth({
+   437→    dailyProfit,
+   438→    dailyRevenue: totalRevenue,
+   439→    businessCash: business.cash + dailyProfit,
+   440→    totalStock,
+   441→    maxStockCapacity,
+   442→    reputation: newReputation,
+   443→    businessTypeId: business.type,
+   444→  });
+   445→
+   446→  // ---- Step 7: Get game day for metrics ----
+   447→  const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
+   448→  const gameDay = parseInt(gameDayState?.value || '1', 10);
+   449→
+   450→  // ---- Step 8: Execute all updates in a single transaction ----
+   451→  await db.$transaction(async (tx) => {
+   452→    // Update inventory quantities
+   453→    for (const upd of inventoryUpdates) {
+   454→      await tx.inventory.update({
+   455→        where: { id: upd.id },
+   456→        data: { quantity: { decrement: upd.quantityDecrement } },
+   457→      });
+   458→    }
+   459→
+   460→    // Phase 1 FIX: Distribute business profit to player cash
+   461→    // Previously, profit accumulated in business.cash but was never accessible.
+   462→    // Now: business profit is transferred to the player each tick.
+   463→    const profitToDistribute = dailyProfit;
+   464→
+   465→    // Update business
+   466→    await tx.business.update({
+   467→      where: { id: business.id },
+   468→      data: {
+   469→        dailyRevenue: roundTaka(totalRevenue),
+   470→        dailyExpense: roundTaka(expenses.totalExpense),
+   471→        dailyProfit: roundTaka(dailyProfit),
+   472→        dailyCOGS: roundTaka(totalCOGS),
+   473→        dailyCustomers: potentialCustomers,
+   474→        cash: business.cash + roundTaka(dailyProfit),
+   475→        totalRevenue: business.totalRevenue + roundTaka(totalRevenue),
+   476→        totalProfit: business.totalProfit + roundTaka(dailyProfit),
+   477→        reputation: newReputation,
+   478→        healthScore: healthResult.score,
+   479→      },
+   480→    });
+   481→
+   482→    // Distribute profit to player cash
+   483→    await tx.player.update({
+   484→      where: { id: business.playerId },
+   485→      data: { cash: { increment: roundTaka(profitToDistribute) } },
+   486→    });
+   487→
+   488→    // Save daily metrics for analytics
+   489→    await tx.businessMetric.upsert({
+   490→      where: { businessId_gameDay: { businessId: business.id, gameDay } },
+   491→      create: {
+   492→        businessId: business.id,
+   493→        gameDay,
+   494→        revenue: roundTaka(totalRevenue),
+   495→        expenses: roundTaka(expenses.totalExpense),
+   496→        profit: roundTaka(dailyProfit),
+   497→        cogs: roundTaka(totalCOGS),
+   498→        customers: potentialCustomers,
+   499→        reputation: newReputation,
+   500→      },
+   501→      update: {
+   502→        revenue: roundTaka(totalRevenue),
+   503→        expenses: roundTaka(expenses.totalExpense),
+   504→        profit: roundTaka(dailyProfit),
+   505→        cogs: roundTaka(totalCOGS),
+   506→        customers: potentialCustomers,
+   507→        reputation: newReputation,
+   508→      },
+   509→    });
+   510→
+   511→    // Log
+   512→    const cogsStr = totalCOGS > 0 ? ` | COGS ৳${roundTaka(totalCOGS).toLocaleString()}` : '';
+   513→    await tx.gameLog.create({
+   514→      data: {
+   515→        playerId: business.playerId,
+   516→        businessId: business.id,
+   517→        type: dailyProfit >= 0 ? 'PROFIT' : 'LOSS',
+   518→        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(expenses.totalExpense).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score}`,
+   519→        amount: dailyProfit,
+   520→      },
+   521→    });
+   522→
+   523→    // Recalculate net worth within the same transaction
+   524→    await recalculateNetWorth(tx, business.playerId);
+   525→  });
+   526→}
+   527→
+   528→// ---- Loan Payment Processing ----
+   529→
+   530→async function processLoanPayments(): Promise<void> {
+   531→  const activeLoans = await db.loan.findMany({
+   532→    where: { status: 'ACTIVE' },
+   533→  });
+   534→
+   535→  if (activeLoans.length === 0) return;
+   536→
+   537→  for (const loan of activeLoans) {
+   538→    const payment = loan.dailyPayment;
+   539→    const isPaidOff = loan.daysRemaining - 1 <= 0;
+   540→    const actualPayment = isPaidOff ? loan.remainingDebt : payment;
+   541→
+   542→    await db.$transaction(async (tx) => {
+   543→      const player = await tx.player.findUnique({
+   544→        where: { id: loan.playerId },
+   545→        select: { cash: true },
+   546→      });
+   547→      if (!player) {
+   548→        console.error(`[GameEngine] processLoanPayments: Player ${loan.playerId} not found for loan ${loan.id}`);
+   549→        return;
+   550→      }
+   551→
+   552→      const deductAmount = Math.min(actualPayment, Math.max(0, player.cash));
+   553→      const newRemainingDebt = Math.max(loan.remainingDebt - deductAmount, 0);
+   554→
+   555→      await tx.loan.update({
+   556→        where: { id: loan.id },
+   557→        data: {
+   558→          remainingDebt: newRemainingDebt,
+   559→          daysRemaining: Math.max(loan.daysRemaining - 1, 0),
+   560→          status: newRemainingDebt <= 0 ? 'PAID_OFF' : 'ACTIVE',
+   561→        },
+   562→      });
+   563→
+   564→      await tx.player.update({
+   565→        where: { id: loan.playerId },
+   566→        data: { cash: { decrement: deductAmount } },
+   567→      });
+   568→
+   569→      await tx.gameLog.create({
+   570→        data: {
+   571→          playerId: loan.playerId,
+   572→          type: newRemainingDebt <= 0 ? 'LOAN_PAID' : 'LOAN_PAYMENT',
+   573→          message: newRemainingDebt <= 0
+   574→            ? `Loan of ৳${loan.amount.toLocaleString()} fully repaid! Final deduction: ৳${Math.round(deductAmount).toLocaleString()}`
+   575→            : `Loan payment: ৳${Math.round(deductAmount).toLocaleString()} deducted. Remaining debt: ৳${Math.round(newRemainingDebt).toLocaleString()} (${loan.daysRemaining - 1} days left)`,
+   576→          amount: -deductAmount,
+   577→        },
+   578→      });
+   579→    });
+   580→  }
+   581→}
+   582→
+   583→// ---- Full Game Tick ----
+   584→
+   585→export async function gameTick(): Promise<void> {
+   586→  // NOTE: The tick lock is managed by the API route handler.
+   587→  // gameTick() is the pure simulation function and does NOT acquire/release the lock.
+   588→
+   589→  // Log tick start
+   590→  await db.gameLog.create({
+   591→    data: {
+   592→      type: 'GAME_TICK_STARTED',
+   593→      message: `Game tick started at ${new Date().toISOString()}`,
+   594→    },
+   595→  });
+   596→
+   597→  // 0. Game state housekeeping
+   598→  const tickState = await db.gameState.findUnique({ where: { key: 'tickCount' } });
+   599→  const tickNum = parseInt(tickState?.value || '0');
+   600→
+   601→  await db.$transaction(async (tx) => {
+   602→    // Expire old events
+   603→    await tx.gameEvent.updateMany({
+   604→      where: { active: true, endsAt: { lt: new Date() } },
+   605→      data: { active: false },
+   606→    });
+   607→
+   608→    // Update game state
+   609→    const now = new Date().toISOString();
+   610→    await tx.gameState.upsert({
+   611→      where: { key: 'lastTick' },
+   612→      create: { key: 'lastTick', value: now },
+   613→      update: { value: now },
+   614→    });
+   615→    await tx.gameState.upsert({
+   616→      where: { key: 'tickCount' },
+   617→      create: { key: 'tickCount', value: '1' },
+   618→      update: { value: String(tickNum + 1) },
+   619→    });
+   620→    const dayState = await tx.gameState.findUnique({ where: { key: 'gameDay' } });
+   621→    await tx.gameState.upsert({
+   622→      where: { key: 'gameDay' },
+   623→      create: { key: 'gameDay', value: '1' },
+   624→      update: { value: String(parseInt(dayState?.value || '0') + 1) },
+   625→    });
+   626→  });
+   627→
+   628→  // Generate new events (20% chance)
+   629→  if (Math.random() < 0.2) {
+   630→    try {
+   631→      await generateEvent();
+   632→    } catch (err) {
+   633→      console.error('[GameEngine] Failed to generate event:', err);
+   634→    }
+   635→  }
+   636→
+   637→  // Update market prices (every 3 ticks)
+   638→  // Phase 1: This now uses retention-based updates with event effects integrated
+   639→  if (tickNum % 3 === 0) {
+   640→    try {
+   641→      await updateMarketPrices();
+   642→    } catch (err) {
+   643→      console.error('[GameEngine] Failed to update market prices:', err);
+   644→    }
+   645→    // applyEventEffects() is now a no-op — events handled in updateMarketPrices()
+   646→  }
+   647→
+   648→  // 1. Simulate all businesses
+   649→  const businesses = await db.business.findMany({ select: { id: true } });
+   650→  for (const business of businesses) {
+   651→    try {
+   652→      await simulateBusinessTick(business.id);
+   653→    } catch (err) {
+   654→      console.error(`[GameEngine] Failed to simulate business ${business.id}:`, err);
+   655→    }
+   656→  }
+   657→
+   658→  // 2. Process loan payments
+   659→  try {
+   660→    await processLoanPayments();
+   661→  } catch (err) {
+   662→    console.error('[GameEngine] Failed to process loan payments:', err);
+   663→  }
+   664→
+   665→  // 3. Simulate AI player activity
+   666→  try {
+   667→    await simulateAITick();
+   668→  } catch (err) {
+   669→    console.error('[GameEngine] Failed to simulate AI tick:', err);
+   670→  }
+   671→
+   672→  // 4. Generate news (50% chance)
+   673→  if (Math.random() < 0.5) {
+   674→    try {
+   675→      await generateNews();
+   676→    } catch (err) {
+   677→      console.error('[GameEngine] Failed to generate news:', err);
+   678→    }
+   679→  }
+   680→
+   681→  // Log tick completion
+   682→  await db.gameLog.create({
+   683→    data: {
+   684→      type: 'GAME_TICK_COMPLETED',
+   685→      message: `Game tick completed at ${new Date().toISOString()}`,
+   686→    },
+   687→  });
+   688→}
+   689→
+   690→// ---- News Generation ----
+   691→
+   692→async function generateNews(): Promise<void> {
+   693→  const newsTemplates = [
+   694→    { title: 'Market Update: Rice prices {direction} in {city}', category: 'MARKET' },
+   695→    { title: 'Business Report: {business_type} sector showing {trend}', category: 'BUSINESS' },
+   696→    { title: 'Economic Outlook: Consumer confidence {direction}', category: 'ECONOMY' },
+   697→    { title: 'Weather Update: {weather} expected in {city} region', category: 'WEATHER' },
+   698→    { title: 'Trade News: Import costs for electronics {direction}', category: 'TRADE' },
+   699→  ];
+   700→
+   701→  const randomCity = CITIES[Math.floor(Math.random() * CITIES.length)].name;
+   702→  const randomBusiness = BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)].name;
+   703→  const direction = Math.random() > 0.5 ? 'increased' : 'decreased';
+   704→  const trend = Math.random() > 0.5 ? 'strong growth' : 'slight decline';
+   705→  const weatherOptions = ['heavy rain', 'clear skies', 'heatwave', 'mild weather', 'thunderstorms'];
+   706→  const weather = weatherOptions[Math.floor(Math.random() * weatherOptions.length)];
+   707→
+   708→  const template = newsTemplates[Math.floor(Math.random() * newsTemplates.length)];
+   709→  const title = template.title
+   710→    .replace('{city}', randomCity)
+   711→    .replace('{business_type}', randomBusiness)
+   712→    .replace('{direction}', direction)
+   713→    .replace('{trend}', trend)
+   714→    .replace('{weather}', weather);
+   715→
+   716→  const contents: Record<string, string> = {
+   717→    MARKET: `Sources report that commodity prices have ${direction} in ${randomCity}. Traders are advising businesses to adjust their inventory strategies accordingly.`,
+   718→    BUSINESS: `The ${randomBusiness} sector is currently showing ${trend} according to industry analysts. Business owners should monitor market trends closely.`,
+   719→    ECONOMY: `Consumer confidence has ${direction} this quarter. Economic indicators suggest that spending patterns may shift in the coming days.`,
+   720→    WEATHER: `${weather.charAt(0).toUpperCase() + weather.slice(1)} conditions are expected in the ${randomCity} region. Businesses should prepare for potential changes in customer footfall.`,
+   721→    TRADE: `International trade reports indicate that import costs have ${direction}. This may affect pricing strategies for businesses dealing with imported goods.`,
+   722→  };
+   723→
+   724→  await db.newsArticle.create({
+   725→    data: {
+   726→      title,
+   727→      content: contents[template.category] || contents['ECONOMY'],
+   728→      category: template.category,
+   729→    },
+   730→  });
+   731→
+   732→  // Keep only last 50 news articles
+   733→  const totalNews = await db.newsArticle.count();
+   734→  if (totalNews > 50) {
+   735→    const oldNews = await db.newsArticle.findMany({
+   736→      orderBy: { createdAt: 'asc' },
+   737→      take: totalNews - 50,
+   738→      select: { id: true },
+   739→    });
+   740→    const ids = oldNews.map(n => n.id);
+   741→    await db.newsArticle.deleteMany({ where: { id: { in: ids } } });
+   742→  }
+   743→}
+   744→
+   745→// ---- Seed Data ----
+   746→
+   747→export async function seedInitialData(): Promise<void> {
+   748→  // Seed products
+   749→  const allProducts = Object.values(PRODUCTS).flat();
+   750→  for (const product of allProducts) {
+   751→    await db.product.upsert({
+   752→      where: { name: product.name },
+   753→      create: {
+   754→        name: product.name,
+   755→        category: product.category,
+   756→        basePrice: product.basePrice,
+   757→        baseDemand: product.baseDemand,
+   758→        icon: product.icon,
+   759→      },
+   760→      update: {},
+   761→    });
+   762→  }
+   763→
+   764→  // Seed initial market prices
+   765→  const cities = CITIES.map(c => c.id);
+   766→  for (const city of cities) {
+   767→    for (const product of allProducts) {
+   768→      await db.marketPrice.upsert({
+   769→        where: { productName_city: { productName: product.name, city } },
+   770→        create: { productName: product.name, city, priceMultiplier: 1, demandMultiplier: 1 },
+   771→        update: {},
+   772→      });
+   773→    }
+   774→  }
+   775→
+   776→  // Game state
+   777→  await db.gameState.upsert({ where: { key: 'lastTick' }, create: { key: 'lastTick', value: new Date().toISOString() }, update: {} });
+   778→  await db.gameState.upsert({ where: { key: 'tickCount' }, create: { key: 'tickCount', value: '0' }, update: {} });
+   779→  await db.gameState.upsert({ where: { key: 'gameDay' }, create: { key: 'gameDay', value: '1' }, update: {} });
+   780→  await db.gameState.upsert({ where: { key: 'tickInProgress' }, create: { key: 'tickInProgress', value: 'false' }, update: {} });
+   781→  await db.gameState.upsert({ where: { key: 'tickVersion' }, create: { key: 'tickVersion', value: '0' }, update: {} });
+   782→
+   783→  // Generate initial news
+   784→  for (let i = 0; i < 5; i++) {
+   785→    await generateNews();
+   786→  }
+   787→
+   788→  // Generate initial event
+   789→  await generateEvent();
+   790→}
+   791→
+   792→// ---- Create AI Players for Leaderboard ----
+   793→
+   794→export async function seedAIPlayers(): Promise<void> {
+   795→  const existingPlayers = await db.player.count();
+   796→  if (existingPlayers > 1) return;
+   797→
+   798→  const aiNames = [
+   799→    { name: 'Rahim Enterprises', email: 'ai-rahim@game.local' },
+   800→    { name: 'Fatima Holdings', email: 'ai-fatima@game.local' },
+   801→    { name: 'Khan & Sons', email: 'ai-khan@game.local' },
+   802→    { name: 'Chowdhury Corp', email: 'ai-chowdhury@game.local' },
+   803→    { name: 'Sylhet Trading Co', email: 'ai-sylhet@game.local' },
+   804→    { name: 'Dhaka Business Group', email: 'ai-dhaka@game.local' },
+   805→    { name: 'Bengal Ventures', email: 'ai-bengal@game.local' },
+   806→    { name: 'Padma Industries', email: 'ai-padma@game.local' },
+   807→  ];
+   808→
+   809→  for (const ai of aiNames) {
+   810→    const netWorth = 500000 + Math.random() * 3000000;
+   811→    await db.player.create({
+   812→      data: {
+   813→        name: ai.name,
+   814→        email: ai.email,
+   815→        cash: netWorth * 0.6,
+   816→        netWorth,
+   817→        level: Math.floor(Math.random() * 5) + 1,
+   818→      },
+   819→    });
+   820→  }
+   821→
+   822→  // Create some AI businesses
+   823→  const aiPlayers = await db.player.findMany({
+   824→    where: { email: { contains: 'ai-' } },
+   825→    select: { id: true },
+   826→  });
+   827→  for (const player of aiPlayers) {
+   828→    const numBusinesses = Math.floor(Math.random() * 3) + 1;
+   829→    const usedTypes = new Set<string>();
+   830→    for (let i = 0; i < numBusinesses; i++) {
+   831→      let bType = BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)];
+   832→      while (usedTypes.has(bType.id)) {
+   833→        bType = BUSINESS_TYPES[Math.floor(Math.random() * BUSINESS_TYPES.length)];
+   834→      }
+   835→      usedTypes.add(bType.id);
+   836→
+   837→      const city = CITIES[Math.floor(Math.random() * CITIES.length)];
+   838→      await db.business.create({
+   839→        data: {
+   840→          playerId: player.id,
+   841→          type: bType.id,
+   842→          city: city.id,
+   843→          name: `${bType.name} - ${city.name}`,
+   844→          level: Math.floor(Math.random() * 3) + 1,
+   845→          reputation: 30 + Math.random() * 60,
+   846→          cash: Math.random() * 100000,
+   847→          dailyRevenue: 10000 + Math.random() * 50000,
+   848→          dailyExpense: 5000 + Math.random() * 25000,
+   849→          dailyProfit: 5000 + Math.random() * 25000,
+   850→          totalRevenue: Math.random() * 500000,
+   851→          totalProfit: Math.random() * 200000,
+   852→        },
+   853→      });
+   854→    }
+   855→  }
+   856→}
+   857→
+   858→// ---- Generate AI Business Activity ----
+   859→/**
+   860→ * Phase 1: AI players now have a slight negative bias (centered at -0.05)
+   861→ * and reduced range to be more balanced with real players.
+   862→ */
+   863→export async function simulateAITick(): Promise<void> {
+   864→  const aiPlayers = await db.player.findMany({
+   865→    where: { email: { contains: 'ai-' } },
+   866→    select: { id: true },
+   867→  });
+   868→
+   869→  if (aiPlayers.length === 0) return;
+   870→
+   871→  await db.$transaction(async (tx) => {
+   872→    for (const player of aiPlayers) {
+   873→      // Phase 1: Slight negative bias, reduced range
+   874→      const profitChange = (Math.random() + ECONOMY_CONFIG.aiProfitCenter) * ECONOMY_CONFIG.aiProfitRange;
+   875→      await tx.player.update({
+   876→        where: { id: player.id },
+   877→        data: {
+   878→          cash: { increment: profitChange },
+   879→          netWorth: { increment: profitChange * 0.8 },
+   880→        },
+   881→      });
+   882→    }
+   883→  });
+   884→}
+   885→

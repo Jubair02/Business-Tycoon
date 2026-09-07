@@ -9,15 +9,32 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Trophy, Crown, Medal, Star, TrendingUp, Building2, Heart, MapPin } from 'lucide-react';
+import { Trophy, Crown, Medal, Star, TrendingUp, Building2, Heart, MapPin, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TABS = [
   { id: 'networth', label: 'Net Worth', icon: <TrendingUp className="h-3.5 w-3.5" /> },
   { id: 'profit', label: 'Profit', icon: <Star className="h-3.5 w-3.5" /> },
+  { id: 'revenue', label: 'Revenue', icon: <DollarSign className="h-3.5 w-3.5" /> },
   { id: 'businesses', label: 'Businesses', icon: <Building2 className="h-3.5 w-3.5" /> },
   { id: 'reputation', label: 'Reputation', icon: <Heart className="h-3.5 w-3.5" /> },
 ];
+
+const PERSONALITY_ICONS: Record<string, string> = {
+  CONSERVATIVE: '🛡️',
+  BALANCED: '⚖️',
+  AGGRESSIVE: '🔥',
+  TRADER: '📊',
+  EXPANSIONIST: '🌐',
+};
+
+const PERSONALITY_COLORS: Record<string, string> = {
+  CONSERVATIVE: 'bg-blue-100 text-blue-700 border-blue-200',
+  BALANCED: 'bg-gray-100 text-gray-700 border-gray-200',
+  AGGRESSIVE: 'bg-red-100 text-red-700 border-red-200',
+  TRADER: 'bg-amber-100 text-amber-700 border-amber-200',
+  EXPANSIONIST: 'bg-purple-100 text-purple-700 border-purple-200',
+};
 
 export default function LeaderboardView() {
   const { player, leaderboard, setLeaderboard, setSelectedCity, selectedCity } = useGameStore();
@@ -56,6 +73,7 @@ export default function LeaderboardView() {
     switch (type) {
       case 'networth': return formatTakaShort(entry.netWorth || 0);
       case 'profit': return formatTakaShort(entry.totalProfit || 0);
+      case 'revenue': return formatTakaShort(entry.totalRevenue || 0);
       case 'businesses': return `${entry.businessCount || 0}`;
       case 'reputation': return `${Math.round(entry.maxReputation || 0)}%`;
       default: return '—';
@@ -111,6 +129,9 @@ export default function LeaderboardView() {
           {leaderboard.map((entry: any, i: number) => {
             const medal = getMedal(i);
             const isMe = player && entry.playerId === player.id;
+            const isAI = entry.isAI;
+            const personality = entry.personality;
+
             return (
               <motion.div
                 key={entry.playerId}
@@ -134,22 +155,41 @@ export default function LeaderboardView() {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-sm font-medium truncate">{entry.name}</span>
                           {isMe && (
                             <Badge className="text-[10px] text-white font-bold px-2" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>
                               ⭐ You
                             </Badge>
                           )}
+                          {isAI && personality && (
+                            <Badge className={cn('text-[9px] px-1.5 border', PERSONALITY_COLORS[personality] || 'bg-gray-100 text-gray-600')}>
+                              {PERSONALITY_ICONS[personality] || '🤖'} AI
+                            </Badge>
+                          )}
+                          {isAI && !personality && (
+                            <Badge className="text-[9px] px-1.5 bg-gray-100 text-gray-600 border-gray-200">
+                              🤖 AI
+                            </Badge>
+                          )}
                           {i === 0 && !medal.emoji && <Crown className="h-3.5 w-3.5 text-yellow-500" />}
                         </div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {(entry.businessCount || 0) === 1 ? '1 business' : `${entry.businessCount || 0} businesses`}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-muted-foreground">
+                            {(entry.businessCount || 0) === 1 ? '1 business' : `${entry.businessCount || 0} businesses`}
+                          </span>
+                          {type === 'networth' && entry.totalRevenue > 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              Rev: {formatTakaShort(entry.totalRevenue)}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
                         <div className="text-sm font-bold" style={{ color: '#006a4e' }}>{getValue(entry)}</div>
-                        <div className="text-[10px] text-muted-foreground capitalize">{type === 'networth' ? 'net worth' : type}</div>
+                        <div className="text-[10px] text-muted-foreground capitalize">
+                          {type === 'networth' ? 'net worth' : type}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
