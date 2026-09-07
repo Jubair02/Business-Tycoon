@@ -3,6 +3,15 @@
 // Server-authoritative economy simulation
 // Phase 0: Tick concurrency lock, stale lock recovery,
 //   transaction safety, error handling, net worth consistency
+// Phase 1: Economy & Balance Engine
+//   - Price sensitivity (demand reacts to pricing)
+//   - Product-level demand simulation
+//   - COGS tracking
+//   - Daily salary (monthly / 30)
+//   - Market price retention (events persist)
+//   - Business health score
+//   - Historical metrics (BusinessMetric)
+//   - Business profit distributed to player
 // ============================================
 
 import { db } from './db';
@@ -13,6 +22,25 @@ import {
 import type { EventTemplate } from './game-data';
 import { AppError, tickLocked, internalError } from '@/lib/errors';
 import { PrismaClient } from '@prisma/client';
+
+// Phase 1: Economy Engine
+import {
+  calculatePotentialCustomers,
+  calculatePriceDemandMultiplier,
+  simulateProductSales,
+  calculateBusinessExpenses,
+  calculateNetProfit,
+  calculateBusinessHealth,
+  calculateReputationChange,
+  calculateROI,
+  calculateMarketPriceUpdate,
+  classifyDemandLevel,
+  roundTaka,
+} from './game/economy/formulas';
+import { getBusinessEconomyConfig } from './game/economy/business-config';
+import { getProductDemandConfig } from './game/economy/product-demand';
+import { ECONOMY_CONFIG } from './game/economy/economy-config';
+import type { ProductSalesResult, ExpenseBreakdown, BusinessHealthResult } from './game/economy/types';
 
 // ---- Prisma Transaction Client Type ----
 type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
@@ -43,34 +71,27 @@ export async function acquireTickLock(): Promise<boolean> {
     if (isLocked && startedAt) {
       const elapsed = now.getTime() - startedAt.getTime();
       if (elapsed < STALE_TICK_TIMEOUT_MS) {
-        // Lock is actively held and not stale → reject
-        return false;
+        return false; // Lock is legitimately held
       }
-      // Lock is stale → steal it
-      console.warn(
-        `[GameEngine] Stale tick lock detected (held for ${Math.round(elapsed / 1000)}s, timeout ${STALE_TICK_TIMEOUT_MS / 1000}s). Stealing lock.`
-      );
+      console.warn(`[GameEngine] Stale tick lock detected (held for ${Math.round(elapsed / 1000)}s). Stealing lock.`);
     } else if (isLocked) {
-      // Lock is held but no timestamp → treat as stale, steal it
       console.warn('[GameEngine] Tick lock held with no timestamp. Stealing lock.');
     }
 
     // Acquire the lock
     const nowISO = now.toISOString();
-
     await tx.gameState.upsert({
       where: { key: 'tickInProgress' },
       create: { key: 'tickInProgress', value: 'true' },
       update: { value: 'true' },
     });
-
     await tx.gameState.upsert({
       where: { key: 'tickStartedAt' },
       create: { key: 'tickStartedAt', value: nowISO },
       update: { value: nowISO },
     });
 
-    // Increment tickVersion atomically
+    // Increment tick version
     const versionState = await tx.gameState.findUnique({ where: { key: 'tickVersion' } });
     const currentVersion = parseInt(versionState?.value || '0', 10);
     await tx.gameState.upsert({
@@ -83,9 +104,6 @@ export async function acquireTickLock(): Promise<boolean> {
   });
 }
 
-/**
- * Release the tick lock by setting tickInProgress = "false".
- */
 export async function releaseTickLock(): Promise<void> {
   await db.gameState.upsert({
     where: { key: 'tickInProgress' },
@@ -94,15 +112,7 @@ export async function releaseTickLock(): Promise<void> {
   });
 }
 
-// ---- Net Worth Recalculation (Transaction-Safe) ----
-
-/**
- * Recalculate a player's net worth within a transaction context.
- * netWorth = playerCash + businessCash + inventoryValue - outstandingDebt
- *
- * @param tx - Prisma transaction client (or the db singleton)
- * @param playerId - The player whose net worth to recalculate
- */
+// ---- Net Worth Recalculation ----
 async function recalculateNetWorth(tx: PrismaTx, playerId: string): Promise<void> {
   const player = await tx.player.findUnique({
     where: { id: playerId },
@@ -123,12 +133,8 @@ async function recalculateNetWorth(tx: PrismaTx, playerId: string): Promise<void
     where: { business: { playerId } },
     select: { quantity: true, purchasePrice: true },
   });
-  const totalInventoryValue = allInventory.reduce(
-    (sum, inv) => sum + inv.quantity * inv.purchasePrice,
-    0
-  );
+  const totalInventoryValue = allInventory.reduce((sum, inv) => sum + inv.quantity * inv.purchasePrice, 0);
 
-  // Include outstanding loan debt
   const activeLoans = await tx.loan.findMany({
     where: { playerId, status: 'ACTIVE' },
     select: { remainingDebt: true },
@@ -136,19 +142,13 @@ async function recalculateNetWorth(tx: PrismaTx, playerId: string): Promise<void
   const outstandingDebt = activeLoans.reduce((sum, loan) => sum + loan.remainingDebt, 0);
 
   const netWorth = player.cash + totalBusinessCash + totalInventoryValue - outstandingDebt;
-
-  await tx.player.update({
-    where: { id: playerId },
-    data: { netWorth },
-  });
+  await tx.player.update({ where: { id: playerId }, data: { netWorth } });
 }
 
 // ---- Event Generation ----
-
 export async function generateEvent(): Promise<void> {
   const totalWeight = EVENT_TEMPLATES.reduce((sum, e) => sum + e.weight, 0);
   let random = Math.random() * totalWeight;
-
   let selected: EventTemplate | null = null;
   for (const event of EVENT_TEMPLATES) {
     random -= event.weight;
@@ -157,13 +157,10 @@ export async function generateEvent(): Promise<void> {
       break;
     }
   }
-
   if (!selected) selected = EVENT_TEMPLATES[0];
 
   const now = new Date();
-  // 1 game day = 1 real minute, so durationDays * 60 * 1000 ms
   const endAt = new Date(now.getTime() + selected.durationDays * 60 * 1000);
-
   await db.gameEvent.create({
     data: {
       title: selected.title,
@@ -177,25 +174,51 @@ export async function generateEvent(): Promise<void> {
   });
 }
 
-// ---- Market Price Updates (Batch) ----
-
+// ---- Market Price Updates (Phase 1: Retention-based) ----
+/**
+ * Phase 1 improvement: Market prices now use retention blending.
+ * Previous multiplier is retained (70%) and new random is blended (30%).
+ * Event effects are applied on top and persist across updates.
+ */
 export async function updateMarketPrices(): Promise<void> {
   const allProducts = Object.values(PRODUCTS).flat();
   const cities = CITIES.map(c => c.id);
 
-  // Generate all updates in memory
+  // Get active events for price modifiers
+  const activeEvents = await db.gameEvent.findMany({ where: { active: true } });
+  const categoryPriceMod: Record<string, number> = {};
+  let allPriceMod = 0;
+  for (const event of activeEvents) {
+    const effects = JSON.parse(event.effects) as Record<string, number>;
+    for (const [key, value] of Object.entries(effects)) {
+      if (key === 'all_price' || key === 'all_imported') allPriceMod += value;
+      if (key.endsWith('_price')) {
+        const cat = key.replace('_price', '');
+        categoryPriceMod[cat] = (categoryPriceMod[cat] || 0) + value;
+      }
+    }
+  }
+
   const updates: { productName: string; city: string; priceMultiplier: number; demandMultiplier: number }[] = [];
 
   for (const city of cities) {
     for (const product of allProducts) {
-      const priceFluctuation = 1 + (Math.random() - 0.5) * 0.1;
-      const demandFluctuation = 1 + (Math.random() - 0.5) * 0.1;
-      updates.push({
-        productName: product.name,
-        city,
-        priceMultiplier: priceFluctuation,
-        demandMultiplier: demandFluctuation,
+      // Get current market price (for retention)
+      const existing = await db.marketPrice.findUnique({
+        where: { productName_city: { productName: product.name, city } },
       });
+      const previousPriceMult = existing?.priceMultiplier ?? 1;
+
+      // Calculate event price modifier for this product
+      const eventPriceMod = allPriceMod + (categoryPriceMod[product.category] || 0);
+
+      // Use Phase 1 retention-based update
+      const { priceMultiplier, demandMultiplier } = calculateMarketPriceUpdate(
+        previousPriceMult,
+        eventPriceMod
+      );
+
+      updates.push({ productName: product.name, city, priceMultiplier, demandMultiplier });
     }
   }
 
@@ -205,127 +228,48 @@ export async function updateMarketPrices(): Promise<void> {
       await tx.marketPrice.upsert({
         where: { productName_city: { productName: upd.productName, city: upd.city } },
         create: upd,
-        update: { priceMultiplier: upd.priceMultiplier, demandMultiplier: upd.demandMultiplier, updatedAt: new Date() },
+        update: {
+          priceMultiplier: upd.priceMultiplier,
+          demandMultiplier: upd.demandMultiplier,
+          updatedAt: new Date(),
+        },
       });
     }
   });
 }
 
-// ---- Apply Event Effects to Market (Simplified) ----
-
+// ---- Apply Event Effects to Market (Phase 1: Integrated into updateMarketPrices) ----
+/**
+ * Phase 1: Event effects are now integrated into updateMarketPrices()
+ * via the retention-based formula. This function is kept for backward
+ * compatibility but delegates to the improved market update.
+ */
 export async function applyEventEffects(): Promise<void> {
-  const activeEvents = await db.gameEvent.findMany({ where: { active: true } });
-  if (activeEvents.length === 0) return;
-
-  // Collect all effect modifiers per category
-  const categoryPriceMod: Record<string, number> = {};
-  const categoryDemandMod: Record<string, number> = {};
-  let allPriceMod = 0;
-  let allDemandMod = 0;
-
-  for (const event of activeEvents) {
-    const effects = JSON.parse(event.effects) as Record<string, number>;
-    for (const [key, value] of Object.entries(effects)) {
-      if (key === 'all_price' || key === 'all_imported') allPriceMod += value;
-      if (key === 'all_demand') allDemandMod += value;
-      if (key.endsWith('_price')) {
-        const cat = key.replace('_price', '');
-        categoryPriceMod[cat] = (categoryPriceMod[cat] || 0) + value;
-      }
-      if (key.endsWith('_demand')) {
-        const cat = key.replace('_demand', '');
-        categoryDemandMod[cat] = (categoryDemandMod[cat] || 0) + value;
-      }
-    }
-  }
-
-  // Apply modifiers to market prices in batch
-  const allProducts = Object.values(PRODUCTS).flat();
-  const cities = CITIES.map(c => c.id);
-
-  await db.$transaction(async (tx) => {
-    for (const city of cities) {
-      for (const product of allProducts) {
-        let priceMod = allPriceMod + (categoryPriceMod[product.category] || 0);
-        let demandMod = allDemandMod + (categoryDemandMod[product.category] || 0);
-
-        // Product-specific effects (only if category doesn't already match)
-        if (categoryDemandMod['COLD_DRINKS'] && product.category !== 'COLD_DRINKS' && (product.name.includes('Cold') || product.name.includes('Drink') || product.name.includes('Soft'))) {
-          demandMod += categoryDemandMod['COLD_DRINKS'];
-        }
-        if (categoryDemandMod['WINTER_CLOTHING'] && product.category !== 'WINTER_CLOTHING' && product.name.includes('Winter')) {
-          demandMod += categoryDemandMod['WINTER_CLOTHING'];
-        }
-        if (categoryDemandMod['PREMIUM_MOBILE'] && product.category !== 'PREMIUM_MOBILE' && product.name.includes('Premium')) {
-          demandMod += categoryDemandMod['PREMIUM_MOBILE'];
-        }
-
-        if (priceMod !== 0 || demandMod !== 0) {
-          await tx.marketPrice.upsert({
-            where: { productName_city: { productName: product.name, city } },
-            create: { productName: product.name, city, priceMultiplier: 1 + priceMod, demandMultiplier: 1 + demandMod },
-            update: { priceMultiplier: { increment: priceMod * 0.05 }, demandMultiplier: { increment: demandMod * 0.05 }, updatedAt: new Date() },
-          });
-        }
-      }
-    }
-  });
+  // No-op: Event effects are now handled by the retention-based updateMarketPrices()
+  // This function is kept as a no-op to avoid breaking the tick flow.
 }
 
-// ---- Customer Calculation ----
+// ---- Business Simulation Tick (Phase 1: Economy Engine) ----
 
-function calculateCustomers(
-  businessType: NonNullable<ReturnType<typeof getBusinessType>>,
-  city: NonNullable<ReturnType<typeof getCity>>,
-  business: { reputation: number; level: number },
-  inventories: { quantity: number; productName: string; sellPrice: number; purchasePrice: number }[],
-  employeeCount: number,
-  eventEffects: Record<string, number>
-): number {
-  let customers = businessType.baseCustomers;
-
-  // City multiplier
-  customers *= city.customerMultiplier;
-
-  // Level bonus
-  customers *= 1 + (business.level - 1) * 0.15;
-
-  // Reputation multiplier (0-100 → 0.5-1.5)
-  const repMultiplier = 0.5 + (business.reputation / 100) * 1.0;
-  customers *= repMultiplier;
-
-  // Stock availability multiplier
-  const totalStock = inventories.reduce((sum, inv) => sum + inv.quantity, 0);
-  const maxPossibleStock = Math.max(inventories.length * 50, 1);
-  const stockRatio = Math.min(totalStock / maxPossibleStock, 1);
-  customers *= 0.3 + stockRatio * 0.7;
-
-  // Pricing check
-  if (inventories.length > 0) {
-    let highPriceCount = 0;
-    for (const inv of inventories) {
-      const markup = (inv.sellPrice - inv.purchasePrice) / Math.max(inv.purchasePrice, 1);
-      if (markup > 0.8) highPriceCount++;
-    }
-    customers *= 1 - (highPriceCount / inventories.length) * 0.2;
-  }
-
-  // Employee effect
-  customers *= 1 + employeeCount * 0.08;
-
-  // Event effects
-  const allCustomersEffect = eventEffects['all_customers'] || 0;
-  const businessDemandEffect = eventEffects[`${businessType.id}_demand`] || 0;
-  customers *= 1 + allCustomersEffect + businessDemandEffect;
-
-  // Random variation
-  customers *= 0.9 + Math.random() * 0.2;
-
-  return Math.max(0, Math.floor(customers));
-}
-
-// ---- Business Simulation Tick (Optimized) ----
-
+/**
+ * Phase 1 business simulation using the new Economy Engine.
+ *
+ * Flow:
+ * 1. Calculate potential customers (layered model)
+ * 2. For each inventory item:
+ *    a. Get product demand config
+ *    b. Calculate product demand (base + events + volatility)
+ *    c. Apply price sensitivity (sellPrice vs market price)
+ *    d. Calculate actual items sold (constrained by stock)
+ *    e. Calculate revenue, COGS, gross profit
+ * 3. Calculate expenses (rent + daily salaries + utilities + taxes)
+ * 4. Calculate net profit
+ * 5. Update reputation
+ * 6. Calculate business health score
+ * 7. Save daily metrics
+ * 8. Distribute profit to player cash (Phase 1 fix)
+ * 9. Recalculate net worth
+ */
 export async function simulateBusinessTick(businessId: string): Promise<void> {
   const business = await db.business.findUnique({
     where: { id: businessId },
@@ -342,8 +286,13 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   const city = getCity(business.city);
   if (!businessType || !city) return;
 
+  const economyConfig = getBusinessEconomyConfig(business.type);
+
   // Get active event effects (combined)
-  const activeEvents = await db.gameEvent.findMany({ where: { active: true }, select: { effects: true } });
+  const activeEvents = await db.gameEvent.findMany({
+    where: { active: true },
+    select: { effects: true },
+  });
   const combinedEffects: Record<string, number> = {};
   for (const event of activeEvents) {
     const effects = JSON.parse(event.effects) as Record<string, number>;
@@ -352,64 +301,153 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     }
   }
 
-  // Calculate customers
-  const customers = calculateCustomers(
-    businessType,
-    city,
-    business,
-    business.inventories,
-    business.employees.length,
-    combinedEffects
-  );
+  // Get market prices for this city
+  const marketPrices = await db.marketPrice.findMany({
+    where: { city: business.city },
+  });
+  const marketPriceMap: Record<string, { priceMultiplier: number; demandMultiplier: number }> = {};
+  for (const mp of marketPrices) {
+    marketPriceMap[mp.productName] = {
+      priceMultiplier: mp.priceMultiplier,
+      demandMultiplier: mp.demandMultiplier,
+    };
+  }
 
-  // Calculate revenue and consume inventory
+  // ---- Step 1: Calculate potential customers ----
+  const totalStock = business.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
+  // Max stock capacity: sum of product maxStock values for this business type
+  const productDefs = PRODUCTS[business.type] || [];
+  const maxStockCapacity = productDefs.reduce((sum, p) => sum + p.maxStock, 0);
+  const avgEmployeeSkill = business.employees.length > 0
+    ? business.employees.reduce((sum, e) => sum + e.skill, 0) / business.employees.length
+    : 0;
+
+  const potentialCustomers = calculatePotentialCustomers({
+    baseCustomers: businessType.baseCustomers,
+    cityMultiplier: city.customerMultiplier,
+    level: business.level,
+    reputation: business.reputation,
+    totalStock,
+    maxStockCapacity,
+    employeeCount: business.employees.length,
+    avgEmployeeSkill,
+    eventCustomerEffect: combinedEffects['all_customers'] || 0,
+    businessDemandEffect: combinedEffects[`${businessType.id}_demand`] || 0,
+    businessTypeId: business.type,
+  });
+
+  // ---- Step 2: Product-level sales simulation ----
   let totalRevenue = 0;
+  let totalCOGS = 0;
   const inventoryUpdates: { id: string; quantityDecrement: number }[] = [];
+  const salesResults: ProductSalesResult[] = [];
 
   for (const inventory of business.inventories) {
     if (inventory.quantity <= 0) continue;
 
-    const productDef = Object.values(PRODUCTS).flat().find(p => p.name === inventory.productName);
+    const productDef = productDefs.find(p => p.name === inventory.productName);
     if (!productDef) continue;
 
-    // Market demand from events
-    const eventDemand = combinedEffects[`${productDef.category}_demand`] || 0;
-    const itemDemand = customers * productDef.baseDemand * (1 + eventDemand);
-    const itemsToSell = Math.min(Math.floor(itemDemand), inventory.quantity);
+    // Product demand config
+    const prodDemandConfig = getProductDemandConfig(inventory.productName);
 
-    if (itemsToSell > 0) {
-      totalRevenue += itemsToSell * inventory.sellPrice;
-      inventoryUpdates.push({ id: inventory.id, quantityDecrement: itemsToSell });
+    // Market reference price = typical retail price (basePrice × (1 + suggestedMarkup) × priceMultiplier)
+    // This represents what the MARKET typically charges, not the wholesale cost.
+    // Players compare their price to market retail price, not to their own cost.
+    const mp = marketPriceMap[inventory.productName];
+    const typicalRetailPrice = productDef.basePrice * (1 + productDef.suggestedMarkup);
+    const marketReferencePrice = Math.round(
+      typicalRetailPrice * (mp?.priceMultiplier || 1)
+    );
+
+    // Market demand multiplier from events
+    const demandMult = mp?.demandMultiplier || 1;
+
+    // Event demand effect for this product's category
+    const eventDemandEffect = combinedEffects[`${productDef.category}_demand`] || 0;
+
+    // Run the complete sales pipeline
+    const salesResult = simulateProductSales({
+      inventoryId: inventory.id,
+      productName: inventory.productName,
+      quantity: inventory.quantity,
+      purchasePrice: inventory.purchasePrice,
+      sellPrice: inventory.sellPrice,
+      marketReferencePrice,
+      baseDemand: prodDemandConfig.baseDemand,
+      demandMultiplier: demandMult,
+      eventDemandEffect,
+      productPriceSensitivity: prodDemandConfig.priceSensitivity,
+      productVolatility: prodDemandConfig.volatility,
+      businessPriceSensitivity: economyConfig.priceSensitivity,
+      potentialCustomers,
+    });
+
+    if (salesResult.itemsSold > 0) {
+      totalRevenue += salesResult.revenue;
+      totalCOGS += salesResult.costOfGoodsSold;
+      inventoryUpdates.push({
+        id: inventory.id,
+        quantityDecrement: salesResult.itemsSold,
+      });
     }
+
+    salesResults.push(salesResult);
   }
 
-  // Calculate expenses
-  const rent = businessType.rent * Math.pow(GAME_CONFIG.baseRentPerLevel, business.level - 1);
-  const totalSalaries = business.employees.reduce((sum, emp) => sum + emp.salary, 0);
-  const utilities = GAME_CONFIG.utilityCost * business.level;
-  const taxes = totalRevenue * GAME_CONFIG.taxRate;
-  const totalExpense = rent + totalSalaries + utilities + taxes;
-  const dailyProfit = totalRevenue - totalExpense;
+  // ---- Step 3: Calculate expenses ----
+  const totalMonthlySalaries = business.employees.reduce((sum, emp) => sum + emp.salary, 0);
+  const grossProfit = totalRevenue - totalCOGS;
 
-  // Calculate reputation change
-  let reputationChange = 0;
-  const outOfStockCount = business.inventories.filter(inv => inv.quantity <= 0).length;
-  if (outOfStockCount > 0 && business.inventories.length > 0) {
-    reputationChange -= GAME_CONFIG.reputationLossStockout * (outOfStockCount / business.inventories.length);
-  }
-  if (dailyProfit > 0) reputationChange += GAME_CONFIG.reputationGainService * 0.3;
+  const expenses = calculateBusinessExpenses({
+    baseRent: businessType.rent,
+    level: business.level,
+    cityRentMultiplier: city.rentMultiplier,
+    totalMonthlySalaries,
+    businessLevel: business.level,
+    businessTypeId: business.type,
+    revenue: totalRevenue,
+    grossProfit,
+  });
+
+  // ---- Step 4: Calculate net profit ----
+  const dailyProfit = calculateNetProfit(totalRevenue, totalCOGS, expenses.totalExpense);
+
+  // ---- Step 5: Calculate reputation change ----
+  const outOfStockRatio = business.inventories.length > 0
+    ? business.inventories.filter(inv => inv.quantity <= 0).length / business.inventories.length
+    : 0;
   const managers = business.employees.filter(e => e.role === 'MANAGER');
   const cleaners = business.employees.filter(e => e.role === 'CLEANER');
-  reputationChange += managers.reduce((sum, m) => sum + m.skill * 0.1, 0);
-  reputationChange += cleaners.reduce((sum, c) => sum + c.skill * 0.05, 0);
-  reputationChange -= GAME_CONFIG.reputationDecay * 0.2;
+
+  const reputationChange = calculateReputationChange({
+    dailyProfit,
+    outOfStockRatio,
+    managers: managers.map(m => ({ skill: m.skill })),
+    cleaners: cleaners.map(c => ({ skill: c.skill })),
+  });
 
   const newReputation = Math.max(
-    GAME_CONFIG.minReputation,
-    Math.min(GAME_CONFIG.maxReputation, business.reputation + reputationChange)
+    ECONOMY_CONFIG.minReputation,
+    Math.min(ECONOMY_CONFIG.maxReputation, business.reputation + reputationChange)
   );
 
-  // Execute all updates AND net worth recalculation in a single transaction
+  // ---- Step 6: Calculate business health score ----
+  const healthResult = calculateBusinessHealth({
+    dailyProfit,
+    dailyRevenue: totalRevenue,
+    businessCash: business.cash + dailyProfit,
+    totalStock,
+    maxStockCapacity,
+    reputation: newReputation,
+    businessTypeId: business.type,
+  });
+
+  // ---- Step 7: Get game day for metrics ----
+  const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
+  const gameDay = parseInt(gameDayState?.value || '1', 10);
+
+  // ---- Step 8: Execute all updates in a single transaction ----
   await db.$transaction(async (tx) => {
     // Update inventory quantities
     for (const upd of inventoryUpdates) {
@@ -419,32 +457,70 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       });
     }
 
+    // Phase 1 FIX: Distribute business profit to player cash
+    // Previously, profit accumulated in business.cash but was never accessible.
+    // Now: business profit is transferred to the player each tick.
+    const profitToDistribute = dailyProfit;
+
     // Update business
     await tx.business.update({
       where: { id: business.id },
       data: {
-        dailyRevenue: totalRevenue,
-        dailyExpense: totalExpense,
-        dailyProfit,
-        cash: business.cash + dailyProfit,
-        totalRevenue: business.totalRevenue + totalRevenue,
-        totalProfit: business.totalProfit + dailyProfit,
+        dailyRevenue: roundTaka(totalRevenue),
+        dailyExpense: roundTaka(expenses.totalExpense),
+        dailyProfit: roundTaka(dailyProfit),
+        dailyCOGS: roundTaka(totalCOGS),
+        dailyCustomers: potentialCustomers,
+        cash: business.cash + roundTaka(dailyProfit),
+        totalRevenue: business.totalRevenue + roundTaka(totalRevenue),
+        totalProfit: business.totalProfit + roundTaka(dailyProfit),
+        reputation: newReputation,
+        healthScore: healthResult.score,
+      },
+    });
+
+    // Distribute profit to player cash
+    await tx.player.update({
+      where: { id: business.playerId },
+      data: { cash: { increment: roundTaka(profitToDistribute) } },
+    });
+
+    // Save daily metrics for analytics
+    await tx.businessMetric.upsert({
+      where: { businessId_gameDay: { businessId: business.id, gameDay } },
+      create: {
+        businessId: business.id,
+        gameDay,
+        revenue: roundTaka(totalRevenue),
+        expenses: roundTaka(expenses.totalExpense),
+        profit: roundTaka(dailyProfit),
+        cogs: roundTaka(totalCOGS),
+        customers: potentialCustomers,
+        reputation: newReputation,
+      },
+      update: {
+        revenue: roundTaka(totalRevenue),
+        expenses: roundTaka(expenses.totalExpense),
+        profit: roundTaka(dailyProfit),
+        cogs: roundTaka(totalCOGS),
+        customers: potentialCustomers,
         reputation: newReputation,
       },
     });
 
     // Log
+    const cogsStr = totalCOGS > 0 ? ` | COGS ৳${roundTaka(totalCOGS).toLocaleString()}` : '';
     await tx.gameLog.create({
       data: {
         playerId: business.playerId,
         businessId: business.id,
         type: dailyProfit >= 0 ? 'PROFIT' : 'LOSS',
-        message: `${business.name}: Rev ৳${totalRevenue.toLocaleString()} | Exp ৳${totalExpense.toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(dailyProfit).toLocaleString()} | ${customers} customers`,
+        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(expenses.totalExpense).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score}`,
         amount: dailyProfit,
       },
     });
 
-    // Recalculate net worth within the same transaction (includes debt)
+    // Recalculate net worth within the same transaction
     await recalculateNetWorth(tx, business.playerId);
   });
 }
@@ -460,19 +536,20 @@ async function processLoanPayments(): Promise<void> {
 
   for (const loan of activeLoans) {
     const payment = loan.dailyPayment;
-
     const isPaidOff = loan.daysRemaining - 1 <= 0;
     const actualPayment = isPaidOff ? loan.remainingDebt : payment;
 
     await db.$transaction(async (tx) => {
-      // Deduct payment from player cash
-      const player = await tx.player.findUnique({ where: { id: loan.playerId }, select: { cash: true } });
+      const player = await tx.player.findUnique({
+        where: { id: loan.playerId },
+        select: { cash: true },
+      });
       if (!player) {
         console.error(`[GameEngine] processLoanPayments: Player ${loan.playerId} not found for loan ${loan.id}`);
         return;
       }
 
-      const deductAmount = Math.min(actualPayment, player.cash);
+      const deductAmount = Math.min(actualPayment, Math.max(0, player.cash));
       const newRemainingDebt = Math.max(loan.remainingDebt - deductAmount, 0);
 
       await tx.loan.update({
@@ -508,7 +585,6 @@ async function processLoanPayments(): Promise<void> {
 export async function gameTick(): Promise<void> {
   // NOTE: The tick lock is managed by the API route handler.
   // gameTick() is the pure simulation function and does NOT acquire/release the lock.
-  // This prevents double-acquisition bugs when the API route wraps gameTick() with locking.
 
   // Log tick start
   await db.gameLog.create({
@@ -518,9 +594,7 @@ export async function gameTick(): Promise<void> {
     },
   });
 
-  // 0. Game state housekeeping in a single transaction:
-  //    - Expire old events
-  //    - Update game day / tick count / lastTick
+  // 0. Game state housekeeping
   const tickState = await db.gameState.findUnique({ where: { key: 'tickCount' } });
   const tickNum = parseInt(tickState?.value || '0');
 
@@ -531,7 +605,7 @@ export async function gameTick(): Promise<void> {
       data: { active: false },
     });
 
-    // Update game state (tick count, last tick, game day)
+    // Update game state
     const now = new Date().toISOString();
     await tx.gameState.upsert({
       where: { key: 'lastTick' },
@@ -551,8 +625,7 @@ export async function gameTick(): Promise<void> {
     });
   });
 
-  // Generate new events (20% chance) — outside the housekeeping tx
-  // because it involves a create which is independent
+  // Generate new events (20% chance)
   if (Math.random() < 0.2) {
     try {
       await generateEvent();
@@ -561,18 +634,15 @@ export async function gameTick(): Promise<void> {
     }
   }
 
-  // Update market prices (only every 3 ticks to save performance)
+  // Update market prices (every 3 ticks)
+  // Phase 1: This now uses retention-based updates with event effects integrated
   if (tickNum % 3 === 0) {
     try {
       await updateMarketPrices();
     } catch (err) {
       console.error('[GameEngine] Failed to update market prices:', err);
     }
-    try {
-      await applyEventEffects();
-    } catch (err) {
-      console.error('[GameEngine] Failed to apply event effects:', err);
-    }
+    // applyEventEffects() is now a no-op — events handled in updateMarketPrices()
   }
 
   // 1. Simulate all businesses
@@ -585,7 +655,7 @@ export async function gameTick(): Promise<void> {
     }
   }
 
-  // 2. Process loan payments — errors now propagate with proper logging
+  // 2. Process loan payments
   try {
     await processLoanPayments();
   } catch (err) {
@@ -662,7 +732,11 @@ async function generateNews(): Promise<void> {
   // Keep only last 50 news articles
   const totalNews = await db.newsArticle.count();
   if (totalNews > 50) {
-    const oldNews = await db.newsArticle.findMany({ orderBy: { createdAt: 'asc' }, take: totalNews - 50, select: { id: true } });
+    const oldNews = await db.newsArticle.findMany({
+      orderBy: { createdAt: 'asc' },
+      take: totalNews - 50,
+      select: { id: true },
+    });
     const ids = oldNews.map(n => n.id);
     await db.newsArticle.deleteMany({ where: { id: { in: ids } } });
   }
@@ -676,7 +750,13 @@ export async function seedInitialData(): Promise<void> {
   for (const product of allProducts) {
     await db.product.upsert({
       where: { name: product.name },
-      create: { name: product.name, category: product.category, basePrice: product.basePrice, baseDemand: product.baseDemand, icon: product.icon },
+      create: {
+        name: product.name,
+        category: product.category,
+        basePrice: product.basePrice,
+        baseDemand: product.baseDemand,
+        icon: product.icon,
+      },
       update: {},
     });
   }
@@ -697,7 +777,6 @@ export async function seedInitialData(): Promise<void> {
   await db.gameState.upsert({ where: { key: 'lastTick' }, create: { key: 'lastTick', value: new Date().toISOString() }, update: {} });
   await db.gameState.upsert({ where: { key: 'tickCount' }, create: { key: 'tickCount', value: '0' }, update: {} });
   await db.gameState.upsert({ where: { key: 'gameDay' }, create: { key: 'gameDay', value: '1' }, update: {} });
-  // Initialize tick lock state
   await db.gameState.upsert({ where: { key: 'tickInProgress' }, create: { key: 'tickInProgress', value: 'false' }, update: {} });
   await db.gameState.upsert({ where: { key: 'tickVersion' }, create: { key: 'tickVersion', value: '0' }, update: {} });
 
@@ -741,7 +820,10 @@ export async function seedAIPlayers(): Promise<void> {
   }
 
   // Create some AI businesses
-  const aiPlayers = await db.player.findMany({ where: { email: { contains: 'ai-' } }, select: { id: true } });
+  const aiPlayers = await db.player.findMany({
+    where: { email: { contains: 'ai-' } },
+    select: { id: true },
+  });
   for (const player of aiPlayers) {
     const numBusinesses = Math.floor(Math.random() * 3) + 1;
     const usedTypes = new Set<string>();
@@ -774,7 +856,10 @@ export async function seedAIPlayers(): Promise<void> {
 }
 
 // ---- Generate AI Business Activity ----
-
+/**
+ * Phase 1: AI players now have a slight negative bias (centered at -0.05)
+ * and reduced range to be more balanced with real players.
+ */
 export async function simulateAITick(): Promise<void> {
   const aiPlayers = await db.player.findMany({
     where: { email: { contains: 'ai-' } },
@@ -785,7 +870,8 @@ export async function simulateAITick(): Promise<void> {
 
   await db.$transaction(async (tx) => {
     for (const player of aiPlayers) {
-      const profitChange = (Math.random() - 0.4) * 20000;
+      // Phase 1: Slight negative bias, reduced range
+      const profitChange = (Math.random() + ECONOMY_CONFIG.aiProfitCenter) * ECONOMY_CONFIG.aiProfitRange;
       await tx.player.update({
         where: { id: player.id },
         data: {

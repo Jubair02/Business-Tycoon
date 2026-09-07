@@ -15,8 +15,9 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3, Lightbulb, Sparkles } from 'lucide-react';
+import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3, Lightbulb, Sparkles, Activity, DollarSign, Clock, Target } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const BUSINESS_COLORS: Record<string, string> = {
   TEA_STALL: 'bg-amber-100 border-amber-300 text-amber-800',
@@ -52,6 +53,8 @@ export default function BusinessDetail() {
   const [pricingAdvice, setPricingAdvice] = useState<any>(null);
   const [loadingPricing, setLoadingPricing] = useState(false);
   const [showPricingPanel, setShowPricingPanel] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const fetchBusiness = useCallback(async () => {
     if (!currentBusiness?.id) return;
@@ -103,6 +106,22 @@ export default function BusinessDetail() {
     }
   }, [currentBusiness?.id]);
 
+  const fetchAnalytics = useCallback(async () => {
+    if (!currentBusiness?.id) return;
+    setAnalyticsLoading(true);
+    try {
+      const res = await fetch(`/api/businesses/${currentBusiness.id}/analytics`);
+      if (res.ok) {
+        const data = await res.json();
+        setAnalyticsData(data.data || data);
+      }
+    } catch {
+      // silent
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [currentBusiness?.id]);
+
   const handleFetchPricingAdvice = async () => {
     if (!currentBusiness?.id) return;
     setLoadingPricing(true);
@@ -147,8 +166,9 @@ export default function BusinessDetail() {
       fetchBusiness();
       fetchMarketProducts();
       fetchLogs();
+      fetchAnalytics();
     }
-  }, [currentBusiness?.id, fetchBusiness, fetchMarketProducts, fetchLogs]);
+  }, [currentBusiness?.id, fetchBusiness, fetchMarketProducts, fetchLogs, fetchAnalytics]);
 
   if (!currentBusiness) {
     return (
@@ -364,14 +384,30 @@ export default function BusinessDetail() {
                 </div>
               </div>
             </div>
-            <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {analyticsData?.health && (
+                <Badge
+                  className={`text-[10px] font-bold ${
+                    analyticsData.health.score >= 80 ? 'bg-green-600 text-white' :
+                    analyticsData.health.score >= 60 ? 'bg-emerald-600 text-white' :
+                    analyticsData.health.score >= 40 ? 'bg-amber-500 text-white' :
+                    analyticsData.health.score >= 20 ? 'bg-orange-500 text-white' :
+                    'bg-red-600 text-white'
+                  }`}
+                >
+                  <Activity className="h-3 w-3 mr-0.5" />{analyticsData.health.score}
+                </Badge>
+              )}
+              <Badge className="text-[10px] shrink-0 text-white font-bold" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>Lv.{currentBusiness.level}</Badge>
+            </div>
           </div>
         </div>
         {/* Tabs inside the sticky block */}
         <div className="px-3 md:px-4 pt-2">
-          <TabsList className="w-full grid grid-cols-5">
+          <TabsList className="w-full grid grid-cols-6">
             <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
+            <TabsTrigger value="analytics" className="text-xs">Analytics</TabsTrigger>
             <TabsTrigger value="employees" className="text-xs">Staff</TabsTrigger>
             <TabsTrigger value="logs" className="text-xs">Log</TabsTrigger>
             <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
@@ -650,7 +686,15 @@ export default function BusinessDetail() {
                           <div className="text-sm font-medium truncate">{inv.productName}</div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getDemandColor(mp?.currentDemand || 1)}`}>
-                              {getDemandLabel(mp?.currentDemand || 1)} demand
+                              {(() => {
+                                const di = analyticsData?.demandIndicators?.[inv.productName];
+                                if (di) {
+                                  const icon = di.level === 'VERY_HIGH' ? '🔥' : di.level === 'HIGH' ? '📈' : di.level === 'NORMAL' ? '➡️' : di.level === 'LOW' ? '📉' : '❄️';
+                                  const label = di.level === 'VERY_HIGH' ? 'Very High' : di.level === 'HIGH' ? 'High' : di.level === 'NORMAL' ? 'Normal' : di.level === 'LOW' ? 'Low' : 'Very Low';
+                                  return `${icon} ${label}`;
+                                }
+                                return `${getDemandLabel(mp?.currentDemand || 1)} demand`;
+                              })()}
                             </span>
                             <span className="text-[10px] text-muted-foreground">Stock: {inv.quantity || 0}</span>
                           </div>
@@ -752,6 +796,327 @@ export default function BusinessDetail() {
                     </CardContent>
                   </Card>
                 </motion.div>
+              )}
+            </div>
+          </TabsContent>
+
+          {/* ====== ANALYTICS TAB ====== */}
+          <TabsContent value="analytics">
+            <div className="space-y-4">
+              {analyticsLoading && !analyticsData ? (
+                <div className="space-y-3">
+                  {[...Array(4)].map((_, i) => (
+                    <Card key={i}><CardContent className="p-4"><Skeleton className="h-20 w-full" /></CardContent></Card>
+                  ))}
+                </div>
+              ) : !analyticsData ? (
+                <Card className="border-dashed">
+                  <CardContent className="py-8 text-center">
+                    <Activity className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No analytics data available yet.</p>
+                    <Button size="sm" variant="outline" className="mt-2 text-xs" onClick={fetchAnalytics}>Load Analytics</Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  {/* ---- Health Score ---- */}
+                  <Card className={`border-2 ${
+                    analyticsData.health?.score >= 80 ? 'border-green-400 bg-gradient-to-br from-green-50/60 to-white' :
+                    analyticsData.health?.score >= 60 ? 'border-emerald-400 bg-gradient-to-br from-emerald-50/60 to-white' :
+                    analyticsData.health?.score >= 40 ? 'border-amber-400 bg-gradient-to-br from-amber-50/60 to-white' :
+                    analyticsData.health?.score >= 20 ? 'border-orange-400 bg-gradient-to-br from-orange-50/60 to-white' :
+                    'border-red-400 bg-gradient-to-br from-red-50/60 to-white'
+                  }`}>
+                    <CardHeader className="pb-2 pt-4 px-4">
+                      <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+                        <Activity className="h-4 w-4" /> Business Health Score
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4">
+                      <div className="flex items-center gap-4">
+                        <div className={`text-4xl font-bold ${
+                          analyticsData.health?.score >= 80 ? 'text-green-600' :
+                          analyticsData.health?.score >= 60 ? 'text-emerald-600' :
+                          analyticsData.health?.score >= 40 ? 'text-amber-600' :
+                          analyticsData.health?.score >= 20 ? 'text-orange-600' :
+                          'text-red-600'
+                        }`}>
+                          {analyticsData.health?.score ?? 0}
+                        </div>
+                        <div className="flex-1">
+                          <Progress
+                            value={analyticsData.health?.score ?? 0}
+                            className="h-3"
+                          />
+                          <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground">
+                            <span>Critical</span><span>Struggling</span><span>Attention</span><span>Healthy</span><span>Excellent</span>
+                          </div>
+                          <Badge className={`mt-2 text-[10px] ${
+                            analyticsData.health?.score >= 80 ? 'bg-green-600' :
+                            analyticsData.health?.score >= 60 ? 'bg-emerald-600' :
+                            analyticsData.health?.score >= 40 ? 'bg-amber-500' :
+                            analyticsData.health?.score >= 20 ? 'bg-orange-500' :
+                            'bg-red-600'
+                          } text-white`}>
+                            {analyticsData.health?.status?.replace('_', ' ') || 'Unknown'}
+                          </Badge>
+                        </div>
+                      </div>
+                      {/* Factors */}
+                      {analyticsData.health && (
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          {analyticsData.health.positiveFactors?.length > 0 && (
+                            <div className="space-y-1">
+                              <div className="text-[10px] font-medium text-green-700 uppercase" style={{ letterSpacing: '0.05em' }}>✅ Strengths</div>
+                              {analyticsData.health.positiveFactors.map((f: string, i: number) => (
+                                <div key={i} className="text-[11px] text-muted-foreground">• {f}</div>
+                              ))}
+                            </div>
+                          )}
+                          {analyticsData.health.negativeFactors?.length > 0 && (
+                            <div className="space-y-1">
+                              <div className="text-[10px] font-medium text-red-700 uppercase" style={{ letterSpacing: '0.05em' }}>⚠️ Risks</div>
+                              {analyticsData.health.negativeFactors.map((f: string, i: number) => (
+                                <div key={i} className="text-[11px] text-muted-foreground">• {f}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* ---- Financial Breakdown ---- */}
+                  <Card className="game-gradient-card game-shine">
+                    <CardHeader className="pb-2 pt-4 px-4">
+                      <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+                        <DollarSign className="h-4 w-4" /> Financial Breakdown
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4 space-y-2">
+                      {(() => {
+                        const fb = analyticsData.financialBreakdown;
+                        if (!fb) return <div className="text-xs text-muted-foreground">No breakdown data</div>;
+                        return (
+                          <>
+                            <div className="flex items-center justify-between text-sm">
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4 text-green-600" />
+                                <span className="text-muted-foreground">Revenue</span>
+                              </div>
+                              <span className="font-medium text-green-600">+{formatTakaShort(fb.revenue)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <div className="flex items-center gap-2">
+                                <TrendingDown className="h-4 w-4 text-red-400" />
+                                <span className="text-muted-foreground">COGS</span>
+                              </div>
+                              <span className="font-medium text-red-500">-{formatTakaShort(fb.costOfGoodsSold)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground pl-6">Gross Profit</span>
+                              <span className={`font-medium ${fb.grossProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                {fb.grossProfit >= 0 ? '+' : ''}{formatTakaShort(fb.grossProfit)}
+                              </span>
+                            </div>
+                            <Separator />
+                            {(fb.salaries > 0 || fb.rent > 0 || fb.utilities > 0 || fb.taxes > 0) && (
+                              <>
+                                {fb.rent > 0 && (
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">Rent</span>
+                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.rent)}</span>
+                                  </div>
+                                )}
+                                {fb.salaries > 0 && (
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">Salaries</span>
+                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.salaries)}</span>
+                                  </div>
+                                )}
+                                {fb.utilities > 0 && (
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">Utilities</span>
+                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.utilities)}</span>
+                                  </div>
+                                )}
+                                {fb.taxes > 0 && (
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">Taxes</span>
+                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.taxes)}</span>
+                                  </div>
+                                )}
+                                <Separator />
+                              </>
+                            )}
+                            <div className="flex items-center justify-between text-sm font-bold">
+                              <span>Net Profit</span>
+                              <span className={fb.netProfit >= 0 ? 'text-green-600' : 'text-red-500'}>
+                                {fb.netProfit >= 0 ? '+' : ''}{formatTakaShort(fb.netProfit)}
+                              </span>
+                            </div>
+                            {fb.customers > 0 && (
+                              <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+                                <span>Customers today</span>
+                                <span className="font-medium">{fb.customers}</span>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+
+                  {/* ---- ROI & Payback ---- */}
+                  {analyticsData.roi && (
+                    <Card className="game-shine">
+                      <CardHeader className="pb-2 pt-4 px-4">
+                        <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+                          <Target className="h-4 w-4" /> ROI &amp; Payback
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Total Investment</div>
+                            <div className="text-sm font-bold mt-0.5">{formatTakaShort(analyticsData.roi.investment)}</div>
+                          </div>
+                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Cumulative Profit</div>
+                            <div className={`text-sm font-bold mt-0.5 ${(analyticsData.roi.cumulativeProfit || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                              {formatTakaShort(analyticsData.roi.cumulativeProfit)}
+                            </div>
+                          </div>
+                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>ROI</div>
+                            <div className={`text-sm font-bold mt-0.5 ${(analyticsData.roi.roiPercentage || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                              {(analyticsData.roi.roiPercentage || 0).toFixed(1)}%
+                            </div>
+                          </div>
+                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Payback</div>
+                            <div className="text-sm font-bold mt-0.5 flex items-center justify-center gap-1">
+                              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                              {analyticsData.roi.estimatedPaybackDays != null
+                                ? `${analyticsData.roi.estimatedPaybackDays} days`
+                                : '∞'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-3 text-center">
+                          <div className="text-[10px] text-muted-foreground">Avg. Daily Profit</div>
+                          <div className={`text-base font-bold ${(analyticsData.roi.averageDailyProfit || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                            {formatTaka(analyticsData.roi.averageDailyProfit || 0)}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* ---- Product Performance ---- */}
+                  {analyticsData.productPerformance?.length > 0 && (
+                    <Card className="game-shine">
+                      <CardHeader className="pb-2 pt-4 px-4">
+                        <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+                          <ShoppingCart className="h-4 w-4" /> Product Performance
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-4">
+                        <div className="space-y-2">
+                          {analyticsData.productPerformance.map((pp: any, i: number) => {
+                            const demandIcon = pp.demandScore === 'VERY_HIGH' ? '🔥' : pp.demandScore === 'HIGH' ? '📈' : pp.demandScore === 'NORMAL' ? '➡️' : pp.demandScore === 'LOW' ? '📉' : '❄️';
+                            const demandLabel = pp.demandScore === 'VERY_HIGH' ? 'Very High' : pp.demandScore === 'HIGH' ? 'High' : pp.demandScore === 'NORMAL' ? 'Normal' : pp.demandScore === 'LOW' ? 'Low' : 'Very Low';
+                            const demandColor = pp.demandScore === 'VERY_HIGH' || pp.demandScore === 'HIGH' ? 'text-green-600' : pp.demandScore === 'NORMAL' ? 'text-amber-600' : 'text-red-500';
+                            return (
+                              <div key={i} className="flex items-center gap-2.5 p-2.5 rounded-lg border bg-muted/20">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-sm font-medium truncate">{pp.productName}</span>
+                                    <span className={`text-[10px] ${demandColor}`}>{demandIcon} {demandLabel}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+                                    <span>Stock: {pp.remainingStock}</span>
+                                    <span>Margin: {(pp.profitMargin * 100).toFixed(0)}%</span>
+                                    {pp.priceScore > 0 && <span>Price Score: {(pp.priceScore * 100).toFixed(0)}%</span>}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* ---- Performance History Chart (Recharts) ---- */}
+                  <Card className="game-shine">
+                    <CardHeader className="pb-2 pt-4 px-4">
+                      <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+                        <BarChart3 className="h-4 w-4" /> Performance History
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4">
+                      {analyticsData.history?.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <LineChart data={analyticsData.history} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis
+                              dataKey="gameDay"
+                              tick={{ fontSize: 10, fill: '#9ca3af' }}
+                              tickFormatter={(v: number) => `D${v}`}
+                            />
+                            <YAxis
+                              tick={{ fontSize: 10, fill: '#9ca3af' }}
+                              tickFormatter={(v: number) => {
+                                if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(0)}k`;
+                                return String(v);
+                              }}
+                            />
+                            <Tooltip
+                              contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                              formatter={(value: number, name: string) => [formatTakaShort(value), name.charAt(0).toUpperCase() + name.slice(1)]}
+                              labelFormatter={(label: number) => `Day ${label}`}
+                            />
+                            <Legend
+                              wrapperStyle={{ fontSize: 10 }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="revenue"
+                              stroke="#16a34a"
+                              strokeWidth={2}
+                              dot={false}
+                              name="revenue"
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="expenses"
+                              stroke="#f59e0b"
+                              strokeWidth={2}
+                              dot={false}
+                              name="expenses"
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="profit"
+                              stroke="#006a4e"
+                              strokeWidth={2}
+                              dot={false}
+                              name="profit"
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-32 flex items-center justify-center">
+                          <div className="text-center">
+                            <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+                            <p className="text-xs text-muted-foreground">No history yet. Advance days to generate data.</p>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
               )}
             </div>
           </TabsContent>
