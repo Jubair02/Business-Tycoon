@@ -1,0 +1,840 @@
+     1→// ============================================
+     2→// Bangladesh Business Tycoon - AI System Tests
+     3→// Phase 2: Comprehensive tests for all AI components
+     4→// ============================================
+     5→
+     6→import { describe, it, expect } from 'vitest';
+     7→import {
+     8→  PERSONALITY_CONFIGS,
+     9→  calculateAIPrice,
+    10→  selectPricingStrategy,
+    11→  randomPersonality,
+    12→  getPersonalityConfig,
+    13→  ALL_PERSONALITIES,
+    14→} from '@/lib/game/ai/ai-strategy';
+    15→import { evaluateActions, selectBestAction } from '@/lib/game/ai/ai-evaluation';
+    16→import type {
+    17→  AIDecisionContext,
+    18→  AIPersonality,
+    19→  AIAction,
+    20→  AIPricingStrategy,
+    21→  ScoredAction,
+    22→  PersonalityConfig,
+    23→  AIBusinessSnapshot,
+    24→  AIInventorySnapshot,
+    25→} from '@/lib/game/ai/types';
+    26→
+    27→// ============================================
+    28→// Helper: Create a minimal valid AIDecisionContext
+    29→// ============================================
+    30→
+    31→function makeContext(overrides: Partial<AIDecisionContext> = {}): AIDecisionContext {
+    32→  return {
+    33→    playerId: 'test-ai-1',
+    34→    personality: 'BALANCED',
+    35→    cash: 500000,
+    36→    netWorth: 1000000,
+    37→    gameDay: 100,
+    38→    lastActionAt: 90, // 10 days since last action (well past any cooldown)
+    39→    businesses: [],
+    40→    activeLoans: [],
+    41→    activeEvents: [],
+    42→    marketPrices: {},
+    43→    ...overrides,
+    44→  };
+    45→}
+    46→
+    47→function makeBusiness(overrides: Partial<AIBusinessSnapshot> = {}): AIBusinessSnapshot {
+    48→  return {
+    49→    id: 'biz-1',
+    50→    type: 'TEA_STALL',
+    51→    city: 'DHAKA',
+    52→    name: 'Test Tea Stall',
+    53→    level: 1,
+    54→    reputation: 50,
+    55→    cash: 50000,
+    56→    dailyRevenue: 10000,
+    57→    dailyExpense: 5000,
+    58→    dailyProfit: 5000,
+    59→    totalProfit: 50000,
+    60→    healthScore: 70,
+    61→    inventories: [],
+    62→    employeeCount: 1,
+    63→    ...overrides,
+    64→  };
+    65→}
+    66→
+    67→function makeInventory(overrides: Partial<AIInventorySnapshot> = {}): AIInventorySnapshot {
+    68→  return {
+    69→    id: 'inv-1',
+    70→    productName: 'Tea (Cha)',
+    71→    quantity: 50,
+    72→    maxStock: 200,
+    73→    purchasePrice: 5,
+    74→    sellPrice: 8,
+    75→    ...overrides,
+    76→  };
+    77→}
+    78→
+    79→// ============================================
+    80→// 1. AI Strategy Tests
+    81→// ============================================
+    82→
+    83→describe('AI Strategy - PERSONALITY_CONFIGS', () => {
+    84→  const requiredFields: (keyof PersonalityConfig)[] = [
+    85→    'name', 'icon', 'cashReserveRatio', 'loanWillingness', 'defaultPricingStrategy',
+    86→    'upgradeEagerness', 'expansionEagerness', 'inventoryBuyThreshold',
+    87→    'actionCooldownDays', 'riskTolerance', 'priceAdjustFrequency',
+    88→    'hiringPreference', 'eventReactivity',
+    89→  ];
+    90→
+    91→  const personalities: AIPersonality[] = ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'TRADER', 'EXPANSIONIST'];
+    92→
+    93→  it('each personality has a valid config with all required fields', () => {
+    94→    for (const p of personalities) {
+    95→      const config = PERSONALITY_CONFIGS[p];
+    96→      expect(config).toBeDefined();
+    97→      for (const field of requiredFields) {
+    98→        expect(config[field]).toBeDefined();
+    99→        expect(config[field]).not.toBeNull();
+   100→      }
+   101→    }
+   102→  });
+   103→
+   104→  it('CONSERVATIVE has highest cashReserveRatio', () => {
+   105→    const ratios = personalities.map(p => PERSONALITY_CONFIGS[p].cashReserveRatio);
+   106→    expect(PERSONALITY_CONFIGS.CONSERVATIVE.cashReserveRatio).toBe(Math.max(...ratios));
+   107→  });
+   108→
+   109→  it('CONSERVATIVE has lowest loanWillingness', () => {
+   110→    const willingness = personalities.map(p => PERSONALITY_CONFIGS[p].loanWillingness);
+   111→    expect(PERSONALITY_CONFIGS.CONSERVATIVE.loanWillingness).toBe(Math.min(...willingness));
+   112→  });
+   113→
+   114→  it('AGGRESSIVE has lowest cashReserveRatio', () => {
+   115→    const ratios = personalities.map(p => PERSONALITY_CONFIGS[p].cashReserveRatio);
+   116→    expect(PERSONALITY_CONFIGS.AGGRESSIVE.cashReserveRatio).toBe(Math.min(...ratios));
+   117→  });
+   118→
+   119→  it('AGGRESSIVE has highest loanWillingness', () => {
+   120→    const willingness = personalities.map(p => PERSONALITY_CONFIGS[p].loanWillingness);
+   121→    expect(PERSONALITY_CONFIGS.AGGRESSIVE.loanWillingness).toBe(Math.max(...willingness));
+   122→  });
+   123→
+   124→  it('EXPANSIONIST has highest expansionEagerness', () => {
+   125→    const eagerness = personalities.map(p => PERSONALITY_CONFIGS[p].expansionEagerness);
+   126→    expect(PERSONALITY_CONFIGS.EXPANSIONIST.expansionEagerness).toBe(Math.max(...eagerness));
+   127→  });
+   128→
+   129→  it('TRADER has highest priceAdjustFrequency', () => {
+   130→    const freq = personalities.map(p => PERSONALITY_CONFIGS[p].priceAdjustFrequency);
+   131→    expect(PERSONALITY_CONFIGS.TRADER.priceAdjustFrequency).toBe(Math.max(...freq));
+   132→  });
+   133→
+   134→  it('all numeric fields are in valid ranges', () => {
+   135→    for (const p of personalities) {
+   136→      const config = PERSONALITY_CONFIGS[p];
+   137→      // Ratios should be 0-1
+   138→      expect(config.cashReserveRatio).toBeGreaterThanOrEqual(0);
+   139→      expect(config.cashReserveRatio).toBeLessThanOrEqual(1);
+   140→      expect(config.loanWillingness).toBeGreaterThanOrEqual(0);
+   141→      expect(config.loanWillingness).toBeLessThanOrEqual(1);
+   142→      expect(config.upgradeEagerness).toBeGreaterThanOrEqual(0);
+   143→      expect(config.upgradeEagerness).toBeLessThanOrEqual(1);
+   144→      expect(config.expansionEagerness).toBeGreaterThanOrEqual(0);
+   145→      expect(config.expansionEagerness).toBeLessThanOrEqual(1);
+   146→      expect(config.inventoryBuyThreshold).toBeGreaterThanOrEqual(0);
+   147→      expect(config.inventoryBuyThreshold).toBeLessThanOrEqual(1);
+   148→      expect(config.riskTolerance).toBeGreaterThanOrEqual(0);
+   149→      expect(config.riskTolerance).toBeLessThanOrEqual(1);
+   150→      expect(config.priceAdjustFrequency).toBeGreaterThanOrEqual(0);
+   151→      expect(config.priceAdjustFrequency).toBeLessThanOrEqual(1);
+   152→      expect(config.hiringPreference).toBeGreaterThanOrEqual(0);
+   153→      expect(config.hiringPreference).toBeLessThanOrEqual(1);
+   154→      expect(config.eventReactivity).toBeGreaterThanOrEqual(0);
+   155→      expect(config.eventReactivity).toBeLessThanOrEqual(1);
+   156→      // Cooldown should be positive integer
+   157→      expect(config.actionCooldownDays).toBeGreaterThanOrEqual(1);
+   158→      expect(Number.isInteger(config.actionCooldownDays)).toBe(true);
+   159→    }
+   160→  });
+   161→});
+   162→
+   163→describe('AI Strategy - calculateAIPrice', () => {
+   164→  const marketPrice = 100;
+   165→
+   166→  it('returns different values for different strategies', () => {
+   167→    // Run multiple times since there's randomness
+   168→    const results = new Set<number>();
+   169→    const strategies: AIPricingStrategy[] = ['LOW_PRICE', 'MARKET_PRICE', 'PREMIUM', 'DYNAMIC'];
+   170→    for (const strategy of strategies) {
+   171→      // Run a few times to account for randomness
+   172→      for (let i = 0; i < 5; i++) {
+   173→        results.add(calculateAIPrice(marketPrice, 'BALANCED', strategy, 70, 0.5));
+   174→      }
+   175→    }
+   176→    // With 4 different strategies and randomness, we should get multiple distinct values
+   177→    expect(results.size).toBeGreaterThan(1);
+   178→  });
+   179→
+   180→  it('LOW_PRICE strategy gives prices below market', () => {
+   181→    // LOW_PRICE multiplier is 0.85 + random*0.13 → range 0.85-0.98
+   182→    // With CONSERVATIVE personality modifier (*0.98), effective range: ~0.83-0.96
+   183→    for (let i = 0; i < 20; i++) {
+   184→      const price = calculateAIPrice(marketPrice, 'CONSERVATIVE', 'LOW_PRICE', 70, 0.5);
+   185→      // Should be at or below market price (with small margin for rounding)
+   186→      expect(price).toBeLessThanOrEqual(marketPrice);
+   187→    }
+   188→  });
+   189→
+   190→  it('PREMIUM strategy gives prices above market', () => {
+   191→    // PREMIUM multiplier is 1.05 + random*0.15 → range 1.05-1.20
+   192→    // With AGGRESSIVE personality modifier (*1.02), effective range: ~1.07-1.22
+   193→    for (let i = 0; i < 20; i++) {
+   194→      const price = calculateAIPrice(marketPrice, 'AGGRESSIVE', 'PREMIUM', 70, 0.5);
+   195→      expect(price).toBeGreaterThanOrEqual(marketPrice);
+   196→    }
+   197→  });
+   198→
+   199→  it('MARKET_PRICE strategy gives prices near market', () => {
+   200→    // MARKET_PRICE multiplier is 0.98 + random*0.07 → range 0.98-1.05
+   201→    for (let i = 0; i < 20; i++) {
+   202→      const price = calculateAIPrice(marketPrice, 'BALANCED', 'MARKET_PRICE', 70, 0.5);
+   203→      // Should be within ~7% of market price
+   204→      expect(price).toBeGreaterThanOrEqual(marketPrice * 0.95);
+   205→      expect(price).toBeLessThanOrEqual(marketPrice * 1.1);
+   206→    }
+   207→  });
+   208→
+   209→  it('DYNAMIC strategy reacts to low health by cutting prices', () => {
+   210→    let lowHealthTotal = 0;
+   211→    let normalHealthTotal = 0;
+   212→    const iterations = 30;
+   213→    for (let i = 0; i < iterations; i++) {
+   214→      lowHealthTotal += calculateAIPrice(marketPrice, 'BALANCED', 'DYNAMIC', 15, 0.5);
+   215→      normalHealthTotal += calculateAIPrice(marketPrice, 'BALANCED', 'DYNAMIC', 80, 0.5);
+   216→    }
+   217→    // Low health should produce lower average prices than normal health
+   218→    expect(lowHealthTotal / iterations).toBeLessThan(normalHealthTotal / iterations);
+   219→  });
+   220→
+   221→  it('DYNAMIC strategy reacts to overstock by discounting', () => {
+   222→    let overstockTotal = 0;
+   223→    let normalStockTotal = 0;
+   224→    const iterations = 30;
+   225→    for (let i = 0; i < iterations; i++) {
+   226→      overstockTotal += calculateAIPrice(marketPrice, 'BALANCED', 'DYNAMIC', 70, 0.9); // stockRatio > 0.8
+   227→      normalStockTotal += calculateAIPrice(marketPrice, 'BALANCED', 'DYNAMIC', 70, 0.5);
+   228→    }
+   229→    // Overstocked should produce slightly lower average prices
+   230→    expect(overstockTotal / iterations).toBeLessThanOrEqual(normalStockTotal / iterations);
+   231→  });
+   232→
+   233→  it('DYNAMIC strategy charges premium when stock is low', () => {
+   234→    let lowStockTotal = 0;
+   235→    let normalStockTotal = 0;
+   236→    const iterations = 30;
+   237→    for (let i = 0; i < iterations; i++) {
+   238→      lowStockTotal += calculateAIPrice(marketPrice, 'BALANCED', 'DYNAMIC', 70, 0.1); // stockRatio < 0.2
+   239→      normalStockTotal += calculateAIPrice(marketPrice, 'BALANCED', 'DYNAMIC', 70, 0.5);
+   240→    }
+   241→    // Low stock should produce higher average prices
+   242→    expect(lowStockTotal / iterations).toBeGreaterThan(normalStockTotal / iterations);
+   243→  });
+   244→
+   245→  it('always returns a positive integer price', () => {
+   246→    for (const strategy of ['LOW_PRICE', 'MARKET_PRICE', 'PREMIUM', 'DYNAMIC'] as AIPricingStrategy[]) {
+   247→      for (let i = 0; i < 10; i++) {
+   248→        const price = calculateAIPrice(marketPrice, 'BALANCED', strategy, 50, 0.5);
+   249→        expect(price).toBeGreaterThan(0);
+   250→        expect(Number.isInteger(price)).toBe(true);
+   251→      }
+   252→    }
+   253→  });
+   254→});
+   255→
+   256→describe('AI Strategy - selectPricingStrategy', () => {
+   257→  it('returns LOW_PRICE when health is very low', () => {
+   258→    expect(selectPricingStrategy('BALANCED', 20, 0.5)).toBe('LOW_PRICE');
+   259→    expect(selectPricingStrategy('AGGRESSIVE', 10, 0.5)).toBe('LOW_PRICE');
+   260→    expect(selectPricingStrategy('EXPANSIONIST', 0, 0.5)).toBe('LOW_PRICE');
+   261→  });
+   262→
+   263→  it('returns PREMIUM when stock is very low and risk tolerance is sufficient', () => {
+   264→    // stockRatio < 0.15 and riskTolerance > 0.3
+   265→    expect(selectPricingStrategy('AGGRESSIVE', 70, 0.1)).toBe('PREMIUM');  // riskTolerance=0.85
+   266→    expect(selectPricingStrategy('BALANCED', 70, 0.1)).toBe('PREMIUM');    // riskTolerance=0.5
+   267→  });
+   268→
+   269→  it('returns PREMIUM does not apply for very low stock if risk tolerance is too low', () => {
+   270→    // CONSERVATIVE has riskTolerance=0.2, which is < 0.3
+   271→    // So with low stock, it should fall through to default
+   272→    expect(selectPricingStrategy('CONSERVATIVE', 70, 0.1)).toBe('MARKET_PRICE'); // default for conservative
+   273→  });
+   274→
+   275→  it('returns default strategy when conditions are normal', () => {
+   276→    expect(selectPricingStrategy('CONSERVATIVE', 70, 0.5)).toBe('MARKET_PRICE');
+   277→    expect(selectPricingStrategy('AGGRESSIVE', 70, 0.5)).toBe('PREMIUM');
+   278→    expect(selectPricingStrategy('EXPANSIONIST', 70, 0.5)).toBe('LOW_PRICE');
+   279→    expect(selectPricingStrategy('BALANCED', 70, 0.5)).toBe('DYNAMIC');
+   280→    expect(selectPricingStrategy('TRADER', 70, 0.5)).toBe('DYNAMIC');
+   281→  });
+   282→
+   283→  it('always returns a valid AIPricingStrategy', () => {
+   284→    const validStrategies: AIPricingStrategy[] = ['LOW_PRICE', 'MARKET_PRICE', 'PREMIUM', 'DYNAMIC'];
+   285→    for (const p of ALL_PERSONALITIES) {
+   286→      for (const health of [0, 25, 50, 75, 100]) {
+   287→        for (const stock of [0, 0.15, 0.5, 1.0]) {
+   288→          const result = selectPricingStrategy(p, health, stock);
+   289→          expect(validStrategies).toContain(result);
+   290→        }
+   291→      }
+   292→    }
+   293→  });
+   294→});
+   295→
+   296→describe('AI Strategy - randomPersonality', () => {
+   297→  it('always returns a valid personality', () => {
+   298→    const valid: AIPersonality[] = ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'TRADER', 'EXPANSIONIST'];
+   299→    for (let i = 0; i < 100; i++) {
+   300→      const result = randomPersonality();
+   301→      expect(valid).toContain(result);
+   302→    }
+   303→  });
+   304→
+   305→  it('returns all personalities over many calls (weighted random)', () => {
+   306→    const seen = new Set<AIPersonality>();
+   307→    for (let i = 0; i < 200; i++) {
+   308→      seen.add(randomPersonality());
+   309→    }
+   310→    // With 200 calls and all weights > 0, should see all 5 personalities
+   311→    expect(seen.size).toBe(5);
+   312→  });
+   313→});
+   314→
+   315→describe('AI Strategy - getPersonalityConfig', () => {
+   316→  it('returns correct config for valid personality', () => {
+   317→    expect(getPersonalityConfig('CONSERVATIVE')).toBe(PERSONALITY_CONFIGS.CONSERVATIVE);
+   318→    expect(getPersonalityConfig('AGGRESSIVE')).toBe(PERSONALITY_CONFIGS.AGGRESSIVE);
+   319→  });
+   320→
+   321→  it('falls back to BALANCED for invalid personality', () => {
+   322→    expect(getPersonalityConfig('INVALID')).toBe(PERSONALITY_CONFIGS.BALANCED);
+   323→    expect(getPersonalityConfig('')).toBe(PERSONALITY_CONFIGS.BALANCED);
+   324→  });
+   325→});
+   326→
+   327→describe('AI Strategy - ALL_PERSONALITIES', () => {
+   328→  it('contains all 5 personality types', () => {
+   329→    expect(ALL_PERSONALITIES).toHaveLength(5);
+   330→    expect(ALL_PERSONALITIES).toContain('CONSERVATIVE');
+   331→    expect(ALL_PERSONALITIES).toContain('BALANCED');
+   332→    expect(ALL_PERSONALITIES).toContain('AGGRESSIVE');
+   333→    expect(ALL_PERSONALITIES).toContain('TRADER');
+   334→    expect(ALL_PERSONALITIES).toContain('EXPANSIONIST');
+   335→  });
+   336→});
+   337→
+   338→// ============================================
+   339→// 2. AI Evaluation Tests
+   340→// ============================================
+   341→
+   342→describe('AI Evaluation - evaluateActions', () => {
+   343→  it('always returns at least HOLD', () => {
+   344→    const ctx = makeContext();
+   345→    const actions = evaluateActions(ctx);
+   346→    const holdActions = actions.filter(a => a.action === 'HOLD');
+   347→    expect(holdActions.length).toBeGreaterThanOrEqual(1);
+   348→  });
+   349→
+   350→  it('BUY_INVENTORY scores higher when stock is low', () => {
+   351→    const lowStockInv = makeInventory({ quantity: 10, maxStock: 200 }); // stockRatio = 0.05
+   352→    const highStockInv = makeInventory({ quantity: 180, maxStock: 200 }); // stockRatio = 0.9
+   353→
+   354→    const bizLow = makeBusiness({ inventories: [lowStockInv] });
+   355→    const bizHigh = makeBusiness({ inventories: [highStockInv] });
+   356→
+   357→    const ctxLow = makeContext({ businesses: [bizLow] });
+   358→    const ctxHigh = makeContext({ businesses: [bizHigh] });
+   359→
+   360→    const lowActions = evaluateActions(ctxLow);
+   361→    const highActions = evaluateActions(ctxHigh);
+   362→
+   363→    const lowBuyScore = lowActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? -Infinity;
+   364→    const highBuyScore = highActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? -Infinity;
+   365→
+   366→    // Low stock should produce higher BUY_INVENTORY score (or at least produce the action)
+   367→    expect(lowBuyScore).toBeGreaterThan(highBuyScore);
+   368→  });
+   369→
+   370→  it('CHANGE_PRICE scores higher when business is losing money', () => {
+   371→    const profitableBiz = makeBusiness({ dailyProfit: 10000 });
+   372→    const losingBiz = makeBusiness({ dailyProfit: -5000 });
+   373→
+   374→    const ctxProfit = makeContext({ businesses: [profitableBiz] });
+   375→    const ctxLoss = makeContext({ businesses: [losingBiz] });
+   376→
+   377→    const profitActions = evaluateActions(ctxProfit);
+   378→    const lossActions = evaluateActions(ctxLoss);
+   379→
+   380→    const profitPriceScore = profitActions.find(a => a.action === 'CHANGE_PRICE')?.score ?? 0;
+   381→    const lossPriceScore = lossActions.find(a => a.action === 'CHANGE_PRICE')?.score ?? 0;
+   382→
+   383→    expect(lossPriceScore).toBeGreaterThan(profitPriceScore);
+   384→  });
+   385→
+   386→  it('HIRE_EMPLOYEE requires available slots (employeeCount < 5)', () => {
+   387→    const bizWithSlots = makeBusiness({ employeeCount: 2 });
+   388→    const bizFull = makeBusiness({ employeeCount: 5 });
+   389→
+   390→    const ctxSlots = makeContext({ businesses: [bizWithSlots] });
+   391→    const ctxFull = makeContext({ businesses: [bizFull] });
+   392→
+   393→    const actionsSlots = evaluateActions(ctxSlots);
+   394→    const actionsFull = evaluateActions(ctxFull);
+   395→
+   396→    expect(actionsSlots.some(a => a.action === 'HIRE_EMPLOYEE')).toBe(true);
+   397→    expect(actionsFull.some(a => a.action === 'HIRE_EMPLOYEE')).toBe(false);
+   398→  });
+   399→
+   400→  it('UPGRADE_BUSINESS requires profitable business', () => {
+   401→    const profitableBiz = makeBusiness({ dailyProfit: 10000, level: 1, healthScore: 80 });
+   402→    const losingBiz = makeBusiness({ dailyProfit: -5000, level: 1, healthScore: 80 });
+   403→
+   404→    const ctxProfit = makeContext({ businesses: [profitableBiz], cash: 1000000 });
+   405→    const ctxLoss = makeContext({ businesses: [losingBiz], cash: 1000000 });
+   406→
+   407→    const profitActions = evaluateActions(ctxProfit);
+   408→    const lossActions = evaluateActions(ctxLoss);
+   409→
+   410→    // Profitable business should have UPGRADE option; losing one should not
+   411→    expect(profitActions.some(a => a.action === 'UPGRADE_BUSINESS')).toBe(true);
+   412→    expect(lossActions.some(a => a.action === 'UPGRADE_BUSINESS')).toBe(false);
+   413→  });
+   414→
+   415→  it('CREATE_BUSINESS considers diversification bonus', () => {
+   416→    // With no existing businesses, new types are available
+   417→    const ctx = makeContext({ businesses: [], cash: 1000000, netWorth: 2000000 });
+   418→    const actions = evaluateActions(ctx);
+   419→    const createActions = actions.filter(a => a.action === 'CREATE_BUSINESS');
+   420→    // Should have at least some CREATE_BUSINESS options (can afford TEA_STALL)
+   421→    expect(createActions.length).toBeGreaterThan(0);
+   422→  });
+   423→
+   424→  it('SELL_BUSINESS only appears when health is very low AND losing money', () => {
+   425→    const healthyBiz = makeBusiness({ healthScore: 80, dailyProfit: 5000 });
+   426→    const lowHealthProfitable = makeBusiness({ healthScore: 15, dailyProfit: 5000 });
+   427→    const lowHealthLosing = makeBusiness({ healthScore: 15, dailyProfit: -5000 });
+   428→    const veryLowHealthLosing = makeBusiness({ healthScore: 5, dailyProfit: -5000 });
+   429→
+   430→    // Healthy: no SELL
+   431→    const ctxHealthy = makeContext({ businesses: [healthyBiz] });
+   432→    expect(evaluateActions(ctxHealthy).some(a => a.action === 'SELL_BUSINESS')).toBe(false);
+   433→
+   434→    // Low health but profitable: no SELL
+   435→    const ctxLowProfit = makeContext({ businesses: [lowHealthProfitable] });
+   436→    expect(evaluateActions(ctxLowProfit).some(a => a.action === 'SELL_BUSINESS')).toBe(false);
+   437→
+   438→    // Low health AND losing: SELL appears
+   439→    const ctxLowLoss = makeContext({ businesses: [lowHealthLosing] });
+   440→    expect(evaluateActions(ctxLowLoss).some(a => a.action === 'SELL_BUSINESS')).toBe(true);
+   441→
+   442→    // Very low health AND losing: SELL appears with higher score
+   443→    const ctxVeryLowLoss = makeContext({ businesses: [veryLowHealthLosing] });
+   444→    const veryLowActions = evaluateActions(ctxVeryLowLoss);
+   445→    expect(veryLowActions.some(a => a.action === 'SELL_BUSINESS')).toBe(true);
+   446→  });
+   447→
+   448→  it('TAKE_LOAN is limited to max 2 active loans', () => {
+   449→    const ctx0Loans = makeContext({ activeLoans: [] });
+   450→    const ctx1Loan = makeContext({ activeLoans: [{ id: 'l1', amount: 50000, remainingDebt: 40000, dailyPayment: 1000, daysRemaining: 40 }] });
+   451→    const ctx2Loans = makeContext({ activeLoans: [
+   452→      { id: 'l1', amount: 50000, remainingDebt: 40000, dailyPayment: 1000, daysRemaining: 40 },
+   453→      { id: 'l2', amount: 30000, remainingDebt: 20000, dailyPayment: 800, daysRemaining: 25 },
+   454→    ] });
+   455→
+   456→    expect(evaluateActions(ctx0Loans).some(a => a.action === 'TAKE_LOAN')).toBe(true);
+   457→    expect(evaluateActions(ctx1Loan).some(a => a.action === 'TAKE_LOAN')).toBe(true);
+   458→    expect(evaluateActions(ctx2Loans).some(a => a.action === 'TAKE_LOAN')).toBe(false);
+   459→  });
+   460→
+   461→  it('REPAY_LOAN scores higher when can repay fully', () => {
+   462→    const loan = { id: 'l1', amount: 50000, remainingDebt: 40000, dailyPayment: 1000, daysRemaining: 40 };
+   463→
+   464→    // Can repay fully: cash > remainingDebt * 1.3 = 52000
+   465→    const ctxCanRepay = makeContext({ activeLoans: [loan], cash: 100000, businesses: [makeBusiness({ dailyProfit: 5000 })] });
+   466→    // Cannot repay fully
+   467→    const ctxCannotRepay = makeContext({ activeLoans: [loan], cash: 30000, businesses: [makeBusiness({ dailyProfit: 5000 })] });
+   468→
+   469→    const canRepayActions = evaluateActions(ctxCanRepay);
+   470→    const cannotRepayActions = evaluateActions(ctxCannotRepay);
+   471→
+   472→    const canRepayScore = canRepayActions.find(a => a.action === 'REPAY_LOAN')?.score ?? 0;
+   473→    const cannotRepayScore = cannotRepayActions.find(a => a.action === 'REPAY_LOAN')?.score ?? 0;
+   474→
+   475→    expect(canRepayScore).toBeGreaterThan(cannotRepayScore);
+   476→  });
+   477→
+   478→  it('cooldown works: if daysSinceLastAction < actionCooldownDays, returns HOLD', () => {
+   479→    // BALANCED has actionCooldownDays = 2
+   480→    // gameDay - lastActionAt < 2 → should return only HOLD
+   481→    const ctxCooling = makeContext({ gameDay: 100, lastActionAt: 99 }); // 1 day since last action
+   482→    const actions = evaluateActions(ctxCooling);
+   483→    // During cooldown, only HOLD is returned
+   484→    expect(actions).toHaveLength(1);
+   485→    expect(actions[0].action).toBe('HOLD');
+   486→    expect(actions[0].score).toBe(100);
+   487→  });
+   488→
+   489→  it('cash pressure penalizes spending actions', () => {
+   490→    const biz = makeBusiness({ inventories: [makeInventory({ quantity: 10, maxStock: 200 })] });
+   491→    // CONSERVATIVE: cashReserveRatio = 0.4
+   492→    // Net worth = 100000, cashReserve = 40000, cashReserve * 0.5 = 20000
+   493→    // If cash < 20000 → severe cash pressure
+   494→    const ctxLowCash = makeContext({ personality: 'CONSERVATIVE', cash: 10000, netWorth: 100000, businesses: [biz] });
+   495→    const ctxHighCash = makeContext({ personality: 'CONSERVATIVE', cash: 500000, netWorth: 100000, businesses: [biz] });
+   496→
+   497→    const lowCashActions = evaluateActions(ctxLowCash);
+   498→    const highCashActions = evaluateActions(ctxHighCash);
+   499→
+   500→    // Spending actions (BUY_INVENTORY) should have lower scores under cash pressure
+   501→    const lowBuyScore = lowCashActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? 0;
+   502→    const highBuyScore = highCashActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? 0;
+   503→
+   504→    expect(lowBuyScore).toBeLessThan(highBuyScore);
+   505→  });
+   506→
+   507→  it('event reactions boost BUY_INVENTORY and CHANGE_PRICE scores', () => {
+   508→    const biz = makeBusiness({ inventories: [makeInventory({ quantity: 10, maxStock: 200 })] });
+   509→    const ctxNoEvent = makeContext({ businesses: [biz], activeEvents: [] });
+   510→    const ctxWithEvent = makeContext({
+   511→      businesses: [biz],
+   512→      activeEvents: [{ title: 'Festival', type: 'DEMAND', effects: { tea_demand: 1.5, tea_price: 1.2 } }],
+   513→    });
+   514→
+   515→    const noEventActions = evaluateActions(ctxNoEvent);
+   516→    const withEventActions = evaluateActions(ctxWithEvent);
+   517→
+   518→    // BUY_INVENTORY should score higher with demand event
+   519→    const noEventBuy = noEventActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? 0;
+   520→    const withEventBuy = withEventActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? 0;
+   521→    expect(withEventBuy).toBeGreaterThan(noEventBuy);
+   522→
+   523→    // CHANGE_PRICE should score higher with price event
+   524→    const noEventPrice = noEventActions.find(a => a.action === 'CHANGE_PRICE')?.score ?? 0;
+   525→    const withEventPrice = withEventActions.find(a => a.action === 'CHANGE_PRICE')?.score ?? 0;
+   526→    expect(withEventPrice).toBeGreaterThan(noEventPrice);
+   527→  });
+   528→
+   529→  it('personality modifiers change scores correctly', () => {
+   530→    const biz = makeBusiness({ inventories: [makeInventory({ quantity: 10, maxStock: 200 })] });
+   531→
+   532→    // Test CONSERVATIVE: penalizes TAKE_LOAN (-20), CREATE_BUSINESS (-15)
+   533→    const ctxConservative = makeContext({ personality: 'CONSERVATIVE', businesses: [biz], cash: 100000 });
+   534→    const ctxBalanced = makeContext({ personality: 'BALANCED', businesses: [biz], cash: 100000 });
+   535→
+   536→    const conservativeActions = evaluateActions(ctxConservative);
+   537→    const balancedActions = evaluateActions(ctxBalanced);
+   538→
+   539→    // CONSERVATIVE TAKE_LOAN should score lower than BALANCED
+   540→    const consLoan = conservativeActions.find(a => a.action === 'TAKE_LOAN')?.score ?? 0;
+   541→    const balLoan = balancedActions.find(a => a.action === 'TAKE_LOAN')?.score ?? 0;
+   542→    expect(consLoan).toBeLessThan(balLoan);
+   543→
+   544→    // Test AGGRESSIVE: boosts TAKE_LOAN (+15), CREATE_BUSINESS (+15), UPGRADE (+10)
+   545→    const ctxAggressive = makeContext({ personality: 'AGGRESSIVE', businesses: [biz], cash: 1000000 });
+   546→    const aggressiveActions = evaluateActions(ctxAggressive);
+   547→    const aggLoan = aggressiveActions.find(a => a.action === 'TAKE_LOAN')?.score ?? 0;
+   548→    // Aggressive loan score should be higher than balanced (net difference = +15 - (-20) = +35 for aggressive)
+   549→    // But we need same context - let's compare more carefully with same businesses/loans
+   550→    const balActions2 = evaluateActions(makeContext({ personality: 'BALANCED', businesses: [biz], cash: 1000000 }));
+   551→    const balLoan2 = balActions2.find(a => a.action === 'TAKE_LOAN')?.score ?? 0;
+   552→    expect(aggLoan).toBeGreaterThan(balLoan2);
+   553→
+   554→    // Test TRADER: boosts CHANGE_PRICE (+20), BUY_INVENTORY (+10)
+   555→    const ctxTrader = makeContext({ personality: 'TRADER', businesses: [biz], cash: 100000 });
+   556→    const traderActions = evaluateActions(ctxTrader);
+   557→    const traderBuy = traderActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? 0;
+   558→    const balancedBuy = balancedActions.find(a => a.action === 'BUY_INVENTORY')?.score ?? 0;
+   559→    expect(traderBuy).toBeGreaterThan(balancedBuy);
+   560→  });
+   561→
+   562→  it('returns sorted actions (highest score first)', () => {
+   563→    const biz = makeBusiness({ inventories: [makeInventory({ quantity: 10, maxStock: 200 })] });
+   564→    const ctx = makeContext({ businesses: [biz] });
+   565→    const actions = evaluateActions(ctx);
+   566→
+   567→    for (let i = 1; i < actions.length; i++) {
+   568→      expect(actions[i - 1].score).toBeGreaterThanOrEqual(actions[i].score);
+   569→    }
+   570→  });
+   571→});
+   572→
+   573→describe('AI Evaluation - selectBestAction', () => {
+   574→  it('always returns a valid ScoredAction', () => {
+   575→    const validActions: AIAction[] = [
+   576→      'BUY_INVENTORY', 'CHANGE_PRICE', 'HIRE_EMPLOYEE', 'UPGRADE_BUSINESS',
+   577→      'CREATE_BUSINESS', 'SELL_BUSINESS', 'TAKE_LOAN', 'REPAY_LOAN', 'HOLD',
+   578→    ];
+   579→    const ctx = makeContext();
+   580→    const result = selectBestAction(ctx);
+   581→    expect(validActions).toContain(result.action);
+   582→    expect(typeof result.score).toBe('number');
+   583→  });
+   584→
+   585→  it('returns HOLD when no viable actions (all scores <= 0)', () => {
+   586→    // Create a context where the AI is in cooldown → only HOLD with score 100
+   587→    // But actually cooldown returns HOLD with score 100, which is viable
+   588→    // Let's create a situation with no businesses, no loans, low cash, and after cooldown
+   589→    // The only action will be HOLD with score 5
+   590→    const ctx = makeContext({
+   591→      businesses: [],
+   592→      activeLoans: [],
+   593→      cash: 100, // very low cash
+   594→      netWorth: 1000,
+   595→    });
+   596→    const result = selectBestAction(ctx);
+   597→    // With very limited options, HOLD should be a valid result
+   598→    expect(result.action).toBeDefined();
+   599→  });
+   600→
+   601→  it('returns a non-HOLD action when good opportunities exist', () => {
+   602→    const lowStockInv = makeInventory({ quantity: 5, maxStock: 200, purchasePrice: 5, sellPrice: 8 });
+   603→    const biz = makeBusiness({ inventories: [lowStockInv], dailyProfit: 5000 });
+   604→    const ctx = makeContext({ businesses: [biz], cash: 500000 });
+   605→    const result = selectBestAction(ctx);
+   606→    // With low stock and plenty of cash, BUY_INVENTORY should be a top choice
+   607→    // (probabilistic selection may occasionally choose differently, but over many runs it should mostly be non-HOLD)
+   608→    // We can't guarantee non-HOLD due to randomness, so just verify it's valid
+   609→    expect(result.action).toBeDefined();
+   610→  });
+   611→});
+   612→
+   613→// ============================================
+   614→// 3. AI Market Share Tests (logic verification)
+   615→// ============================================
+   616→
+   617→// Replicate the market share calculation logic from ai-engine.ts
+   618→// (since we can't call the async DB-dependent function)
+   619→
+   620→interface MarketShareInput {
+   621→  reputation: number;      // 0-100
+   622→  level: number;           // 1-10
+   623→  healthScore: number;     // 0-100
+   624→  totalStock: number;
+   625→  maxStockCapacity: number;
+   626→  avgSellPrice: number;
+   627→  dailyRevenue: number;
+   628→}
+   629→
+   630→function calculateAttractiveness(
+   631→  biz: MarketShareInput,
+   632→  avgMarketPrice: number,
+   633→  avgRevenue: number,
+   634→): number {
+   635→  const repFactor = 0.4 + (biz.reputation / 100) * 1.2;
+   636→  const levelFactor = 1 + (biz.level - 1) * 0.12;
+   637→  const healthFactor = 0.5 + (biz.healthScore / 100);
+   638→  const stockRatio = biz.maxStockCapacity > 0 ? biz.totalStock / biz.maxStockCapacity : 0;
+   639→  const inventoryFactor = 0.3 + stockRatio * 0.7;
+   640→  const pricingFactor = Math.max(0.5, Math.min(1.5, avgMarketPrice / Math.max(biz.avgSellPrice, 1)));
+   641→  const revenueFactor = 0.5 + Math.min(biz.dailyRevenue / Math.max(avgRevenue, 1), 2.0) * 0.25;
+   642→  return repFactor * levelFactor * healthFactor * inventoryFactor * pricingFactor * revenueFactor;
+   643→}
+   644→
+   645→function computeMarketShares(businesses: MarketShareInput[]): number[] {
+   646→  if (businesses.length === 0) return [];
+   647→
+   648→  const avgMarketPrice = businesses.reduce((s, b) => s + b.avgSellPrice, 0) / businesses.length;
+   649→  const avgRevenue = businesses.reduce((s, b) => s + b.dailyRevenue, 0) / businesses.length;
+   650→
+   651→  const scores = businesses.map(b => calculateAttractiveness(b, avgMarketPrice, avgRevenue));
+   652→  const totalScore = scores.reduce((s, sc) => s + sc, 0);
+   653→
+   654→  return totalScore > 0 ? scores.map(sc => sc / totalScore) : scores.map(() => 0);
+   655→}
+   656→
+   657→describe('AI Market Share Logic', () => {
+   658→  it('market shares total approximately 100% (1.0)', () => {
+   659→    const businesses: MarketShareInput[] = [
+   660→      { reputation: 80, level: 3, healthScore: 70, totalStock: 150, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   661→      { reputation: 50, level: 2, healthScore: 60, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 12, dailyRevenue: 3000 },
+   662→      { reputation: 30, level: 1, healthScore: 40, totalStock: 50, maxStockCapacity: 200, avgSellPrice: 15, dailyRevenue: 1000 },
+   663→    ];
+   664→    const shares = computeMarketShares(businesses);
+   665→    const total = shares.reduce((s, sh) => s + sh, 0);
+   666→    expect(total).toBeCloseTo(1.0, 10);
+   667→  });
+   668→
+   669→  it('shares are never negative', () => {
+   670→    const businesses: MarketShareInput[] = [
+   671→      { reputation: 0, level: 1, healthScore: 0, totalStock: 0, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 0 },
+   672→      { reputation: 100, level: 10, healthScore: 100, totalStock: 200, maxStockCapacity: 200, avgSellPrice: 5, dailyRevenue: 50000 },
+   673→    ];
+   674→    const shares = computeMarketShares(businesses);
+   675→    for (const share of shares) {
+   676→      expect(share).toBeGreaterThanOrEqual(0);
+   677→    }
+   678→  });
+   679→
+   680→  it('businesses with same stats get equal share', () => {
+   681→    const base: MarketShareInput = {
+   682→      reputation: 50, level: 2, healthScore: 50,
+   683→      totalStock: 100, maxStockCapacity: 200,
+   684→      avgSellPrice: 10, dailyRevenue: 5000,
+   685→    };
+   686→    const businesses: MarketShareInput[] = [base, { ...base }, { ...base }];
+   687→    const shares = computeMarketShares(businesses);
+   688→    // All shares should be ~1/3
+   689→    for (const share of shares) {
+   690→      expect(share).toBeCloseTo(1 / 3, 5);
+   691→    }
+   692→  });
+   693→
+   694→  it('higher reputation = higher share', () => {
+   695→    const businesses: MarketShareInput[] = [
+   696→      { reputation: 90, level: 2, healthScore: 50, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   697→      { reputation: 30, level: 2, healthScore: 50, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   698→    ];
+   699→    const shares = computeMarketShares(businesses);
+   700→    expect(shares[0]).toBeGreaterThan(shares[1]);
+   701→  });
+   702→
+   703→  it('higher level = higher share', () => {
+   704→    const businesses: MarketShareInput[] = [
+   705→      { reputation: 50, level: 5, healthScore: 50, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   706→      { reputation: 50, level: 1, healthScore: 50, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   707→    ];
+   708→    const shares = computeMarketShares(businesses);
+   709→    expect(shares[0]).toBeGreaterThan(shares[1]);
+   710→  });
+   711→
+   712→  it('higher health = higher share', () => {
+   713→    const businesses: MarketShareInput[] = [
+   714→      { reputation: 50, level: 2, healthScore: 90, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   715→      { reputation: 50, level: 2, healthScore: 30, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   716→    ];
+   717→    const shares = computeMarketShares(businesses);
+   718→    expect(shares[0]).toBeGreaterThan(shares[1]);
+   719→  });
+   720→
+   721→  it('better stocked = higher share', () => {
+   722→    const businesses: MarketShareInput[] = [
+   723→      { reputation: 50, level: 2, healthScore: 50, totalStock: 180, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   724→      { reputation: 50, level: 2, healthScore: 50, totalStock: 20, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   725→    ];
+   726→    const shares = computeMarketShares(businesses);
+   727→    expect(shares[0]).toBeGreaterThan(shares[1]);
+   728→  });
+   729→
+   730→  it('lower prices = higher share (pricing competitiveness)', () => {
+   731→    const businesses: MarketShareInput[] = [
+   732→      { reputation: 50, level: 2, healthScore: 50, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 8, dailyRevenue: 5000 },
+   733→      { reputation: 50, level: 2, healthScore: 50, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 15, dailyRevenue: 5000 },
+   734→    ];
+   735→    const shares = computeMarketShares(businesses);
+   736→    expect(shares[0]).toBeGreaterThan(shares[1]);
+   737→  });
+   738→
+   739→  it('shares sum to 1.0 even with extreme values', () => {
+   740→    const businesses: MarketShareInput[] = [
+   741→      { reputation: 100, level: 10, healthScore: 100, totalStock: 200, maxStockCapacity: 200, avgSellPrice: 1, dailyRevenue: 100000 },
+   742→      { reputation: 0, level: 1, healthScore: 0, totalStock: 0, maxStockCapacity: 200, avgSellPrice: 1000, dailyRevenue: 0 },
+   743→    ];
+   744→    const shares = computeMarketShares(businesses);
+   745→    const total = shares.reduce((s, sh) => s + sh, 0);
+   746→    expect(total).toBeCloseTo(1.0, 10);
+   747→    // Both should have non-zero share (even the weak one)
+   748→    expect(shares[0]).toBeGreaterThan(0);
+   749→    expect(shares[1]).toBeGreaterThan(0);
+   750→  });
+   751→
+   752→  it('single business gets 100% share', () => {
+   753→    const businesses: MarketShareInput[] = [
+   754→      { reputation: 50, level: 2, healthScore: 50, totalStock: 100, maxStockCapacity: 200, avgSellPrice: 10, dailyRevenue: 5000 },
+   755→    ];
+   756→    const shares = computeMarketShares(businesses);
+   757→    expect(shares[0]).toBeCloseTo(1.0, 10);
+   758→  });
+   759→});
+   760→
+   761→// ============================================
+   762→// 4. AI Types Tests
+   763→// ============================================
+   764→
+   765→describe('AI Types - Personality Types', () => {
+   766→  it('all personality types are valid', () => {
+   767→    const validPersonalities: AIPersonality[] = ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'TRADER', 'EXPANSIONIST'];
+   768→    expect(validPersonalities).toHaveLength(5);
+   769→    // Ensure they match ALL_PERSONALITIES
+   770→    expect(ALL_PERSONALITIES).toEqual(validPersonalities);
+   771→  });
+   772→});
+   773→
+   774→describe('AI Types - Action Types', () => {
+   775→  it('all action types are valid', () => {
+   776→    const validActions: AIAction[] = [
+   777→      'BUY_INVENTORY', 'CHANGE_PRICE', 'HIRE_EMPLOYEE', 'UPGRADE_BUSINESS',
+   778→      'CREATE_BUSINESS', 'SELL_BUSINESS', 'TAKE_LOAN', 'REPAY_LOAN', 'HOLD',
+   779→    ];
+   780→    expect(validActions).toHaveLength(9);
+   781→    // Verify each is a non-empty string
+   782→    for (const action of validActions) {
+   783→      expect(action.length).toBeGreaterThan(0);
+   784→    }
+   785→  });
+   786→});
+   787→
+   788→describe('AI Types - Pricing Strategies', () => {
+   789→  it('all pricing strategies are valid', () => {
+   790→    const validStrategies: AIPricingStrategy[] = ['LOW_PRICE', 'MARKET_PRICE', 'PREMIUM', 'DYNAMIC'];
+   791→    expect(validStrategies).toHaveLength(4);
+   792→  });
+   793→});
+   794→
+   795→describe('AI Types - PersonalityConfig Interface', () => {
+   796→  it('PersonalityConfig has all required fields', () => {
+   797→    // Verify that each config satisfies the interface
+   798→    const config: PersonalityConfig = PERSONALITY_CONFIGS.BALANCED;
+   799→    expect(typeof config.name).toBe('string');
+   800→    expect(typeof config.icon).toBe('string');
+   801→    expect(typeof config.cashReserveRatio).toBe('number');
+   802→    expect(typeof config.loanWillingness).toBe('number');
+   803→    expect(typeof config.defaultPricingStrategy).toBe('string');
+   804→    expect(typeof config.upgradeEagerness).toBe('number');
+   805→    expect(typeof config.expansionEagerness).toBe('number');
+   806→    expect(typeof config.inventoryBuyThreshold).toBe('number');
+   807→    expect(typeof config.actionCooldownDays).toBe('number');
+   808→    expect(typeof config.riskTolerance).toBe('number');
+   809→    expect(typeof config.priceAdjustFrequency).toBe('number');
+   810→    expect(typeof config.hiringPreference).toBe('number');
+   811→    expect(typeof config.eventReactivity).toBe('number');
+   812→  });
+   813→
+   814→  it('defaultPricingStrategy is a valid AIPricingStrategy', () => {
+   815→    const validStrategies: AIPricingStrategy[] = ['LOW_PRICE', 'MARKET_PRICE', 'PREMIUM', 'DYNAMIC'];
+   816→    for (const p of ALL_PERSONALITIES) {
+   817→      expect(validStrategies).toContain(PERSONALITY_CONFIGS[p].defaultPricingStrategy);
+   818→    }
+   819→  });
+   820→});
+   821→
+   822→describe('AI Types - ScoredAction', () => {
+   823→  it('ScoredAction has required action and score fields', () => {
+   824→    const action: ScoredAction = { action: 'HOLD', score: 5 };
+   825→    expect(action.action).toBe('HOLD');
+   826→    expect(action.score).toBe(5);
+   827→  });
+   828→
+   829→  it('ScoredAction can have optional target and params', () => {
+   830→    const action: ScoredAction = {
+   831→      action: 'BUY_INVENTORY',
+   832→      score: 80,
+   833→      target: 'biz-1',
+   834→      params: { inventoryId: 'inv-1', productName: 'Tea (Cha)' },
+   835→    };
+   836→    expect(action.target).toBe('biz-1');
+   837→    expect(action.params).toBeDefined();
+   838→  });
+   839→});
+   840→

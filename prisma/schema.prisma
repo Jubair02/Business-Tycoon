@@ -49,6 +49,15 @@ model Business {
   totalRevenue  Float    @default(0)
   totalProfit   Float    @default(0)
   healthScore   Int      @default(50)
+
+  // Phase 3: Customer Experience Fields
+  satisfactionScore   Float    @default(50)   // 0-100, overall customer satisfaction
+  loyaltyScore        Float    @default(0)    // 0-100, customer loyalty index
+  repeatCustomerRate  Float    @default(0)    // 0-1, fraction of repeat customers
+  npsScore            Float    @default(0)    // -100 to 100, Net Promoter Score
+  totalReviews        Int      @default(0)    // Count of all reviews
+  avgReviewRating     Float    @default(0)    // 1-5, average review score
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -57,6 +66,7 @@ model Business {
   employees   Employee[]
   logs        GameLog[]
   metrics     BusinessMetric[]
+  reviews     CustomerReview[]
 
   @@index([playerId])
 }
@@ -189,10 +199,35 @@ model BusinessMetric {
   cogs       Float    @default(0)
   customers  Int      @default(0)
   reputation Float    @default(50)
+
+  // Phase 3: Customer Experience Metrics
+  satisfaction  Float    @default(50)
+  loyalty       Float    @default(0)
+  nps           Float    @default(0)
+
   createdAt  DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, gameDay])
+  @@index([businessId, gameDay])
+}
+
+// ---- Phase 3: Customer Reviews ----
+// Stores generated customer reviews for CX analytics
+model CustomerReview {
+  id          String   @id @default(cuid())
+  businessId  String
+  gameDay     Int
+  rating      Int      // 1-5 star rating
+  sentiment   String   // POSITIVE | NEUTRAL | NEGATIVE
+  category    String   // PRICE | SERVICE | QUALITY | STOCKOUT | CLEANLINESS | WAIT_TIME
+  comment     String   // Generated review text
+  segment     String   // BUDGET | REGULAR | PREMIUM | TOURIST
+  createdAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
   @@index([businessId, gameDay])
 }

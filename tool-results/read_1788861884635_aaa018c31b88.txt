@@ -1,0 +1,510 @@
+   900→                        return (
+   901→                          <>
+   902→                            <div className="flex items-center justify-between text-sm">
+   903→                              <div className="flex items-center gap-2">
+   904→                                <TrendingUp className="h-4 w-4 text-green-600" />
+   905→                                <span className="text-muted-foreground">Revenue</span>
+   906→                              </div>
+   907→                              <span className="font-medium text-green-600">+{formatTakaShort(fb.revenue)}</span>
+   908→                            </div>
+   909→                            <div className="flex items-center justify-between text-sm">
+   910→                              <div className="flex items-center gap-2">
+   911→                                <TrendingDown className="h-4 w-4 text-red-400" />
+   912→                                <span className="text-muted-foreground">COGS</span>
+   913→                              </div>
+   914→                              <span className="font-medium text-red-500">-{formatTakaShort(fb.costOfGoodsSold)}</span>
+   915→                            </div>
+   916→                            <div className="flex items-center justify-between text-sm">
+   917→                              <span className="text-muted-foreground pl-6">Gross Profit</span>
+   918→                              <span className={`font-medium ${fb.grossProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   919→                                {fb.grossProfit >= 0 ? '+' : ''}{formatTakaShort(fb.grossProfit)}
+   920→                              </span>
+   921→                            </div>
+   922→                            <Separator />
+   923→                            {(fb.salaries > 0 || fb.rent > 0 || fb.utilities > 0 || fb.taxes > 0) && (
+   924→                              <>
+   925→                                {fb.rent > 0 && (
+   926→                                  <div className="flex items-center justify-between text-sm">
+   927→                                    <span className="text-muted-foreground">Rent</span>
+   928→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.rent)}</span>
+   929→                                  </div>
+   930→                                )}
+   931→                                {fb.salaries > 0 && (
+   932→                                  <div className="flex items-center justify-between text-sm">
+   933→                                    <span className="text-muted-foreground">Salaries</span>
+   934→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.salaries)}</span>
+   935→                                  </div>
+   936→                                )}
+   937→                                {fb.utilities > 0 && (
+   938→                                  <div className="flex items-center justify-between text-sm">
+   939→                                    <span className="text-muted-foreground">Utilities</span>
+   940→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.utilities)}</span>
+   941→                                  </div>
+   942→                                )}
+   943→                                {fb.taxes > 0 && (
+   944→                                  <div className="flex items-center justify-between text-sm">
+   945→                                    <span className="text-muted-foreground">Taxes</span>
+   946→                                    <span className="font-medium text-red-500">-{formatTakaShort(fb.taxes)}</span>
+   947→                                  </div>
+   948→                                )}
+   949→                                <Separator />
+   950→                              </>
+   951→                            )}
+   952→                            <div className="flex items-center justify-between text-sm font-bold">
+   953→                              <span>Net Profit</span>
+   954→                              <span className={fb.netProfit >= 0 ? 'text-green-600' : 'text-red-500'}>
+   955→                                {fb.netProfit >= 0 ? '+' : ''}{formatTakaShort(fb.netProfit)}
+   956→                              </span>
+   957→                            </div>
+   958→                            {fb.customers > 0 && (
+   959→                              <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+   960→                                <span>Customers today</span>
+   961→                                <span className="font-medium">{fb.customers}</span>
+   962→                              </div>
+   963→                            )}
+   964→                          </>
+   965→                        );
+   966→                      })()}
+   967→                    </CardContent>
+   968→                  </Card>
+   969→
+   970→                  {/* ---- ROI & Payback ---- */}
+   971→                  {analyticsData.roi && (
+   972→                    <Card className="game-shine">
+   973→                      <CardHeader className="pb-2 pt-4 px-4">
+   974→                        <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+   975→                          <Target className="h-4 w-4" /> ROI &amp; Payback
+   976→                        </CardTitle>
+   977→                      </CardHeader>
+   978→                      <CardContent className="px-4 pb-4">
+   979→                        <div className="grid grid-cols-2 gap-3">
+   980→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   981→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Total Investment</div>
+   982→                            <div className="text-sm font-bold mt-0.5">{formatTakaShort(analyticsData.roi.investment)}</div>
+   983→                          </div>
+   984→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   985→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Cumulative Profit</div>
+   986→                            <div className={`text-sm font-bold mt-0.5 ${(analyticsData.roi.cumulativeProfit || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   987→                              {formatTakaShort(analyticsData.roi.cumulativeProfit)}
+   988→                            </div>
+   989→                          </div>
+   990→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   991→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>ROI</div>
+   992→                            <div className={`text-sm font-bold mt-0.5 ${(analyticsData.roi.roiPercentage || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   993→                              {(analyticsData.roi.roiPercentage || 0).toFixed(1)}%
+   994→                            </div>
+   995→                          </div>
+   996→                          <div className="text-center p-2.5 rounded-lg bg-muted/40">
+   997→                            <div className="text-[10px] text-muted-foreground uppercase" style={{ letterSpacing: '0.05em' }}>Payback</div>
+   998→                            <div className="text-sm font-bold mt-0.5 flex items-center justify-center gap-1">
+   999→                              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+  1000→                              {analyticsData.roi.estimatedPaybackDays != null
+  1001→                                ? `${analyticsData.roi.estimatedPaybackDays} days`
+  1002→                                : '∞'}
+  1003→                            </div>
+  1004→                          </div>
+  1005→                        </div>
+  1006→                        <div className="mt-3 text-center">
+  1007→                          <div className="text-[10px] text-muted-foreground">Avg. Daily Profit</div>
+  1008→                          <div className={`text-base font-bold ${(analyticsData.roi.averageDailyProfit || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+  1009→                            {formatTaka(analyticsData.roi.averageDailyProfit || 0)}
+  1010→                          </div>
+  1011→                        </div>
+  1012→                      </CardContent>
+  1013→                    </Card>
+  1014→                  )}
+  1015→
+  1016→                  {/* ---- Product Performance ---- */}
+  1017→                  {analyticsData.productPerformance?.length > 0 && (
+  1018→                    <Card className="game-shine">
+  1019→                      <CardHeader className="pb-2 pt-4 px-4">
+  1020→                        <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+  1021→                          <ShoppingCart className="h-4 w-4" /> Product Performance
+  1022→                        </CardTitle>
+  1023→                      </CardHeader>
+  1024→                      <CardContent className="px-4 pb-4">
+  1025→                        <div className="space-y-2">
+  1026→                          {analyticsData.productPerformance.map((pp: any, i: number) => {
+  1027→                            const demandIcon = pp.demandScore === 'VERY_HIGH' ? '🔥' : pp.demandScore === 'HIGH' ? '📈' : pp.demandScore === 'NORMAL' ? '➡️' : pp.demandScore === 'LOW' ? '📉' : '❄️';
+  1028→                            const demandLabel = pp.demandScore === 'VERY_HIGH' ? 'Very High' : pp.demandScore === 'HIGH' ? 'High' : pp.demandScore === 'NORMAL' ? 'Normal' : pp.demandScore === 'LOW' ? 'Low' : 'Very Low';
+  1029→                            const demandColor = pp.demandScore === 'VERY_HIGH' || pp.demandScore === 'HIGH' ? 'text-green-600' : pp.demandScore === 'NORMAL' ? 'text-amber-600' : 'text-red-500';
+  1030→                            return (
+  1031→                              <div key={i} className="flex items-center gap-2.5 p-2.5 rounded-lg border bg-muted/20">
+  1032→                                <div className="flex-1 min-w-0">
+  1033→                                  <div className="flex items-center gap-1.5">
+  1034→                                    <span className="text-sm font-medium truncate">{pp.productName}</span>
+  1035→                                    <span className={`text-[10px] ${demandColor}`}>{demandIcon} {demandLabel}</span>
+  1036→                                  </div>
+  1037→                                  <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+  1038→                                    <span>Stock: {pp.remainingStock}</span>
+  1039→                                    <span>Margin: {(pp.profitMargin * 100).toFixed(0)}%</span>
+  1040→                                    {pp.priceScore > 0 && <span>Price Score: {(pp.priceScore * 100).toFixed(0)}%</span>}
+  1041→                                  </div>
+  1042→                                </div>
+  1043→                              </div>
+  1044→                            );
+  1045→                          })}
+  1046→                        </div>
+  1047→                      </CardContent>
+  1048→                    </Card>
+  1049→                  )}
+  1050→
+  1051→                  {/* ---- Performance History Chart (Recharts) ---- */}
+  1052→                  <Card className="game-shine">
+  1053→                    <CardHeader className="pb-2 pt-4 px-4">
+  1054→                      <CardTitle className="text-sm font-semibold game-gradient-text flex items-center gap-1.5">
+  1055→                        <BarChart3 className="h-4 w-4" /> Performance History
+  1056→                      </CardTitle>
+  1057→                    </CardHeader>
+  1058→                    <CardContent className="px-4 pb-4">
+  1059→                      {analyticsData.history?.length > 0 ? (
+  1060→                        <ResponsiveContainer width="100%" height={220}>
+  1061→                          <LineChart data={analyticsData.history} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+  1062→                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+  1063→                            <XAxis
+  1064→                              dataKey="gameDay"
+  1065→                              tick={{ fontSize: 10, fill: '#9ca3af' }}
+  1066→                              tickFormatter={(v: number) => `D${v}`}
+  1067→                            />
+  1068→                            <YAxis
+  1069→                              tick={{ fontSize: 10, fill: '#9ca3af' }}
+  1070→                              tickFormatter={(v: number) => {
+  1071→                                if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(0)}k`;
+  1072→                                return String(v);
+  1073→                              }}
+  1074→                            />
+  1075→                            <Tooltip
+  1076→                              contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+  1077→                              formatter={(value: number, name: string) => [formatTakaShort(value), name.charAt(0).toUpperCase() + name.slice(1)]}
+  1078→                              labelFormatter={(label: number) => `Day ${label}`}
+  1079→                            />
+  1080→                            <Legend
+  1081→                              wrapperStyle={{ fontSize: 10 }}
+  1082→                            />
+  1083→                            <Line
+  1084→                              type="monotone"
+  1085→                              dataKey="revenue"
+  1086→                              stroke="#16a34a"
+  1087→                              strokeWidth={2}
+  1088→                              dot={false}
+  1089→                              name="revenue"
+  1090→                            />
+  1091→                            <Line
+  1092→                              type="monotone"
+  1093→                              dataKey="expenses"
+  1094→                              stroke="#f59e0b"
+  1095→                              strokeWidth={2}
+  1096→                              dot={false}
+  1097→                              name="expenses"
+  1098→                            />
+  1099→                            <Line
+  1100→                              type="monotone"
+  1101→                              dataKey="profit"
+  1102→                              stroke="#006a4e"
+  1103→                              strokeWidth={2}
+  1104→                              dot={false}
+  1105→                              name="profit"
+  1106→                            />
+  1107→                          </LineChart>
+  1108→                        </ResponsiveContainer>
+  1109→                      ) : (
+  1110→                        <div className="h-32 flex items-center justify-center">
+  1111→                          <div className="text-center">
+  1112→                            <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
+  1113→                            <p className="text-xs text-muted-foreground">No history yet. Advance days to generate data.</p>
+  1114→                          </div>
+  1115→                        </div>
+  1116→                      )}
+  1117→                    </CardContent>
+  1118→                  </Card>
+  1119→                </>
+  1120→              )}
+  1121→            </div>
+  1122→          </TabsContent>
+  1123→
+  1124→          <TabsContent value="employees">
+  1125→            <div className="space-y-3">
+  1126→              <div className="flex items-center justify-between">
+  1127→                <h3 className="text-sm font-semibold">Staff ({employees.length}/{GAME_CONFIG.maxEmployees})</h3>
+  1128→                <Button size="sm" className="gap-1 text-white text-xs" style={{ background: '#006a4e' }} onClick={() => setShowHireDialog(true)} disabled={employees.length >= GAME_CONFIG.maxEmployees}>
+  1129→                  <Users className="h-3.5 w-3.5" /> Hire
+  1130→                </Button>
+  1131→              </div>
+  1132→
+  1133→              <Dialog open={showHireDialog} onOpenChange={setShowHireDialog}>
+  1134→                <DialogContent className="max-w-md">
+  1135→                  <DialogHeader>
+  1136→                    <DialogTitle>Hire Employee</DialogTitle>
+  1137→                    <DialogDescription>Choose a role for your new employee</DialogDescription>
+  1138→                  </DialogHeader>
+  1139→                  <div className="space-y-2">
+  1140→                    {EMPLOYEE_ROLES.map((role) => (
+  1141→                      <button
+  1142→                        key={role.role}
+  1143→                        onClick={() => setHireRole(role.role)}
+  1144→                        className={`w-full text-left p-3 rounded-lg border transition-colors ${hireRole === role.role ? 'border-green-500 bg-green-50' : 'hover:border-green-300'}`}
+  1145→                      >
+  1146→                        <div className="flex items-center gap-2">
+  1147→                          <span className="text-xl">{role.icon}</span>
+  1148→                          <div className="flex-1">
+  1149→                            <div className="text-sm font-medium">{role.label}</div>
+  1150→                            <div className="text-xs text-muted-foreground">{role.description}</div>
+  1151→                            <div className="text-xs mt-0.5">Salary: ~৳{role.baseSalary.toLocaleString()}/day</div>
+  1152→                          </div>
+  1153→                        </div>
+  1154→                      </button>
+  1155→                    ))}
+  1156→                  </div>
+  1157→                  <DialogFooter>
+  1158→                    <Button variant="outline" onClick={() => setShowHireDialog(false)}>Cancel</Button>
+  1159→                    <Button onClick={handleHire} disabled={!hireRole || hiring} className="text-white" style={{ background: '#006a4e' }}>
+  1160→                      {hiring ? 'Hiring...' : 'Hire'}
+  1161→                    </Button>
+  1162→                  </DialogFooter>
+  1163→                </DialogContent>
+  1164→              </Dialog>
+  1165→
+  1166→              {employees.length === 0 ? (
+  1167→                <Card className="border-dashed">
+  1168→                  <CardContent className="py-8 text-center">
+  1169→                    <div className="text-4xl mb-2">👥</div>
+  1170→                    <p className="text-sm text-muted-foreground">No employees. Hire staff to boost your business!</p>
+  1171→                  </CardContent>
+  1172→                </Card>
+  1173→              ) : (
+  1174→                <div className="space-y-2">
+  1175→                  {employees.map((emp: any) => {
+  1176→                    const role = getEmployeeRole(emp.role);
+  1177→                    return (
+  1178→                      <Card key={emp.id}>
+  1179→                        <CardContent className="p-3">
+  1180→                          <div className="flex items-center gap-3">
+  1181→                            <div className="text-2xl p-1.5 rounded-lg bg-muted">{role?.icon || '👤'}</div>
+  1182→                            <div className="flex-1 min-w-0">
+  1183→                              <div className="text-sm font-medium truncate">{emp.name}</div>
+  1184→                              <div className="text-xs text-muted-foreground">{role?.label || emp.role}</div>
+  1185→                              <div className="flex gap-2 mt-1">
+  1186→                                <Badge variant="outline" className="text-[10px]">Skill: {emp.skill}/10</Badge>
+  1187→                                <Badge variant="outline" className="text-[10px]">Eff: {emp.efficiency || 0}%</Badge>
+  1188→                              </div>
+  1189→                            </div>
+  1190→                            <div className="text-right shrink-0">
+  1191→                              <div className="text-sm font-medium">৳{(emp.salary || 0).toLocaleString()}</div>
+  1192→                              <div className="text-[10px] text-muted-foreground">salary/day</div>
+  1193→                              <Button size="icon" variant="ghost" className="h-7 w-7 mt-1 text-red-400 hover:text-red-600" onClick={() => handleFire(emp.id)} disabled={firingId === emp.id}>
+  1194→                                <Trash2 className="h-3.5 w-3.5" />
+  1195→                              </Button>
+  1196→                            </div>
+  1197→                          </div>
+  1198→                        </CardContent>
+  1199→                      </Card>
+  1200→                    );
+  1201→                  })}
+  1202→                </div>
+  1203→              )}
+  1204→            </div>
+  1205→          </TabsContent>
+  1206→
+  1207→          <TabsContent value="logs">
+  1208→            <div className="space-y-3">
+  1209→              <div className="flex items-center justify-between">
+  1210→                <h3 className="text-sm font-semibold flex items-center gap-2">
+  1211→                  <FileText className="h-4 w-4" style={{ color: '#006a4e' }} /> Activity Log
+  1212→                </h3>
+  1213→                <Button size="sm" variant="outline" className="text-xs" onClick={fetchLogs}>
+  1214→                  Refresh
+  1215→                </Button>
+  1216→              </div>
+  1217→
+  1218→              {logsLoading ? (
+  1219→                <div className="space-y-2">
+  1220→                  {[...Array(5)].map((_, i) => (
+  1221→                    <Card key={i}><CardContent className="p-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+  1222→                  ))}
+  1223→                </div>
+  1224→              ) : logs.length === 0 ? (
+  1225→                <Card className="border-dashed">
+  1226→                  <CardContent className="py-12 text-center">
+  1227→                    <div className="text-4xl mb-2">📋</div>
+  1228→                    <p className="text-sm text-muted-foreground">No activity yet. Advance to the next day to generate logs!</p>
+  1229→                  </CardContent>
+  1230→                </Card>
+  1231→              ) : (
+  1232→                <div className="space-y-2">
+  1233→                  {logs.map((log: any, i: number) => {
+  1234→                    const isProfit = log.type === 'PROFIT';
+  1235→                    return (
+  1236→                      <motion.div
+  1237→                        key={log.id}
+  1238→                        initial={{ opacity: 0, x: -10 }}
+  1239→                        animate={{ opacity: 1, x: 0 }}
+  1240→                        transition={{ delay: i * 0.03 }}
+  1241→                      >
+  1242→                        <Card className={isProfit ? 'border-l-4 border-l-green-400 game-gradient-card' : 'border-l-4 border-l-red-400 game-gradient-card'}>
+  1243→                          <CardContent className="p-3">
+  1244→                            <div className="flex items-start gap-3">
+  1245→                              <div className={`mt-0.5 ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+  1246→                                {isProfit ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+  1247→                              </div>
+  1248→                              <div className="flex-1 min-w-0">
+  1249→                                <div className="text-sm">{log.message}</div>
+  1250→                                <div className="flex items-center gap-2 mt-1">
+  1251→                                  <span className={`text-xs font-bold ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
+  1252→                                    {isProfit ? '+' : '-'}{formatTakaShort(Math.abs(log.amount || 0))}
+  1253→                                  </span>
+  1254→                                  {log.createdAt && (
+  1255→                                    <span className="text-[10px] text-muted-foreground">
+  1256→                                      {new Date(log.createdAt).toLocaleDateString()}
+  1257→                                    </span>
+  1258→                                  )}
+  1259→                                </div>
+  1260→                              </div>
+  1261→                            </div>
+  1262→                          </CardContent>
+  1263→                        </Card>
+  1264→                      </motion.div>
+  1265→                    );
+  1266→                  })}
+  1267→                </div>
+  1268→              )}
+  1269→            </div>
+  1270→          </TabsContent>
+  1271→
+  1272→          <TabsContent value="settings">
+  1273→            <div className="space-y-4">
+  1274→              <Card>
+  1275→                <CardHeader className="pb-2 pt-4 px-4">
+  1276→                  <CardTitle className="text-sm">Business Info</CardTitle>
+  1277→                </CardHeader>
+  1278→                <CardContent className="px-4 pb-4 space-y-2">
+  1279→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Name</span><span className="font-medium">{currentBusiness.name}</span></div>
+  1280→                  <Separator />
+  1281→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Type</span><span className="font-medium">{bt?.icon} {bt?.name}</span></div>
+  1282→                  <Separator />
+  1283→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">City</span><span className="font-medium">{city?.name}</span></div>
+  1284→                  <Separator />
+  1285→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Level</span><span className="font-medium">{currentBusiness.level || 1}</span></div>
+  1286→                  <Separator />
+  1287→                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Reputation</span><span className="font-medium">{currentBusiness.reputation || 0}%</span></div>
+  1288→                </CardContent>
+  1289→              </Card>
+  1290→
+  1291→              <Card>
+  1292→                <CardHeader className="pb-2 pt-4 px-4">
+  1293→                  <CardTitle className="text-sm flex items-center gap-2"><ArrowUp className="h-4 w-4" /> Upgrade Business</CardTitle>
+  1294→                  <CardDescription>Upgrade to level {(currentBusiness.level || 1) + 1}. Increases capacity and +5 reputation.</CardDescription>
+  1295→                </CardHeader>
+  1296→                <CardContent className="px-4 pb-4">
+  1297→                  <div className="flex items-center justify-between">
+  1298→                    <div>
+  1299→                      <div className="text-sm text-muted-foreground">Upgrade Cost</div>
+  1300→                      <div className="text-lg font-bold">{formatTaka(upgradeCost)}</div>
+  1301→                      <div className="text-[10px] text-muted-foreground">Your cash: {formatTaka(player?.cash || 0)}</div>
+  1302→                    </div>
+  1303→                    <Button onClick={handleUpgrade} disabled={upgrading || (player?.cash || 0) < upgradeCost} className="text-white" style={{ background: '#006a4e' }}>
+  1304→                      {upgrading ? 'Upgrading...' : 'Upgrade'}
+  1305→                    </Button>
+  1306→                  </div>
+  1307→                </CardContent>
+  1308→              </Card>
+  1309→
+  1310→              <Card className="border-red-200/60">
+  1311→                <CardHeader className="pb-2 pt-4 px-4">
+  1312→                  <CardTitle className="text-sm flex items-center gap-2 text-red-600"><HandCoins className="h-4 w-4" /> Sell Business</CardTitle>
+  1313→                  <CardDescription>Sell and recover a portion of your investment based on reputation.</CardDescription>
+  1314→                </CardHeader>
+  1315→                <CardContent className="px-4 pb-4">
+  1316→                  <div className="flex items-center justify-between">
+  1317→                    <div>
+  1318→                      <div className="text-xs text-muted-foreground">Estimated Value</div>
+  1319→                      <div className="text-lg font-bold">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</div>
+  1320→                    </div>
+  1321→                    <Button
+  1322→                      variant="outline"
+  1323→                      className="text-red-600 border-red-300 hover:bg-red-50 gap-1.5"
+  1324→                      onClick={() => { setSellBusinessConfirm(''); setShowSellBusinessDialog(true); }}
+  1325→                    >
+  1326→                      <HandCoins className="h-4 w-4" />
+  1327→                      Sell
+  1328→                    </Button>
+  1329→                  </div>
+  1330→                </CardContent>
+  1331→              </Card>
+  1332→
+  1333→              <Dialog open={showSellBusinessDialog} onOpenChange={setShowSellBusinessDialog}>
+  1334→                <DialogContent className="sm:max-w-md">
+  1335→                  <DialogHeader>
+  1336→                    <DialogTitle className="flex items-center gap-2 text-red-600">
+  1337→                      <HandCoins className="h-5 w-5" />
+  1338→                      Sell Business
+  1339→                    </DialogTitle>
+  1340→                    <DialogDescription>
+  1341→                      Permanently remove this business, all inventory, and all staff.
+  1342→                    </DialogDescription>
+  1343→                  </DialogHeader>
+  1344→                  <div className="space-y-3 py-2">
+  1345→                    <div className="rounded-lg bg-red-50 border border-red-200 p-3 space-y-2">
+  1346→                      <div className="flex justify-between text-sm">
+  1347→                        <span className="text-muted-foreground">Business Value</span>
+  1348→                        <span className="font-medium">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)))}</span>
+  1349→                      </div>
+  1350→                      <div className="flex justify-between text-sm">
+  1351→                        <span className="text-muted-foreground">Inventory Liquidation</span>
+  1352→                        <span className="font-medium">{formatTaka(inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+  1353→                      </div>
+  1354→                      <Separator />
+  1355→                      <div className="flex justify-between text-sm font-bold">
+  1356→                        <span>Total You Receive</span>
+  1357→                        <span className="text-green-700">{formatTaka(Math.round((bt?.investment || 50000) * (currentBusiness.level || 1) * Math.min(0.8, 0.5 + (currentBusiness.reputation || 0) * 0.001)) + inventories.reduce((sum: number, inv: any) => sum + Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7), 0))}</span>
+  1358→                      </div>
+  1359→                    </div>
+  1360→                    <div>
+  1361→                      <label className="text-sm font-medium">Type business name to confirm:</label>
+  1362→                      <input
+  1363→                        type="text"
+  1364→                        value={sellBusinessConfirm}
+  1365→                        onChange={(e) => setSellBusinessConfirm(e.target.value)}
+  1366→                        placeholder={currentBusiness.name}
+  1367→                        className="mt-1 w-full h-10 px-3 rounded-lg border border-red-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+  1368→                      />
+  1369→                    </div>
+  1370→                  </div>
+  1371→                  <DialogFooter className="gap-2">
+  1372→                    <Button variant="outline" onClick={() => setShowSellBusinessDialog(false)}>Cancel</Button>
+  1373→                    <Button
+  1374→                      onClick={async () => {
+  1375→                        if (sellBusinessConfirm !== currentBusiness.name) return;
+  1376→                        setSellingBusiness(true);
+  1377→                        try {
+  1378→                          const res = await fetch(`/api/businesses/${currentBusiness.id}/sell`, { method: 'POST' });
+  1379→                          if (res.ok) {
+  1380→                            const data = await res.json();
+  1381→                            toast.success(`Sold for ${formatTaka(data.totalReceived)}`);
+  1382→                            setView('businesses');
+  1383→                            const bRes = await fetch('/api/businesses');
+  1384→                            if (bRes.ok) useGameStore.getState().setBusinesses(await bRes.json());
+  1385→                            const pRes = await fetch('/api/player');
+  1386→                            if (pRes.ok) useGameStore.getState().setPlayer(await pRes.json());
+  1387→                          } else {
+  1388→                            const err = await res.json();
+  1389→                            toast.error(err.error || 'Failed to sell');
+  1390→                          }
+  1391→                        } catch { toast.error('Network error'); }
+  1392→                        finally { setSellingBusiness(false); }
+  1393→                      }}
+  1394→                      disabled={sellingBusiness || sellBusinessConfirm !== currentBusiness.name}
+  1395→                      className="bg-red-600 hover:bg-red-700 text-white"
+  1396→                    >
+  1397→                      {sellingBusiness ? 'Selling...' : 'Confirm Sale'}
+  1398→                    </Button>
+  1399→                  </DialogFooter>
+  1400→                </DialogContent>
+  1401→              </Dialog>
+  1402→            </div>
+  1403→          </TabsContent>
+  1404→        </div>
+  1405→      </Tabs>
+  1406→    </div>
+  1407→  );
+
+[showing lines 900-1407 of 1408; use offset=1408 with limit to continue reading]

@@ -45,6 +45,20 @@ import type { ProductSalesResult, ExpenseBreakdown, BusinessHealthResult } from 
 // Phase 2: AI Competitors Engine
 import { simulateAIPlayersTick, randomPersonality, getPersonalityConfig, calculateAIPrice } from './game/ai';
 
+// Phase 3: Customer Experience Engine
+import {
+  calculateSatisfaction,
+  calculateLoyalty,
+  calculateNPS,
+  calculateSegmentDemands,
+  generateReviews,
+  calculatePriceCompetitiveness,
+  calculateServiceQuality,
+  calculateCXDemandModifier,
+  getLoyaltyTier,
+} from './game/economy/cx-formulas';
+import { REVIEW_CONFIG } from './game/economy/cx-config';
+
 // ---- Prisma Transaction Client Type ----
 type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
@@ -446,6 +460,58 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     businessTypeId: business.type,
   });
 
+  // ---- Step 6.5: Customer Experience (Phase 3) ----
+  // Calculate price competitiveness across all products
+  const cxPriceCompetitiveness = calculatePriceCompetitiveness(
+    business.inventories.map(inv => ({ productName: inv.productName, sellPrice: inv.sellPrice })),
+    productDefs.map(p => ({ name: p.name, basePrice: p.basePrice, suggestedMarkup: p.suggestedMarkup })),
+    marketPriceMap,
+  );
+
+  // Calculate service quality from employees
+  const idealEmployeeCount = 2 + business.level; // Base 2 + 1 per level
+  const cxServiceQuality = calculateServiceQuality(
+    business.employees.length,
+    avgEmployeeSkill,
+    idealEmployeeCount,
+  );
+
+  // Calculate product quality from margin (higher margin = better products)
+  const cxProductQuality = totalRevenue > 0
+    ? Math.min(1, Math.max(0, (totalRevenue - totalCOGS) / totalRevenue / 0.3))
+    : 0.5;
+
+  // Calculate satisfaction
+  const cxSatisfaction = calculateSatisfaction({
+    priceCompetitiveness: cxPriceCompetitiveness,
+    stockAvailability: maxStockCapacity > 0 ? totalStock / maxStockCapacity : 0,
+    serviceQuality: cxServiceQuality,
+    productQuality: cxProductQuality,
+    atmosphere: newReputation / 100,
+    currentSatisfaction: business.satisfactionScore,
+  });
+
+  // Determine if this was a positive experience
+  const wasPositiveExperience = cxSatisfaction.overall >= 50 && dailyProfit >= 0;
+
+  // Calculate loyalty
+  const cxLoyalty = calculateLoyalty({
+    currentLoyaltyScore: business.loyaltyScore,
+    currentRepeatRate: business.repeatCustomerRate,
+    wasPositiveExperience,
+    totalCustomers: potentialCustomers,
+    numberOfReviews: business.totalReviews,
+    averageRating: business.avgReviewRating,
+    loyaltyMultiplier: getLoyaltyTier(business.loyaltyScore).multiplier,
+  });
+
+  // Calculate CX demand modifier
+  const cxDemandModifier = calculateCXDemandModifier(
+    cxSatisfaction.overall,
+    cxLoyalty.repeatCustomerRate,
+    cxLoyalty.tierMultiplier,
+  );
+
   // ---- Step 7: Get game day for metrics ----
   const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
   const gameDay = parseInt(gameDayState?.value || '1', 10);
@@ -465,7 +531,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     // Now: business profit is transferred to the player each tick.
     const profitToDistribute = dailyProfit;
 
-    // Update business
+    // Update business (including Phase 3 CX fields)
     await tx.business.update({
       where: { id: business.id },
       data: {
@@ -479,6 +545,10 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         totalProfit: business.totalProfit + roundTaka(dailyProfit),
         reputation: newReputation,
         healthScore: healthResult.score,
+        // Phase 3: CX fields
+        satisfactionScore: cxSatisfaction.overall,
+        loyaltyScore: cxLoyalty.loyaltyScore,
+        repeatCustomerRate: cxLoyalty.repeatCustomerRate,
       },
     });
 
@@ -488,7 +558,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       data: { cash: { increment: roundTaka(profitToDistribute) } },
     });
 
-    // Save daily metrics for analytics
+    // Save daily metrics for analytics (including Phase 3 CX metrics)
     await tx.businessMetric.upsert({
       where: { businessId_gameDay: { businessId: business.id, gameDay } },
       create: {
@@ -500,6 +570,10 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         cogs: roundTaka(totalCOGS),
         customers: potentialCustomers,
         reputation: newReputation,
+        // Phase 3: CX metrics
+        satisfaction: cxSatisfaction.overall,
+        loyalty: cxLoyalty.loyaltyScore,
+        nps: business.npsScore,
       },
       update: {
         revenue: roundTaka(totalRevenue),
@@ -508,20 +582,80 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         cogs: roundTaka(totalCOGS),
         customers: potentialCustomers,
         reputation: newReputation,
+        // Phase 3: CX metrics
+        satisfaction: cxSatisfaction.overall,
+        loyalty: cxLoyalty.loyaltyScore,
+        nps: business.npsScore,
       },
     });
 
-    // Log
+    // Log (with Phase 3 CX info)
     const cogsStr = totalCOGS > 0 ? ` | COGS ৳${roundTaka(totalCOGS).toLocaleString()}` : '';
     await tx.gameLog.create({
       data: {
         playerId: business.playerId,
         businessId: business.id,
         type: dailyProfit >= 0 ? 'PROFIT' : 'LOSS',
-        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(expenses.totalExpense).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score}`,
+        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(expenses.totalExpense).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score} | Sat ${Math.round(cxSatisfaction.overall)} | Loy ${cxLoyalty.tier}`,
         amount: dailyProfit,
       },
     });
+
+    // Phase 3: Generate and persist customer reviews
+    const cxReviews = generateReviews(business.id, gameDay, cxSatisfaction, REVIEW_CONFIG.maxPerTick);
+    for (const review of cxReviews) {
+      await tx.customerReview.create({
+        data: {
+          businessId: review.businessId,
+          gameDay: review.gameDay,
+          rating: review.rating,
+          sentiment: review.sentiment,
+          category: review.category,
+          comment: review.comment,
+          segment: review.segment,
+        },
+      });
+    }
+
+    // Phase 3: Update NPS and review stats
+    if (cxReviews.length > 0) {
+      const allReviews = await tx.customerReview.findMany({
+        where: { businessId: business.id },
+        select: { rating: true },
+        orderBy: { createdAt: 'desc' },
+        take: REVIEW_CONFIG.keepLast,
+      });
+      const npsResult = calculateNPS(allReviews);
+      const totalReviews = allReviews.length;
+      const avgRating = totalReviews > 0
+        ? allReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
+        : 0;
+
+      await tx.business.update({
+        where: { id: business.id },
+        data: {
+          npsScore: npsResult.nps,
+          totalReviews,
+          avgReviewRating: Math.round(avgRating * 100) / 100,
+        },
+      });
+
+      // Prune old reviews (keep only last N)
+      const reviewCount = await tx.customerReview.count({
+        where: { businessId: business.id },
+      });
+      if (reviewCount > REVIEW_CONFIG.keepLast) {
+        const oldReviews = await tx.customerReview.findMany({
+          where: { businessId: business.id },
+          orderBy: { createdAt: 'asc' },
+          take: reviewCount - REVIEW_CONFIG.keepLast,
+          select: { id: true },
+        });
+        for (const old of oldReviews) {
+          await tx.customerReview.delete({ where: { id: old.id } });
+        }
+      }
+    }
 
     // Recalculate net worth within the same transaction
     await recalculateNetWorth(tx, business.playerId);

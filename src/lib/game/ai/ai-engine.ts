@@ -301,6 +301,10 @@ async function buildDecisionContext(
         sellPrice: inv.sellPrice,
       })),
       employeeCount: b.employees.length,
+      // Phase 3: Customer Experience
+      satisfactionScore: b.satisfactionScore,
+      loyaltyScore: b.loyaltyScore,
+      repeatCustomerRate: b.repeatCustomerRate,
     })),
     activeLoans: loans.map(l => ({
       id: l.id,
@@ -447,7 +451,11 @@ export async function calculateMarketShare(
     // 0.5 + min(dailyRevenue / avgRevenue, 2.0) * 0.25  (range ~0.5-1.0)
     const revenueFactor = 0.5 + Math.min(b.dailyRevenue / Math.max(avgRevenue, 1), 2.0) * 0.25;
 
-    const score = repFactor * levelFactor * healthFactor * inventoryFactor * pricingFactor * revenueFactor;
+    // Phase 3: Satisfaction factor — satisfied customers attract more via word-of-mouth
+    // satisfaction 50 → 1.0, satisfaction 80 → 1.12, satisfaction 20 → 0.84
+    const satisfactionFactor = 0.6 + (b.satisfactionScore / 100) * 0.6;
+
+    const score = repFactor * levelFactor * healthFactor * inventoryFactor * pricingFactor * revenueFactor * satisfactionFactor;
     return {
       businessId: b.id,
       businessName: b.name,

@@ -59,6 +59,10 @@ export interface AIBusinessSnapshot {
   healthScore: number;
   inventories: AIInventorySnapshot[];
   employeeCount: number;
+  // Phase 3: Customer Experience
+  satisfactionScore: number;  // 0-100
+  loyaltyScore: number;      // 0-100
+  repeatCustomerRate: number; // 0-1
 }
 
 /** Simplified inventory snapshot */

@@ -463,3 +463,76 @@ Stage Summary:
 - All simulation files clearly documented as simplified approximations
 - No balance changes made (no bugs found)
 - Project is READY FOR PHASE 3
+
+---
+Task ID: 7
+Agent: API Developer
+Task: Create CX API endpoint
+
+Work Log:
+- Created /api/businesses/[id]/cx endpoint returning satisfaction, loyalty, NPS, segments, reviews, trends, factors
+
+Stage Summary:
+- CX API endpoint created with GET handler
+- Returns comprehensive CX dashboard data
+
+---
+Task ID: 9
+Agent: Test Developer
+Task: Create CX formulas tests
+
+Work Log:
+- Read cx-formulas.ts, cx-config.ts, types.ts, and existing economy-formulas.test.ts
+- Created cx-formulas.test.ts with 100 comprehensive tests covering all 9 CX formula functions
+- All 100 tests pass (total suite: 205 tests passing)
+
+Stage Summary:
+- 100 CX tests created and passing across 9 test groups:
+  1. calculatePriceCompetitiveness (10 tests) - price/market ratios, empty inventories, market multipliers
+  2. calculateSatisfaction (12 tests) - perfect/terrible business, smoothing, positive/negative factors, clamping
+  3. calculateServiceQuality (8 tests) - no employees, full/half/overstaffed, skill scaling
+  4. getLoyaltyTier (10 tests) - all tier boundaries, icons, exact thresholds
+  5. calculateLoyalty (10 tests) - positive/negative experience, decay, caps, rating bonus, tier promotion
+  6. calculateNPS (8 tests) - all promoters/detractors/passives, mixed, minReviews boundary
+  7. calculateSegmentDemands (7 tests) - 4 segments, shares, budget vs premium sensitivity, reputation
+  8. generateReviews + helpers (20 tests) - sentiment, category, rating, valid outputs, bounds
+  9. calculateCXDemandModifier (10 tests) - high/low/neutral, caps at 0.2 and 2.0, loyalty effects
+- 5 additional helper tests (determineSentiment, determineCategory, generateRating)
+---
+Task ID: Phase-3
+Agent: Main
+Task: Implement Phase 3: Customer Experience & Loyalty System
+
+Work Log:
+- Explored full codebase structure: schema, BusinessDetail (6 tabs), economy formulas, game engine tick, AI engine, API routes
+- Added 6 CX fields to Business model (satisfactionScore, loyaltyScore, repeatCustomerRate, npsScore, totalReviews, avgReviewRating)
+- Added 3 CX fields to BusinessMetric model (satisfaction, loyalty, nps)
+- Created CustomerReview model with rating, sentiment, category, comment, segment fields
+- Pushed schema changes with db:push
+- Created cx-config.ts with satisfaction weights, 4 customer segments, 4 loyalty tiers, NPS config, review templates
+- Added Phase 3 types to economy/types.ts (SatisfactionInput/Result, LoyaltyInput/Result, NPSResult, SegmentDemandResult, etc.)
+- Created cx-formulas.ts with 9 exported functions: calculatePriceCompetitiveness, calculateSatisfaction, calculateServiceQuality, getLoyaltyTier, calculateLoyalty, calculateNPS, calculateSegmentDemands, generateReviews, calculateCXDemandModifier
+- Updated economy/index.ts barrel export with cx-config and cx-formulas
+- Integrated CX into game-engine.ts simulateBusinessTick as Step 6.5 (after health score, before transaction)
+- CX fields persisted in business update, BusinessMetric upsert, and GameLog
+- Reviews generated and persisted, NPS calculated, old reviews pruned
+- Added CX fields to AIBusinessSnapshot (satisfactionScore, loyaltyScore, repeatCustomerRate)
+- Updated AI engine buildDecisionContext to include CX fields from database
+- Added satisfaction factor to market share calculation in calculateMarketShare
+- Created /api/businesses/[id]/cx endpoint returning comprehensive CX dashboard data
+- Added CX tab to BusinessDetail.tsx (7th tab, grid-cols-7)
+- CX UI includes: satisfaction/loyalty/repeat-rate/NPS cards, satisfaction trend, customer segments, strengths/issues factors, review distribution, recent reviews with sentiment colors, CX trends chart
+- Created cx-formulas.test.ts with 100 tests covering all 9 functions
+- Fixed ai-system.test.ts makeBusiness factory to include CX fields
+- All 205 tests pass (45 economy + 60 AI + 100 CX)
+- Lint: 0 errors
+- Build: successful
+- Server: running and responding correctly
+
+Stage Summary:
+- Phase 3 fully implemented with customer experience, loyalty, segments, reviews, and UI
+- All calculations are server-authoritative and use Phase 1 economy data
+- AI businesses automatically get CX through simulateBusinessTick
+- Market share now includes satisfaction factor
+- 100 new tests for CX formulas
+- 205 total tests passing

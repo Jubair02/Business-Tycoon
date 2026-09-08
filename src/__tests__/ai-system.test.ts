@@ -60,6 +60,9 @@ function makeBusiness(overrides: Partial<AIBusinessSnapshot> = {}): AIBusinessSn
     healthScore: 70,
     inventories: [],
     employeeCount: 1,
+    satisfactionScore: 50,
+    loyaltyScore: 20,
+    repeatCustomerRate: 0.15,
     ...overrides,
   };
 }
