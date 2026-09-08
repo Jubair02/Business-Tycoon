@@ -19,6 +19,7 @@ import type {
 import { getPersonalityConfig } from './ai-strategy';
 import { BUSINESS_TYPES, CITIES, PRODUCTS } from '@/lib/game-data';
 import type { BusinessType } from '@/lib/game-data';
+import { AI_MARKETING_CONFIG } from '../marketing/marketing-config';
 
 // ---- Action Scoring Weights ----
 // Base scores for each action type (before personality modifiers)
@@ -31,6 +32,7 @@ const BASE_ACTION_SCORES: Record<AIAction, number> = {
   SELL_BUSINESS: -10,
   TAKE_LOAN: 5,
   REPAY_LOAN: 10,
+  LAUNCH_CAMPAIGN: 15,
   HOLD: 5,
 };
 
@@ -186,6 +188,40 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
     });
   }
 
+  // ---- LAUNCH_CAMPAIGN ----
+  // Evaluate marketing opportunities for each business
+  const marketingFreqBonus = config.marketingEagerness * 20;
+  for (const biz of ctx.businesses) {
+    // Count active campaigns (from business context - approximate)
+    // AI marketing is also handled separately in ai-marketing.ts
+    // This evaluation decides if the AI should prioritize marketing as its strategic action
+    const activeCampaigns = (biz as Record<string, unknown>).activeCampaignCount as number || 0;
+
+    if (activeCampaigns < AI_MARKETING_CONFIG.maxAICampaigns) {
+      // Base marketing score
+      let mktScore = BASE_ACTION_SCORES.LAUNCH_CAMPAIGN + marketingFreqBonus;
+
+      // Market more when struggling (boost demand)
+      if (biz.satisfactionScore < 40) mktScore += 15;
+
+      // Market more when profitable (can afford it)
+      if (biz.dailyProfit > 0) {
+        mktScore += 10;
+      } else {
+        mktScore -= 15;
+      }
+
+      // Cash check — can't market if broke
+      if (ctx.cash < 5000) mktScore -= 20;
+
+      actions.push({
+        action: 'LAUNCH_CAMPAIGN',
+        score: mktScore,
+        target: biz.id,
+      });
+    }
+  }
+
   // ---- Event Reactions ----
   // Boost BUY_INVENTORY and CHANGE_PRICE scores when relevant events are active
   for (const event of ctx.activeEvents) {
@@ -219,11 +255,13 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
         if (action.action === 'TAKE_LOAN') action.score -= 20;
         if (action.action === 'CREATE_BUSINESS') action.score -= 15;
         if (action.action === 'SELL_BUSINESS') action.score += 5; // More willing to cut losses
+        if (action.action === 'LAUNCH_CAMPAIGN') action.score -= 10; // Conservative marketing
         break;
       case 'AGGRESSIVE':
         if (action.action === 'TAKE_LOAN') action.score += 15;
         if (action.action === 'CREATE_BUSINESS') action.score += 15;
         if (action.action === 'UPGRADE_BUSINESS') action.score += 10;
+        if (action.action === 'LAUNCH_CAMPAIGN') action.score += 15;
         break;
       case 'TRADER':
         if (action.action === 'CHANGE_PRICE') action.score += 20;
@@ -232,6 +270,7 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
       case 'EXPANSIONIST':
         if (action.action === 'CREATE_BUSINESS') action.score += 25;
         if (action.action === 'HIRE_EMPLOYEE') action.score += 10;
+        if (action.action === 'LAUNCH_CAMPAIGN') action.score += 20; // Marketing drives expansion
         break;
     }
   }

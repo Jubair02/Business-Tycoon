@@ -59,6 +59,19 @@ import {
 } from './game/economy/cx-formulas';
 import { REVIEW_CONFIG } from './game/economy/cx-config';
 
+// Phase 4: Marketing System
+import {
+  calculateCampaignDailySpend,
+  calculateCampaignReach,
+  calculateCampaignConversions,
+  calculateCampaignDemandModifier,
+  calculateCombinedMarketingModifier,
+  calculateBrandAwareness,
+  calculateBrandAwarenessDemandBonus,
+  calculateCampaignEffectiveness,
+} from './game/marketing/marketing-formulas';
+import { MARKETING_CONFIG } from './game/marketing/marketing-config';
+
 // ---- Prisma Transaction Client Type ----
 type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
@@ -266,6 +279,150 @@ export async function applyEventEffects(): Promise<void> {
   // This function is kept as a no-op to avoid breaking the tick flow.
 }
 
+// ---- Marketing Tick Processing (Phase 4: Marketing System) ----
+
+/**
+ * Process all active marketing campaigns for a business.
+ * Called within simulateBusinessTick.
+ *
+ * Returns the marketing effect to apply to demand.
+ */
+async function processMarketingTick(
+  businessId: string,
+  businessLevel: number,
+  satisfactionScore: number,
+  loyaltyScore: number,
+  repeatCustomerRate: number,
+  currentBrandAwareness: number,
+  segmentDemands: { segment: string; demandMultiplier: number }[],
+  gameDay: number,
+): Promise<{
+  combinedDemandModifier: number;
+  totalMarketingSpend: number;
+  newBrandAwareness: number;
+  totalConversions: number;
+  totalReach: number;
+}> {
+  // Fetch active campaigns
+  const activeCampaigns = await db.marketingCampaign.findMany({
+    where: { businessId, status: 'ACTIVE' },
+  });
+
+  if (activeCampaigns.length === 0) {
+    // No campaigns — just decay brand awareness
+    const newAwareness = calculateBrandAwareness(currentBrandAwareness, 0);
+    return {
+      combinedDemandModifier: 1.0,
+      totalMarketingSpend: 0,
+      newBrandAwareness: newAwareness,
+      totalConversions: 0,
+      totalReach: 0,
+    };
+  }
+
+  const campaignModifiers: number[] = [];
+  let totalSpend = 0;
+  let totalReach = 0;
+  let totalConversions = 0;
+
+  for (const campaign of activeCampaigns) {
+    // Calculate daily spend (clamped to remaining budget)
+    const dailySpend = calculateCampaignDailySpend(
+      campaign.dailyBudget,
+      campaign.totalSpend,
+      campaign.totalBudget,
+    );
+
+    if (dailySpend <= 0) {
+      // Budget exhausted — complete the campaign
+      await db.marketingCampaign.update({
+        where: { id: campaign.id },
+        data: { status: 'COMPLETED' },
+      });
+      continue;
+    }
+
+    // Calculate reach
+    const reach = calculateCampaignReach(
+      campaign.channel as any,
+      dailySpend,
+      businessLevel,
+    );
+
+    // Calculate conversions
+    const conversions = calculateCampaignConversions(
+      campaign.channel as any,
+      reach,
+      satisfactionScore,
+      campaign.targetSegment as any,
+      segmentDemands,
+    );
+
+    // Calculate this campaign's demand modifier
+    // Use a reasonable baseline for scaling (business type base customers × city multiplier)
+    const baselineForScaling = 50; // Reasonable default
+    const demandMod = calculateCampaignDemandModifier(conversions, baselineForScaling);
+    campaignModifiers.push(demandMod);
+
+    // Calculate effectiveness
+    const newTotalSpend = campaign.totalSpend + dailySpend;
+    const newTotalConversions = campaign.totalConversions + conversions;
+    const newTotalReach = campaign.totalReach + reach;
+    const effectiveness = calculateCampaignEffectiveness(
+      newTotalConversions,
+      newTotalReach,
+      newTotalSpend,
+      campaign.revenueInfluenced, // Will be updated later when we know revenue
+    );
+
+    // Update campaign
+    const newDaysRun = campaign.daysRun + 1;
+    const isExpired = newDaysRun >= campaign.duration;
+
+    await db.marketingCampaign.update({
+      where: { id: campaign.id },
+      data: {
+        daysRun: newDaysRun,
+        totalSpend: newTotalSpend,
+        totalReach: newTotalReach,
+        totalConversions: newTotalConversions,
+        effectiveness,
+        status: isExpired ? 'COMPLETED' : 'ACTIVE',
+      },
+    });
+
+    // Create daily metric
+    await db.campaignMetric.create({
+      data: {
+        campaignId: campaign.id,
+        gameDay,
+        dailySpend,
+        dailyReach: reach,
+        dailyConversions: conversions,
+        demandModifier: demandMod,
+      },
+    });
+
+    totalSpend += dailySpend;
+    totalReach += reach;
+    totalConversions += conversions;
+  }
+
+  // Combined demand modifier with stacking diminishing returns
+  const combinedDemandModifier = calculateCombinedMarketingModifier(campaignModifiers);
+
+  // Brand awareness update
+  const newBrandAwareness = calculateBrandAwareness(currentBrandAwareness, totalReach);
+
+  return {
+    combinedDemandModifier,
+    totalMarketingSpend: totalSpend,
+    newBrandAwareness,
+    totalConversions,
+    totalReach,
+  };
+}
+
 // ---- Business Simulation Tick (Phase 1: Economy Engine) ----
 
 /**
@@ -366,6 +523,22 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     (sum, seg) => sum + seg.demandMultiplier, 0
   );
 
+  // ---- Step 0.6: Marketing Demand Modifier (Phase 4) ----
+  // Fetch gameDay early (needed for marketing metrics and later for business metrics)
+  const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
+  const gameDay = parseInt(gameDayState?.value || '1', 10);
+
+  const marketingEffect = await processMarketingTick(
+    business.id,
+    business.level,
+    business.satisfactionScore,
+    business.loyaltyScore,
+    business.repeatCustomerRate,
+    business.brandAwareness,
+    segmentDemands,
+    gameDay,
+  );
+
   // ---- Step 1: Calculate potential customers ----
   const totalStock = business.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
   // Max stock capacity: sum of product maxStock values for this business type
@@ -389,11 +562,15 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     businessTypeId: business.type,
   });
 
-  // Apply CX demand modifier and segment demand modifier
+  // Apply CX demand modifier, segment demand modifier, and marketing modifiers
   // CX modifier: satisfaction/loyalty affect how many customers visit (0.2-2.0 range)
   // Segment modifier: different customer segments find the business more/less attractive
+  // Phase 4: Marketing demand modifier and brand awareness bonus
+  const marketingDemandModifier = marketingEffect.combinedDemandModifier;
+  const brandAwarenessBonus = calculateBrandAwarenessDemandBonus(marketingEffect.newBrandAwareness);
+
   const potentialCustomers = Math.max(0, Math.floor(
-    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier
+    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus
   ));
 
   // ---- Step 2: Product-level sales simulation ----
@@ -471,7 +648,9 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   });
 
   // ---- Step 4: Calculate net profit ----
-  const dailyProfit = calculateNetProfit(totalRevenue, totalCOGS, expenses.totalExpense);
+  // Phase 4: Include marketing spend in total expenses
+  const totalExpenseWithMarketing = expenses.totalExpense + marketingEffect.totalMarketingSpend;
+  const dailyProfit = calculateNetProfit(totalRevenue, totalCOGS, totalExpenseWithMarketing);
 
   // ---- Step 5: Calculate reputation change ----
   const outOfStockRatio = business.inventories.length > 0
@@ -549,8 +728,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   });
 
   // ---- Step 7: Get game day for metrics ----
-  const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
-  const gameDay = parseInt(gameDayState?.value || '1', 10);
+  // (gameDay already fetched at Step 0.6 for marketing processing)
 
   // ---- Step 8: Execute all updates in a single transaction ----
   await db.$transaction(async (tx) => {
@@ -567,12 +745,12 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     // Now: business profit is transferred to the player each tick.
     const profitToDistribute = dailyProfit;
 
-    // Update business (including Phase 3 CX fields)
+    // Update business (including Phase 3 CX fields and Phase 4 Marketing fields)
     await tx.business.update({
       where: { id: business.id },
       data: {
         dailyRevenue: roundTaka(totalRevenue),
-        dailyExpense: roundTaka(expenses.totalExpense),
+        dailyExpense: roundTaka(totalExpenseWithMarketing),
         dailyProfit: roundTaka(dailyProfit),
         dailyCOGS: roundTaka(totalCOGS),
         dailyCustomers: potentialCustomers,
@@ -585,6 +763,8 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         satisfactionScore: cxSatisfaction.overall,
         loyaltyScore: cxLoyalty.loyaltyScore,
         repeatCustomerRate: cxLoyalty.repeatCustomerRate,
+        // Phase 4: Marketing fields
+        brandAwareness: marketingEffect.newBrandAwareness,
       },
     });
 
@@ -594,6 +774,40 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       data: { cash: { increment: roundTaka(profitToDistribute) } },
     });
 
+    // Phase 4: Deduct marketing spend from player cash
+    // Marketing spend is separate from business expenses (it's a direct player cost)
+    if (marketingEffect.totalMarketingSpend > 0) {
+      await tx.player.update({
+        where: { id: business.playerId },
+        data: { cash: { decrement: roundTaka(marketingEffect.totalMarketingSpend) } },
+      });
+
+      // Phase 4: Attribute revenue to active campaigns (proportional to their spend)
+      // This gives campaigns ROI data for analytics
+      if (totalRevenue > 0 && marketingEffect.totalConversions > 0) {
+        const activeCampaigns = await tx.marketingCampaign.findMany({
+          where: { businessId: business.id, status: 'ACTIVE' },
+          select: { id: true, totalSpend: true },
+        });
+        const totalSpend = activeCampaigns.reduce((sum, c) => sum + c.totalSpend, 0);
+        if (totalSpend > 0) {
+          for (const campaign of activeCampaigns) {
+            // Attribute revenue proportional to this campaign's spend share
+            const spendShare = campaign.totalSpend / totalSpend;
+            // Only attribute the "extra" revenue from marketing (not base revenue)
+            const marketingRevenueBoost = totalRevenue * (marketingDemandModifier - 1) * (brandAwarenessBonus - 1 + 1);
+            const attributedRevenue = Math.max(0, marketingRevenueBoost * spendShare);
+            if (attributedRevenue > 0) {
+              await tx.marketingCampaign.update({
+                where: { id: campaign.id },
+                data: { revenueInfluenced: { increment: roundTaka(attributedRevenue) } },
+              });
+            }
+          }
+        }
+      }
+    }
+
     // Save daily metrics for analytics (including Phase 3 CX metrics)
     await tx.businessMetric.upsert({
       where: { businessId_gameDay: { businessId: business.id, gameDay } },
@@ -601,7 +815,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         businessId: business.id,
         gameDay,
         revenue: roundTaka(totalRevenue),
-        expenses: roundTaka(expenses.totalExpense),
+        expenses: roundTaka(totalExpenseWithMarketing),
         profit: roundTaka(dailyProfit),
         cogs: roundTaka(totalCOGS),
         customers: potentialCustomers,
@@ -613,7 +827,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       },
       update: {
         revenue: roundTaka(totalRevenue),
-        expenses: roundTaka(expenses.totalExpense),
+        expenses: roundTaka(totalExpenseWithMarketing),
         profit: roundTaka(dailyProfit),
         cogs: roundTaka(totalCOGS),
         customers: potentialCustomers,
@@ -632,7 +846,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         playerId: business.playerId,
         businessId: business.id,
         type: dailyProfit >= 0 ? 'PROFIT' : 'LOSS',
-        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(expenses.totalExpense).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score} | Sat ${Math.round(cxSatisfaction.overall)} | Loy ${cxLoyalty.tier}`,
+        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(totalExpenseWithMarketing).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score} | Sat ${Math.round(cxSatisfaction.overall)} | Loy ${cxLoyalty.tier} | Mkt ৳${roundTaka(marketingEffect.totalMarketingSpend).toLocaleString()}`,
         amount: dailyProfit,
       },
     });

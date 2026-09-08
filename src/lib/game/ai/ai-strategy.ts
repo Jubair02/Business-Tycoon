@@ -24,6 +24,7 @@ export const PERSONALITY_CONFIGS: Record<AIPersonality, PersonalityConfig> = {
     priceAdjustFrequency: 0.2,     // Rarely adjusts prices
     hiringPreference: 0.3,         // Hires minimally
     eventReactivity: 0.6,          // Moderate event reaction
+    marketingEagerness: 0.15,       // Rarely markets
   },
   BALANCED: {
     name: 'Balanced',
@@ -39,6 +40,7 @@ export const PERSONALITY_CONFIGS: Record<AIPersonality, PersonalityConfig> = {
     priceAdjustFrequency: 0.5,
     hiringPreference: 0.5,
     eventReactivity: 0.7,
+    marketingEagerness: 0.3,
   },
   AGGRESSIVE: {
     name: 'Aggressive',
@@ -54,6 +56,7 @@ export const PERSONALITY_CONFIGS: Record<AIPersonality, PersonalityConfig> = {
     priceAdjustFrequency: 0.7,
     hiringPreference: 0.7,
     eventReactivity: 0.8,
+    marketingEagerness: 0.6,
   },
   TRADER: {
     name: 'Trader',
@@ -69,6 +72,7 @@ export const PERSONALITY_CONFIGS: Record<AIPersonality, PersonalityConfig> = {
     priceAdjustFrequency: 0.9,     // Adjusts prices VERY frequently
     hiringPreference: 0.4,
     eventReactivity: 0.9,          // Reacts strongly to market events
+    marketingEagerness: 0.2,
   },
   EXPANSIONIST: {
     name: 'Expansionist',
@@ -84,6 +88,7 @@ export const PERSONALITY_CONFIGS: Record<AIPersonality, PersonalityConfig> = {
     priceAdjustFrequency: 0.3,
     hiringPreference: 0.6,         // Hires to support expansion
     eventReactivity: 0.5,
+    marketingEagerness: 0.5,
   },
 };
 

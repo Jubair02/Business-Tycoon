@@ -20,6 +20,8 @@ export {
   hireEmployeeSchema,
   takeLoanSchema,
   repayLoanSchema,
+  createCampaignSchema,
+  campaignActionSchema,
   cityQuerySchema,
   leaderboardTypeSchema,
 } from './validation';

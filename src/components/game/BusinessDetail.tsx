@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Users, ShoppingCart, Trash2, Check, X, ArrowUp, TrendingUp, TrendingDown, FileText, HandCoins, PackageOpen, BarChart3, Lightbulb, Sparkles, Activity, DollarSign, Clock, Target, Heart, Star, MessageSquare, ThumbsUp, ThumbsDown, UserCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import MarketingView from '@/components/game/MarketingView';
 
 const BUSINESS_COLORS: Record<string, string> = {
   TEA_STALL: 'bg-amber-100 border-amber-300 text-amber-800',
@@ -422,11 +423,12 @@ export default function BusinessDetail() {
         </div>
         {/* Tabs inside the sticky block */}
         <div className="px-3 md:px-4 pt-2">
-          <TabsList className="w-full grid grid-cols-7">
+          <TabsList className="w-full grid grid-cols-8">
             <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
             <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
             <TabsTrigger value="analytics" className="text-xs">Analytics</TabsTrigger>
             <TabsTrigger value="cx" className="text-xs">CX</TabsTrigger>
+            <TabsTrigger value="marketing" className="text-xs">Marketing</TabsTrigger>
             <TabsTrigger value="employees" className="text-xs">Staff</TabsTrigger>
             <TabsTrigger value="logs" className="text-xs">Log</TabsTrigger>
             <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
@@ -1389,6 +1391,10 @@ export default function BusinessDetail() {
                 </>
               )}
             </div>
+          </TabsContent>
+
+          <TabsContent value="marketing">
+            <MarketingView businessId={currentBusiness.id} businessLevel={currentBusiness.level} />
           </TabsContent>
 
           <TabsContent value="employees">

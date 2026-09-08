@@ -16,6 +16,7 @@ export type AIAction =
   | 'SELL_BUSINESS'
   | 'TAKE_LOAN'
   | 'REPAY_LOAN'
+  | 'LAUNCH_CAMPAIGN'
   | 'HOLD';
 
 /** AI pricing strategy for their businesses */
@@ -119,6 +120,8 @@ export interface PersonalityConfig {
   hiringPreference: number;
   /** Reaction strength to events (0 = ignore, 1 = react strongly) */
   eventReactivity: number;
+  /** Marketing eagerness (0 = never market, 1 = very eager to market) */
+  marketingEagerness: number;
 }
 
 /** Market share data for a business in a city+type market */

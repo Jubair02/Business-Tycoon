@@ -14,6 +14,7 @@ import {
 import type { ScoredAction, AIDecisionContext, AIPersonality, AIPricingStrategy } from './types';
 import { getPersonalityConfig, calculateAIPrice, selectPricingStrategy } from './ai-strategy';
 import { roundTaka } from '@/lib/game/economy/formulas';
+import { AI_MARKETING_CONFIG, MARKETING_CHANNELS, type MarketingChannel } from '../marketing/marketing-config';
 
 /** Result of executing an AI action */
 export interface AIActionResult {
@@ -52,6 +53,8 @@ export async function executeAIAction(
       return executeTakeLoan(playerId, action, ctx);
     case 'REPAY_LOAN':
       return executeRepayLoan(playerId, action, ctx);
+    case 'LAUNCH_CAMPAIGN':
+      return executeLaunchCampaign(playerId, action, ctx);
     case 'HOLD':
     default:
       return { action: 'HOLD', success: true };
@@ -467,6 +470,102 @@ async function executeSellBusiness(
   } catch (err) {
     console.error('[AI] SELL_BUSINESS failed:', err);
     return { action: 'SELL_BUSINESS', success: false };
+  }
+}
+
+// ---- LAUNCH_CAMPAIGN ----
+async function executeLaunchCampaign(
+  playerId: string,
+  action: ScoredAction,
+  ctx: AIDecisionContext,
+): Promise<AIActionResult> {
+  const businessId = action.target;
+  if (!businessId) return { action: 'LAUNCH_CAMPAIGN', success: false };
+
+  const business = ctx.businesses.find(b => b.id === businessId);
+  if (!business) return { action: 'LAUNCH_CAMPAIGN', success: false };
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true } });
+      if (!player) return { action: 'LAUNCH_CAMPAIGN', success: false };
+
+      // Pick channel based on personality preferences
+      const preferredChannels = AI_MARKETING_CONFIG.personalityPreferredChannels[ctx.personality] || ['SOCIAL_MEDIA'];
+      const availableChannels = preferredChannels.filter(ch => {
+        const chConfig = MARKETING_CHANNELS[ch as MarketingChannel];
+        return chConfig && business.level >= chConfig.minLevel && chConfig.aiAvailable;
+      });
+
+      if (availableChannels.length === 0) {
+        return { action: 'LAUNCH_CAMPAIGN', success: false, message: 'No available channels' };
+      }
+
+      // Pick a random channel from available preferred channels
+      const channel = availableChannels[Math.floor(Math.random() * availableChannels.length)] as MarketingChannel;
+      const channelConfig = MARKETING_CHANNELS[channel];
+
+      // Calculate budget
+      const budget = Math.max(
+        channelConfig.baseDailyCost,
+        Math.round(AI_MARKETING_CONFIG.aiBudgetRevenueFraction * Math.max(business.dailyRevenue, 10000))
+      );
+
+      // Check if budget is affordable
+      if (budget > player.cash * 0.2) {
+        return { action: 'LAUNCH_CAMPAIGN', success: false, message: 'Cannot afford campaign' };
+      }
+
+      // Pick duration: 5-14 days randomly
+      const duration = 5 + Math.floor(Math.random() * 10);
+      const totalBudget = budget * duration;
+
+      // Count existing active campaigns for this business
+      const activeCount = await tx.marketingCampaign.count({
+        where: { businessId, status: 'ACTIVE' },
+      });
+      if (activeCount >= AI_MARKETING_CONFIG.maxAICampaigns) {
+        return { action: 'LAUNCH_CAMPAIGN', success: false, message: 'Max campaigns reached' };
+      }
+
+      // Get current game day from context
+      const gameDay = ctx.gameDay;
+
+      // Create campaign
+      await tx.marketingCampaign.create({
+        data: {
+          businessId,
+          playerId,
+          name: `${channelConfig.name} Campaign`,
+          channel,
+          targetSegment: null, // AI doesn't target segments
+          dailyBudget: budget,
+          totalBudget,
+          duration,
+          startDay: gameDay,
+          endDay: gameDay + duration,
+          status: 'ACTIVE',
+        },
+      });
+
+      // Deduct first day's budget from player cash
+      await tx.player.update({
+        where: { id: playerId },
+        data: { cash: { decrement: budget } },
+      });
+
+      return {
+        action: 'LAUNCH_CAMPAIGN',
+        success: true,
+        message: `Launched ${channelConfig.name} campaign (৳${budget.toLocaleString()}/day, ${duration} days)`,
+        newsWorthy: channel === 'INFLUENCER' || channel === 'TV_MEDIA',
+        newsTitle: `Marketing Campaign Launched`,
+        newsContent: `A new ${channelConfig.name} marketing campaign has been launched.`,
+      };
+    });
+  } catch (err) {
+    console.error('[AI] LAUNCH_CAMPAIGN failed:', err);
+    return { action: 'LAUNCH_CAMPAIGN', success: false };
   }
 }
 

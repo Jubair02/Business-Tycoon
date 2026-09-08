@@ -58,6 +58,9 @@ model Business {
   totalReviews        Int      @default(0)    // Count of all reviews
   avgReviewRating     Float    @default(0)    // 1-5, average review score
 
+  // Phase 4: Marketing Fields
+  brandAwareness      Float    @default(0)    // 0-100, brand awareness from marketing
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -67,6 +70,7 @@ model Business {
   logs        GameLog[]
   metrics     BusinessMetric[]
   reviews     CustomerReview[]
+  campaigns   MarketingCampaign[]
 
   @@index([playerId])
 }
@@ -230,4 +234,66 @@ model CustomerReview {
 
   @@index([businessId])
   @@index([businessId, gameDay])
+}
+
+// ---- Phase 4: Marketing Campaigns ----
+model MarketingCampaign {
+  id          String   @id @default(cuid())
+  businessId  String
+  playerId    String
+  
+  // Campaign definition
+  name        String                    // Player-given campaign name
+  channel     String                    // SOCIAL_MEDIA | FACEBOOK_ADS | LOCAL_ADS | INFLUENCER | BILLBOARD | TV_MEDIA
+  targetSegment String?                // BUDGET | REGULAR | PREMIUM | TOURIST | null (=all segments)
+  
+  // Budget & Duration
+  dailyBudget  Float                   // Taka per day
+  totalBudget  Float                   // Total campaign budget
+  duration     Int                     // Campaign duration in game days
+  startDay     Int                     // Game day campaign started
+  endDay       Int                     // Game day campaign ends
+  
+  // Status
+  status       String   @default("ACTIVE")  // ACTIVE | PAUSED | COMPLETED | CANCELLED
+  
+  // Performance Tracking (updated each tick)
+  daysRun      Int      @default(0)         // Number of days campaign has run
+  totalSpend   Float    @default(0)         // Total taka spent so far
+  totalReach   Float    @default(0)         // Total impressions/reach
+  totalConversions Int   @default(0)        // Total customers acquired
+  revenueInfluenced Float @default(0)       // Revenue attributed to this campaign
+  
+  // Effectiveness (calculated)
+  effectiveness Float  @default(0)          // 0-1 effectiveness score
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  metrics  CampaignMetric[]
+  
+  @@index([businessId])
+  @@index([playerId])
+  @@index([businessId, status])
+}
+
+// ---- Phase 4: Campaign Daily Metrics ----
+model CampaignMetric {
+  id          String   @id @default(cuid())
+  campaignId  String
+  gameDay     Int
+  
+  dailySpend     Float   @default(0)
+  dailyReach     Float   @default(0)
+  dailyConversions Int   @default(0)
+  revenueInfluenced Float @default(0)
+  demandModifier  Float   @default(1)   // How much demand was boosted this day
+  
+  createdAt  DateTime @default(now())
+  
+  campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  @@unique([campaignId, gameDay])
+  @@index([campaignId, gameDay])
 }

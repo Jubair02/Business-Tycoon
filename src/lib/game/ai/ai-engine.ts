@@ -16,6 +16,7 @@ import type { AIDecisionContext, ScoredAction, AIPersonality, AIActionResult, AI
 import { selectBestAction } from './ai-evaluation';
 import { executeAIAction } from './ai-actions';
 import { randomPersonality, getPersonalityConfig } from './ai-strategy';
+import { simulateAIMarketingTick } from './ai-marketing';
 import { BUSINESS_TYPES, CITIES, PRODUCTS } from '@/lib/game-data';
 import { roundTaka } from '@/lib/game/economy/formulas';
 
@@ -218,6 +219,9 @@ export async function simulateAIPlayersTick(gameDay: number): Promise<void> {
       console.error(`[AI Engine] Error processing AI player ${ai.id}:`, err);
     }
   }
+
+  // Process AI marketing decisions (background action, doesn't consume cooldown)
+  await simulateAIMarketingTick(gameDay);
 
   // Generate news from AI activities (limit to 1-2 per tick to avoid spam)
   if (newsItems.length > 0) {

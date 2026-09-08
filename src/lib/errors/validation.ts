@@ -95,6 +95,32 @@ export const repayLoanSchema = z.object({
   amount: positiveNumberSchema,
 });
 
+// ---- Marketing / Campaigns ----
+
+const VALID_CHANNELS = ['SOCIAL_MEDIA', 'FACEBOOK_ADS', 'LOCAL_ADS', 'INFLUENCER', 'BILLBOARD', 'TV_MEDIA'] as const;
+const VALID_SEGMENTS = ['BUDGET', 'REGULAR', 'PREMIUM', 'TOURIST'] as const;
+
+export const createCampaignSchema = z.object({
+  name: z.string()
+    .min(1, 'Campaign name is required')
+    .max(50, 'Campaign name must be 50 characters or less')
+    .transform(v => v.trim()),
+  channel: z.enum(VALID_CHANNELS, {
+    message: `Invalid channel. Must be one of: ${VALID_CHANNELS.join(', ')}`,
+  }),
+  targetSegment: z.enum(VALID_SEGMENTS, {
+    message: `Invalid segment. Must be one of: ${VALID_SEGMENTS.join(', ')}`,
+  }).nullable().optional(),
+  dailyBudget: positiveNumberSchema.min(250, 'Daily budget must be at least ৳250'),
+  duration: positiveIntSchema.min(3, 'Duration must be at least 3 days').max(30, 'Duration cannot exceed 30 days'),
+});
+
+export const campaignActionSchema = z.object({
+  action: z.enum(['pause', 'resume', 'cancel'], {
+    message: 'Action must be one of: pause, resume, cancel',
+  }),
+});
+
 // ---- Game State ----
 
 export const cityQuerySchema = z.object({
