@@ -356,3 +356,105 @@ Balance Risks (Phase 4):
 6. AI marketing eagerness varies by personality (CONSERVATIVE 15% → AGGRESSIVE 60%)
 7. Campaign effectiveness depends on satisfaction (poor CX = poor marketing results)
 8. Brand awareness decays 2%/day without active campaigns (prevents permanent boost)
+
+---
+Task ID: Phase-4-Verification
+Agent: Main Agent
+Task: Phase 4 — Marketing System Verification & Stabilization
+
+Work Log:
+- Read full worklog (359 lines) and understood Phase 0-4 implementation history
+- Read all Phase 4 source files: marketing-config.ts, marketing-formulas.ts, types.ts, game-engine.ts (marketing integration), ai-marketing.ts, ai-actions.ts, ai-evaluation.ts
+- Read all Phase 4 API routes: campaigns/route.ts, campaigns/[campaignId]/route.ts, campaigns/analytics/route.ts
+- Read Phase 3 CX formulas (cx-formulas.ts) and Phase 1 economy formulas for integration analysis
+- Read existing marketing tests (93 tests in marketing-formulas.test.ts)
+- Identified and fixed CRITICAL bug: Marketing spend double-deducted from player cash
+  - Root cause: totalExpenseWithMarketing included marketing AND dailyProfit distributed -marketingSpend, THEN explicit cash decrement of -marketingSpend again
+  - Fix: Removed explicit decrement (lines 777-783 in game-engine.ts), added clarifying comment
+- Identified and fixed HIGH bug: AI campaign creation inconsistent with player API
+  - ai-actions.ts: Created campaigns with daysRun=0, totalSpend=0 but deducted budget upfront
+  - ai-marketing.ts: Created campaigns with daysRun=0, totalSpend=0 and NO upfront deduction
+  - Fix: Both now set daysRun=1, totalSpend=budget and deduct first day upfront (matching player API)
+  - ai-marketing.ts: Also wrapped in db.$transaction with cash re-check for safety
+- Identified and fixed MEDIUM bug: daysRemaining calculated from endDay instead of daysRun
+  - campaign detail API used `endDay - currentGameDay` which is wrong for paused campaigns
+  - Fix: Changed to `duration - daysRun` which correctly reflects remaining active days
+- Fixed MEDIUM issue: Revenue attribution formula over-estimated marketing revenue
+  - Old: `totalRevenue * (marketingDemandModifier - 1) * brandAwarenessBonus` (double-counted brand bonus)
+  - New: `totalRevenue * (1 - 1/(marketingDemandModifier * brandAwarenessBonus))` (correct extra fraction)
+- Fixed MEDIUM issue: Revenue attribution missed just-completed campaigns
+  - processMarketingTick now returns campaignIds of processed campaigns
+  - Revenue attribution uses these IDs instead of re-querying ACTIVE status (which misses just-completed)
+- Wrote 59 comprehensive Phase 4 verification tests in phase4-verification.test.ts:
+  - 5 tests: Campaign cost single deduction
+  - 7 tests: Pause/resume/cancel behavior
+  - 7 tests: Demand pipeline stacking bounds
+  - 8 tests: Brand awareness bounds, decay, growth
+  - 4 tests: Revenue attribution correctness
+  - 9 tests: AI marketing safety
+  - 6 tests: Campaign lifecycle edge cases
+  - 3 tests: Diminishing returns
+  - 5 tests: 30-day and 100-day simulations
+  - 5 tests: Cross-phase interactions
+- All 407 tests pass (348 existing + 59 new), 0 failures
+- Lint: 0 errors
+- Dev server running successfully with no runtime errors
+
+Stage Summary:
+- 4 bugs fixed: 1 CRITICAL, 1 HIGH, 2 MEDIUM
+- 59 new verification tests (116 expect() calls)
+- 407 total tests pass (0 failures)
+- Marketing spend now correctly deducted exactly once per tick
+- AI campaign creation now consistent with player API
+- daysRemaining correctly reflects active days (not calendar days)
+- Revenue attribution uses correct formula and includes just-completed campaigns
+- All lint checks pass
+- No TypeScript or runtime errors
+- System ready for Phase 5
+
+Bugs Found and Fixed:
+1. CRITICAL: Marketing spend double-deducted from player cash
+   - Impact: Players lost 2× marketing cost per tick, causing rapid cash drain
+   - Fix: Removed explicit decrement since marketing already in totalExpenseWithMarketing
+2. HIGH: AI campaign creation inconsistent with player API (daysRun/totalSpend not set)
+   - Impact: AI campaigns would be over-processed on first tick, causing wrong spend tracking
+   - Fix: Set daysRun=1, totalSpend=budget on creation (matching player API)
+3. MEDIUM: daysRemaining calculated from endDay, not daysRun
+   - Impact: Paused campaigns showed wrong "days remaining" in UI
+   - Fix: Use duration - daysRun instead of endDay - currentGameDay
+4. MEDIUM: Revenue attribution formula over-estimated and missed completed campaigns
+   - Impact: Campaign ROI showed inflated attributed revenue; last-day attribution lost
+   - Fix: Correct formula (1 - 1/totalBoost) and use processedCampaignIds for attribution
+
+Demand Pipeline Findings:
+- Marketing demand modifier: bounded [1.0, 1.8] with stacking diminishing returns
+- Brand awareness bonus: bounded [1.0, 1.3] at awareness [0, 100]
+- CX demand modifier: bounded [0.2, 2.0] (Phase 3)
+- Total theoretical max stacking: CX(2.0) × segments(~4.0) × marketing(1.8) × brand(1.3) ≈ 18.7×
+- Practical max stacking: ~7-8× for well-managed businesses with marketing
+- No double-counting between marketing, CX, segments, or price modifiers
+- Marketing conversion depends on satisfaction (poor CX = poor marketing results)
+
+AI Verification:
+- AI uses identical marketing formulas as players (no special logic)
+- AI cannot use BILLBOARD or TV_MEDIA channels (aiAvailable=false)
+- AI budget limited to 15% of daily revenue
+- AI won't launch campaigns if budget > 20% of cash
+- AI auto-pauses all campaigns when cash < 50% of reserve
+- AI max 2 concurrent campaigns per business (vs 3 for players)
+- AI campaign creation now fully consistent with player API
+
+Remaining Balance Risks (NOT bugs):
+1. Max stacking 18.7× is theoretical; practical max ~8× is manageable but high
+2. Brand awareness decays only 2%/day — could build up over long campaigns
+3. Campaign demand modifier baseline (50 customers) is hardcoded — should scale with business type
+4. Segment demand modifier can sum to 3-4× independently — amplifies all other modifiers
+5. Marketing conversions use Math.random() — results vary ±20%, could confuse players
+6. AI marketing eagerness varies by personality — CONSERVATIVE rarely markets, AGGRESSIVE often
+
+Files Changed:
+- src/lib/game-engine.ts: Fixed double-deduction, fixed revenue attribution, added campaignIds tracking
+- src/lib/game/ai/ai-actions.ts: Set daysRun=1, totalSpend=budget on campaign creation
+- src/lib/game/ai/ai-marketing.ts: Set daysRun=1, totalSpend=budget, added transaction + cash deduction
+- src/app/api/businesses/[id]/campaigns/[campaignId]/route.ts: Fixed daysRemaining calculation
+- src/__tests__/phase4-verification.test.ts: New file, 59 verification tests

@@ -531,7 +531,7 @@ async function executeLaunchCampaign(
       // Get current game day from context
       const gameDay = ctx.gameDay;
 
-      // Create campaign
+      // Create campaign (consistent with player API: daysRun=1, totalSpend=budget for first day)
       await tx.marketingCampaign.create({
         data: {
           businessId,
@@ -545,6 +545,8 @@ async function executeLaunchCampaign(
           startDay: gameDay,
           endDay: gameDay + duration,
           status: 'ACTIVE',
+          daysRun: 1,
+          totalSpend: budget,
         },
       });
 

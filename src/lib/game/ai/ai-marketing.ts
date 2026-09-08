@@ -99,28 +99,41 @@ export async function simulateAIMarketingTick(gameDay: number): Promise<void> {
           Math.round(AI_MARKETING_CONFIG.aiBudgetRevenueFraction * Math.max(biz.dailyRevenue, 10000))
         );
 
-        // Check if can afford
+        // Check if can afford (first day's budget deducted upfront, consistent with player API)
         if (budget > ai.cash * 0.2) continue;
 
         // Duration: 5-14 days
         const duration = 5 + Math.floor(Math.random() * 10);
         const totalBudget = budget * duration;
 
-        // Create campaign
-        await db.marketingCampaign.create({
-          data: {
-            businessId: biz.id,
-            playerId: ai.id,
-            name: `${channelConfig.name} Campaign`,
-            channel,
-            targetSegment: null, // AI doesn't target segments
-            dailyBudget: budget,
-            totalBudget,
-            duration,
-            startDay: gameDay,
-            endDay: gameDay + duration,
-            status: 'ACTIVE',
-          },
+        // Create campaign and deduct first day's budget (consistent with player API)
+        await db.$transaction(async (tx) => {
+          // Re-check cash inside transaction
+          const txPlayer = await tx.player.findUnique({ where: { id: ai.id }, select: { cash: true } });
+          if (!txPlayer || txPlayer.cash < budget) return;
+
+          await tx.marketingCampaign.create({
+            data: {
+              businessId: biz.id,
+              playerId: ai.id,
+              name: `${channelConfig.name} Campaign`,
+              channel,
+              targetSegment: null, // AI doesn't target segments
+              dailyBudget: budget,
+              totalBudget,
+              duration,
+              startDay: gameDay,
+              endDay: gameDay + duration,
+              status: 'ACTIVE',
+              daysRun: 1,
+              totalSpend: budget,
+            },
+          });
+
+          await tx.player.update({
+            where: { id: ai.id },
+            data: { cash: { decrement: budget } },
+          });
         });
       } catch (err) {
         console.error(`[AI Marketing] Error for business ${biz.id}:`, err);

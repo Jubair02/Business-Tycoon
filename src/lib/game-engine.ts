@@ -302,6 +302,7 @@ async function processMarketingTick(
   newBrandAwareness: number;
   totalConversions: number;
   totalReach: number;
+  campaignIds: string[];  // IDs of campaigns processed this tick (for revenue attribution)
 }> {
   // Fetch active campaigns
   const activeCampaigns = await db.marketingCampaign.findMany({
@@ -317,10 +318,12 @@ async function processMarketingTick(
       newBrandAwareness: newAwareness,
       totalConversions: 0,
       totalReach: 0,
+      campaignIds: [],
     };
   }
 
   const campaignModifiers: number[] = [];
+  const processedCampaignIds: string[] = [];  // Track which campaigns were processed
   let totalSpend = 0;
   let totalReach = 0;
   let totalConversions = 0;
@@ -406,6 +409,7 @@ async function processMarketingTick(
     totalSpend += dailySpend;
     totalReach += reach;
     totalConversions += conversions;
+    processedCampaignIds.push(campaign.id);
   }
 
   // Combined demand modifier with stacking diminishing returns
@@ -420,6 +424,7 @@ async function processMarketingTick(
     newBrandAwareness,
     totalConversions,
     totalReach,
+    campaignIds: processedCampaignIds,
   };
 }
 
@@ -774,35 +779,33 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       data: { cash: { increment: roundTaka(profitToDistribute) } },
     });
 
-    // Phase 4: Deduct marketing spend from player cash
-    // Marketing spend is separate from business expenses (it's a direct player cost)
-    if (marketingEffect.totalMarketingSpend > 0) {
-      await tx.player.update({
-        where: { id: business.playerId },
-        data: { cash: { decrement: roundTaka(marketingEffect.totalMarketingSpend) } },
+    // Phase 4: Attribute revenue to campaigns for ROI analytics
+    // NOTE: Marketing spend is already included in totalExpenseWithMarketing
+    // which reduced dailyProfit, so it's already deducted from player cash
+    // via the profitToDistribute above. Do NOT deduct again.
+    if (marketingEffect.totalMarketingSpend > 0 && totalRevenue > 0 && marketingEffect.campaignIds.length > 0) {
+      // Fetch campaigns that were processed this tick (using IDs from processMarketingTick)
+      const processedCampaigns = await tx.marketingCampaign.findMany({
+        where: { id: { in: marketingEffect.campaignIds } },
+        select: { id: true, totalSpend: true },
       });
+      const totalCampaignSpend = processedCampaigns.reduce((sum, c) => sum + c.totalSpend, 0);
+      if (totalCampaignSpend > 0) {
+        // Only attribute the "extra" revenue from marketing (not base revenue)
+        // Correct formula: total boost = marketingDemandModifier × brandAwarenessBonus
+        // Extra fraction = 1 - 1/totalBoost (how much of revenue is due to marketing)
+        const totalMarketingBoost = marketingDemandModifier * brandAwarenessBonus;
+        const extraFraction = totalMarketingBoost > 1 ? (1 - 1 / totalMarketingBoost) : 0;
+        const marketingRevenue = totalRevenue * extraFraction;
 
-      // Phase 4: Attribute revenue to active campaigns (proportional to their spend)
-      // This gives campaigns ROI data for analytics
-      if (totalRevenue > 0 && marketingEffect.totalConversions > 0) {
-        const activeCampaigns = await tx.marketingCampaign.findMany({
-          where: { businessId: business.id, status: 'ACTIVE' },
-          select: { id: true, totalSpend: true },
-        });
-        const totalSpend = activeCampaigns.reduce((sum, c) => sum + c.totalSpend, 0);
-        if (totalSpend > 0) {
-          for (const campaign of activeCampaigns) {
-            // Attribute revenue proportional to this campaign's spend share
-            const spendShare = campaign.totalSpend / totalSpend;
-            // Only attribute the "extra" revenue from marketing (not base revenue)
-            const marketingRevenueBoost = totalRevenue * (marketingDemandModifier - 1) * (brandAwarenessBonus - 1 + 1);
-            const attributedRevenue = Math.max(0, marketingRevenueBoost * spendShare);
-            if (attributedRevenue > 0) {
-              await tx.marketingCampaign.update({
-                where: { id: campaign.id },
-                data: { revenueInfluenced: { increment: roundTaka(attributedRevenue) } },
-              });
-            }
+        for (const campaign of processedCampaigns) {
+          const spendShare = campaign.totalSpend / totalCampaignSpend;
+          const attributedRevenue = Math.max(0, marketingRevenue * spendShare);
+          if (attributedRevenue > 0) {
+            await tx.marketingCampaign.update({
+              where: { id: campaign.id },
+              data: { revenueInfluenced: { increment: roundTaka(attributedRevenue) } },
+            });
           }
         }
       }

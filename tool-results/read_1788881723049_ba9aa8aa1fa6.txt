@@ -1,0 +1,693 @@
+     1→// ============================================
+     2→// Bangladesh Business Tycoon - Marketing Formula Tests
+     3→// Phase 4: Tests for all marketing formula functions
+     4→// ============================================
+     5→
+     6→import { describe, it, expect } from 'vitest';
+     7→import {
+     8→  calculateCampaignDailySpend,
+     9→  calculateCampaignReach,
+    10→  calculateCampaignConversions,
+    11→  calculateCampaignDemandModifier,
+    12→  calculateCombinedMarketingModifier,
+    13→  calculateBrandAwareness,
+    14→  calculateBrandAwarenessDemandBonus,
+    15→  calculateCampaignEffectiveness,
+    16→  calculateCampaignROI,
+    17→  validateCampaign,
+    18→} from '@/lib/game/marketing/marketing-formulas';
+    19→import { MARKETING_CHANNELS, MARKETING_CONFIG } from '@/lib/game/marketing/marketing-config';
+    20→
+    21→// ---- 1. calculateCampaignDailySpend ----
+    22→
+    23→describe('calculateCampaignDailySpend', () => {
+    24→  it('returns daily budget when budget is within total', () => {
+    25→    // dailyBudget=1000, spent so far=0, totalBudget=10000 → should spend 1000
+    26→    expect(calculateCampaignDailySpend(1000, 0, 10000)).toBe(1000);
+    27→  });
+    28→
+    29→  it('returns daily budget when partially spent but enough remaining', () => {
+    30→    // 5000 spent, 5000 remaining, daily budget 1000 → should spend 1000
+    31→    expect(calculateCampaignDailySpend(1000, 5000, 10000)).toBe(1000);
+    32→  });
+    33→
+    34→  it('clamps to remaining budget when remaining is less than daily budget', () => {
+    35→    // 9500 spent, 500 remaining, daily budget 1000 → should spend 500
+    36→    expect(calculateCampaignDailySpend(1000, 9500, 10000)).toBe(500);
+    37→  });
+    38→
+    39→  it('returns 0 when total budget is exhausted', () => {
+    40→    // 10000 spent, 0 remaining → should spend 0
+    41→    expect(calculateCampaignDailySpend(1000, 10000, 10000)).toBe(0);
+    42→  });
+    43→
+    44→  it('returns 0 when overspent beyond total budget', () => {
+    45→    // 12000 spent, totalBudget 10000 → remaining = 0
+    46→    expect(calculateCampaignDailySpend(1000, 12000, 10000)).toBe(0);
+    47→  });
+    48→
+    49→  it('handles zero daily budget', () => {
+    50→    expect(calculateCampaignDailySpend(0, 0, 10000)).toBe(0);
+    51→  });
+    52→
+    53→  it('handles zero total budget', () => {
+    54→    expect(calculateCampaignDailySpend(1000, 0, 0)).toBe(0);
+    55→  });
+    56→
+    57→  it('handles totalSpend equaling totalBudget exactly', () => {
+    58→    expect(calculateCampaignDailySpend(500, 10000, 10000)).toBe(0);
+    59→  });
+    60→
+    61→  it('returns exact remainder for partial day', () => {
+    62→    // 9997 spent, 3 remaining → should spend 3
+    63→    expect(calculateCampaignDailySpend(500, 9997, 10000)).toBe(3);
+    64→  });
+    65→});
+    66→
+    67→// ---- 2. calculateCampaignReach ----
+    68→
+    69→describe('calculateCampaignReach', () => {
+    70→  it('returns > 0 for valid inputs', () => {
+    71→    // Run multiple times to account for random variation
+    72→    let anyPositive = false;
+    73→    for (let i = 0; i < 20; i++) {
+    74→      const reach = calculateCampaignReach('SOCIAL_MEDIA', 1000, 1);
+    75→      if (reach > 0) anyPositive = true;
+    76→    }
+    77→    expect(anyPositive).toBe(true);
+    78→  });
+    79→
+    80→  it('returns 0 for zero daily spend', () => {
+    81→    expect(calculateCampaignReach('SOCIAL_MEDIA', 0, 1)).toBe(0);
+    82→  });
+    83→
+    84→  it('returns 0 for negative daily spend', () => {
+    85→    expect(calculateCampaignReach('SOCIAL_MEDIA', -100, 1)).toBe(0);
+    86→  });
+    87→
+    88→  it('higher spend generally produces more reach', () => {
+    89→    // Test by averaging multiple runs to smooth out random variation
+    90→    let lowSpendTotal = 0;
+    91→    let highSpendTotal = 0;
+    92→    const runs = 50;
+    93→
+    94→    for (let i = 0; i < runs; i++) {
+    95→      lowSpendTotal += calculateCampaignReach('SOCIAL_MEDIA', 500, 1);
+    96→      highSpendTotal += calculateCampaignReach('SOCIAL_MEDIA', 5000, 1);
+    97→    }
+    98→
+    99→    const lowAvg = lowSpendTotal / runs;
+   100→    const highAvg = highSpendTotal / runs;
+   101→
+   102→    // Higher spend should produce more reach
+   103→    expect(highAvg).toBeGreaterThan(lowAvg);
+   104→  });
+   105→
+   106→  it('diminishing returns exponent reduces the spend-ratio bonus', () => {
+   107→    // The formula: reach = reachPerTaka * spend * (spend / baseCost)^exponent
+   108→    // With exponent=0.6, the bonus multiplier for 10x spend = 10^0.6 ≈ 3.98
+   109→    // If exponent were 1.0 (no diminishing returns), bonus = 10^1.0 = 10
+   110→    // So the actual ratio should be less than what exponent=1.0 would give
+   111→    //
+   112→    // For SOCIAL_MEDIA: baseCost=500, exponent=0.6
+   113→    // At spend 500:  ratio = 500/500 = 1, bonus = 1^0.6 = 1, reach ∝ 500*1 = 500
+   114→    // At spend 5000: ratio = 5000/500 = 10, bonus = 10^0.6 ≈ 3.98, reach ∝ 5000*3.98 = 19900
+   115→    // Ratio of reach = 19900/500 = 39.8
+   116→    // If exponent=1: ratio would be 5000*10 / 500*1 = 100
+   117→    //
+   118→    // Key: with exponent < 1, the spend-ratio bonus grows sub-linearly
+   119→    // Verify: 2x spend gives bonus of 2^0.6 ≈ 1.52, not 2^1.0 = 2
+   120→    const bonusAt2x = Math.pow(2, 0.6);
+   121→    expect(bonusAt2x).toBeLessThan(2.0); // Diminishing returns on the ratio bonus
+   122→    expect(bonusAt2x).toBeCloseTo(1.52, 1);
+   123→  });
+   124→
+   125→  it('higher business level produces more reach', () => {
+   126→    let level1Total = 0;
+   127→    let level5Total = 0;
+   128→    const runs = 50;
+   129→
+   130→    for (let i = 0; i < runs; i++) {
+   131→      level1Total += calculateCampaignReach('SOCIAL_MEDIA', 1000, 1);
+   132→      level5Total += calculateCampaignReach('SOCIAL_MEDIA', 1000, 5);
+   133→    }
+   134→
+   135→    // Level 5 should give more reach than level 1 (8% per level bonus)
+   136→    expect(level5Total / runs).toBeGreaterThan(level1Total / runs);
+   137→  });
+   138→
+   139→  it('SOCIAL_MEDIA has cheaper reach per taka than TV_MEDIA', () => {
+   140→    // SOCIAL_MEDIA: reachPerTaka=2.0, baseDailyCost=500
+   141→    // TV_MEDIA: reachPerTaka=0.8, baseDailyCost=20000
+   142→    // At the same spend, SOCIAL_MEDIA should give more reach
+   143→    let socialTotal = 0;
+   144→    let tvTotal = 0;
+   145→    const runs = 50;
+   146→
+   147→    for (let i = 0; i < runs; i++) {
+   148→      socialTotal += calculateCampaignReach('SOCIAL_MEDIA', 20000, 4);
+   149→      tvTotal += calculateCampaignReach('TV_MEDIA', 20000, 4);
+   150→    }
+   151→
+   152→    expect(socialTotal / runs).toBeGreaterThan(tvTotal / runs);
+   153→  });
+   154→
+   155→  it('returns 0 for invalid channel (falls through to undefined config)', () => {
+   156→    // @ts-expect-error - testing invalid channel
+   157→    const reach = calculateCampaignReach('INVALID_CHANNEL', 1000, 1);
+   158→    expect(reach).toBe(0);
+   159→  });
+   160→
+   161→  it('reach varies within ±15% due to random variation', () => {
+   162→    // With ±15% variation, results should not all be identical
+   163→    const results: number[] = [];
+   164→    for (let i = 0; i < 100; i++) {
+   165→      results.push(calculateCampaignReach('SOCIAL_MEDIA', 1000, 1));
+   166→    }
+   167→    const unique = new Set(results);
+   168→    // With ±15% random variation, we should get many different values
+   169→    expect(unique.size).toBeGreaterThan(10);
+   170→  });
+   171→});
+   172→
+   173→// ---- 3. calculateCampaignConversions ----
+   174→
+   175→describe('calculateCampaignConversions', () => {
+   176→  it('returns > 0 for valid inputs', () => {
+   177→    let anyPositive = false;
+   178→    for (let i = 0; i < 20; i++) {
+   179→      const conversions = calculateCampaignConversions(
+   180→        'SOCIAL_MEDIA', 1000, 70, null, []
+   181→      );
+   182→      if (conversions > 0) anyPositive = true;
+   183→    }
+   184→    expect(anyPositive).toBe(true);
+   185→  });
+   186→
+   187→  it('returns 0 for zero reach', () => {
+   188→    expect(calculateCampaignConversions('SOCIAL_MEDIA', 0, 70, null, [])).toBe(0);
+   189→  });
+   190→
+   191→  it('returns 0 for negative reach', () => {
+   192→    expect(calculateCampaignConversions('SOCIAL_MEDIA', -100, 70, null, [])).toBe(0);
+   193→  });
+   194→
+   195→  it('higher satisfaction produces more conversions', () => {
+   196→    let lowSatTotal = 0;
+   197→    let highSatTotal = 0;
+   198→    const runs = 50;
+   199→
+   200→    for (let i = 0; i < runs; i++) {
+   201→      lowSatTotal += calculateCampaignConversions('SOCIAL_MEDIA', 1000, 20, null, []);
+   202→      highSatTotal += calculateCampaignConversions('SOCIAL_MEDIA', 1000, 90, null, []);
+   203→    }
+   204→
+   205→    expect(highSatTotal / runs).toBeGreaterThan(lowSatTotal / runs);
+   206→  });
+   207→
+   208→  it('segment affinity affects conversions for targeted campaigns', () => {
+   209→    // INFLUENCER has high affinity for PREMIUM (1.5) and low for BUDGET (0.5)
+   210→    let premiumTotal = 0;
+   211→    let budgetTotal = 0;
+   212→    const runs = 50;
+   213→
+   214→    for (let i = 0; i < runs; i++) {
+   215→      premiumTotal += calculateCampaignConversions(
+   216→        'INFLUENCER', 5000, 70, 'PREMIUM',
+   217→        [{ segment: 'PREMIUM', demandMultiplier: 1.0 }]
+   218→      );
+   219→      budgetTotal += calculateCampaignConversions(
+   220→        'INFLUENCER', 5000, 70, 'BUDGET',
+   221→        [{ segment: 'BUDGET', demandMultiplier: 1.0 }]
+   222→      );
+   223→    }
+   224→
+   225→    // Premium targeting should give more conversions for influencer channel
+   226→    expect(premiumTotal / runs).toBeGreaterThan(budgetTotal / runs);
+   227→  });
+   228→
+   229→  it('segment demand multiplier boosts conversions', () => {
+   230→    let lowDemandTotal = 0;
+   231→    let highDemandTotal = 0;
+   232→    const runs = 50;
+   233→
+   234→    for (let i = 0; i < runs; i++) {
+   235→      lowDemandTotal += calculateCampaignConversions(
+   236→        'SOCIAL_MEDIA', 1000, 70, 'BUDGET',
+   237→        [{ segment: 'BUDGET', demandMultiplier: 0.5 }]
+   238→      );
+   239→      highDemandTotal += calculateCampaignConversions(
+   240→        'SOCIAL_MEDIA', 1000, 70, 'BUDGET',
+   241→        [{ segment: 'BUDGET', demandMultiplier: 2.0 }]
+   242→      );
+   243→    }
+   244→
+   245→    expect(highDemandTotal / runs).toBeGreaterThan(lowDemandTotal / runs);
+   246→  });
+   247→
+   248→  it('untargeted campaign (null segment) uses average affinity', () => {
+   249→    // Untargeted should still produce conversions
+   250→    let anyPositive = false;
+   251→    for (let i = 0; i < 20; i++) {
+   252→      const conversions = calculateCampaignConversions(
+   253→        'SOCIAL_MEDIA', 1000, 70, null, []
+   254→      );
+   255→      if (conversions > 0) anyPositive = true;
+   256→    }
+   257→    expect(anyPositive).toBe(true);
+   258→  });
+   259→
+   260→  it('conversion results vary within ±20%', () => {
+   261→    const results: number[] = [];
+   262→    for (let i = 0; i < 100; i++) {
+   263→      results.push(calculateCampaignConversions('SOCIAL_MEDIA', 1000, 70, null, []));
+   264→    }
+   265→    const unique = new Set(results);
+   266→    expect(unique.size).toBeGreaterThan(5);
+   267→  });
+   268→});
+   269→
+   270→// ---- 4. calculateCampaignDemandModifier ----
+   271→
+   272→describe('calculateCampaignDemandModifier', () => {
+   273→  it('returns 1.0 for zero conversions', () => {
+   274→    expect(calculateCampaignDemandModifier(0, 50)).toBe(1.0);
+   275→  });
+   276→
+   277→  it('returns 1.0 for negative conversions', () => {
+   278→    expect(calculateCampaignDemandModifier(-5, 50)).toBe(1.0);
+   279→  });
+   280→
+   281→  it('more conversions produce higher modifier', () => {
+   282→    const low = calculateCampaignDemandModifier(5, 50);
+   283→    const high = calculateCampaignDemandModifier(20, 50);
+   284→    expect(high).toBeGreaterThan(low);
+   285→  });
+   286→
+   287→  it('modifier is always >= 1.0', () => {
+   288→    expect(calculateCampaignDemandModifier(1, 50)).toBeGreaterThanOrEqual(1.0);
+   289→    expect(calculateCampaignDemandModifier(10, 50)).toBeGreaterThanOrEqual(1.0);
+   290→    expect(calculateCampaignDemandModifier(100, 50)).toBeGreaterThanOrEqual(1.0);
+   291→  });
+   292→
+   293→  it('demonstrates diminishing returns (sqrt scaling)', () => {
+   294→    // 4x conversions should give 2x boost (sqrt of 4 = 2)
+   295→    const base = calculateCampaignDemandModifier(5, 50);
+   296→    const quadruple = calculateCampaignDemandModifier(20, 50);
+   297→
+   298→    const baseBoost = base - 1;
+   299→    const quadrupleBoost = quadruple - 1;
+   300→
+   301→    // sqrt(4) = 2, so quadruple boost should be ~2x base boost
+   302→    expect(quadrupleBoost / baseBoost).toBeCloseTo(2.0, 1);
+   303→  });
+   304→
+   305→  it('scaling relative to baseline customers', () => {
+   306→    // 10 conversions for 50-customer business = significant boost
+   307→    // 10 conversions for 500-customer business = small boost
+   308→    const smallBaseline = calculateCampaignDemandModifier(10, 50);
+   309→    const largeBaseline = calculateCampaignDemandModifier(10, 500);
+   310→    expect(smallBaseline).toBeGreaterThan(largeBaseline);
+   311→  });
+   312→
+   313→  it('handles very small baseline customers (clamped to 10)', () => {
+   314→    // baseline < 10 should be clamped to 10
+   315→    const tiny = calculateCampaignDemandModifier(5, 1);
+   316→    const clamped = calculateCampaignDemandModifier(5, 10);
+   317→    expect(tiny).toBe(clamped);
+   318→  });
+   319→
+   320→  it('produces reasonable values for typical game scenarios', () => {
+   321→    // 15 conversions, 100 baseline customers
+   322→    const mod = calculateCampaignDemandModifier(15, 100);
+   323→    // sqrt(15/100) * 0.8 + 1 = sqrt(0.15) * 0.8 + 1 ≈ 0.387 * 0.8 + 1 ≈ 1.31
+   324→    expect(mod).toBeCloseTo(1.31, 1);
+   325→  });
+   326→});
+   327→
+   328→// ---- 5. calculateCombinedMarketingModifier ----
+   329→
+   330→describe('calculateCombinedMarketingModifier', () => {
+   331→  it('returns 1.0 for empty array', () => {
+   332→    expect(calculateCombinedMarketingModifier([])).toBe(1.0);
+   333→  });
+   334→
+   335→  it('returns correct value for single campaign', () => {
+   336→    // Single campaign with modifier 1.3 → boost = 0.3 → effectiveBoost = 0.3^0.7
+   337→    const result = calculateCombinedMarketingModifier([1.3]);
+   338→    const expected = 1 + Math.pow(0.3, MARKETING_CONFIG.stackingDiminishingReturns);
+   339→    expect(result).toBeCloseTo(expected, 5);
+   340→  });
+   341→
+   342→  it('multiple campaigns stack with diminishing returns', () => {
+   343→    // Two campaigns each with modifier 1.3 → total boost = 0.6
+   344→    // effectiveBoost = 0.6^0.7, which is less than 2 × 0.3^0.7
+   345→    const single = calculateCombinedMarketingModifier([1.3]);
+   346→    const double = calculateCombinedMarketingModifier([1.3, 1.3]);
+   347→
+   348→    // Double should be more than single but less than 2x single boost
+   349→    expect(double).toBeGreaterThan(single);
+   350→    expect(double - 1).toBeLessThan(2 * (single - 1));
+   351→  });
+   352→
+   353→  it('result is clamped to [1.0, 1.8]', () => {
+   354→    // Very high modifiers should be clamped to 1.8
+   355→    const result = calculateCombinedMarketingModifier([5.0, 5.0, 5.0, 5.0]);
+   356→    expect(result).toBeLessThanOrEqual(MARKETING_CONFIG.demandModifierCap);
+   357→    expect(result).toBeGreaterThanOrEqual(MARKETING_CONFIG.demandModifierFloor);
+   358→  });
+   359→
+   360→  it('result is at least 1.0 even with small modifiers', () => {
+   361→    const result = calculateCombinedMarketingModifier([1.01]);
+   362→    expect(result).toBeGreaterThanOrEqual(1.0);
+   363→  });
+   364→
+   365→  it('three campaigns with moderate modifiers', () => {
+   366→    const result = calculateCombinedMarketingModifier([1.1, 1.15, 1.2]);
+   367→    expect(result).toBeGreaterThan(1.0);
+   368→    expect(result).toBeLessThanOrEqual(1.8);
+   369→  });
+   370→
+   371→  it('campaigns with modifier 1.0 (no boost) contribute nothing', () => {
+   372→    const withNeutral = calculateCombinedMarketingModifier([1.3, 1.0]);
+   373→    const withoutNeutral = calculateCombinedMarketingModifier([1.3]);
+   374→    expect(withNeutral).toBeCloseTo(withoutNeutral, 5);
+   375→  });
+   376→
+   377→  it('stacking diminishing returns exponent is 0.7', () => {
+   378→    // Verify the config value matches our expectations
+   379→    expect(MARKETING_CONFIG.stackingDiminishingReturns).toBe(0.7);
+   380→  });
+   381→});
+   382→
+   383→// ---- 6. calculateBrandAwareness ----
+   384→
+   385→describe('calculateBrandAwareness', () => {
+   386→  it('no campaigns: awareness decays', () => {
+   387→    // Current awareness 50, no reach → should decay by 2%
+   388→    const result = calculateBrandAwareness(50, 0);
+   389→    const expected = 50 * (1 - MARKETING_CONFIG.brandAwarenessDecay);
+   390→    expect(result).toBeCloseTo(expected, 5);
+   391→  });
+   392→
+   393→  it('with campaigns: awareness increases', () => {
+   394→    // Current awareness 50, with reach → should be higher than decayed
+   395→    const decayed = calculateBrandAwareness(50, 0);
+   396→    const withReach = calculateBrandAwareness(50, 1000);
+   397→    expect(withReach).toBeGreaterThan(decayed);
+   398→  });
+   399→
+   400→  it('capped at 100 (maxBrandAwareness)', () => {
+   401→    // Very high current awareness and high reach → should not exceed 100
+   402→    const result = calculateBrandAwareness(100, 10000);
+   403→    expect(result).toBeLessThanOrEqual(MARKETING_CONFIG.maxBrandAwareness);
+   404→  });
+   405→
+   406→  it('never goes below 0', () => {
+   407→    const result = calculateBrandAwareness(0, 0);
+   408→    expect(result).toBeGreaterThanOrEqual(0);
+   409→  });
+   410→
+   411→  it('decay works correctly at 2% per day', () => {
+   412→    // Start at 100, no reach → 98 after one day
+   413→    const result = calculateBrandAwareness(100, 0);
+   414→    expect(result).toBeCloseTo(98, 1);
+   415→  });
+   416→
+   417→  it('reach gain is capped at +5 per day', () => {
+   418→    // Even with enormous reach, gain should be capped
+   419→    const lowReach = calculateBrandAwareness(0, 100);
+   420→    const highReach = calculateBrandAwareness(0, 100000);
+   421→    // highReach should be at most 5 (max daily gain)
+   422→    expect(highReach).toBeLessThanOrEqual(5);
+   423→    expect(highReach).toBeGreaterThan(lowReach);
+   424→  });
+   425→
+   426→  it('brand awareness with moderate reach', () => {
+   427→    // awareness = (50 × 0.98) + min(500 × 0.01, 5) = 49 + 5 = 54
+   428→    const result = calculateBrandAwareness(50, 500);
+   429→    expect(result).toBeCloseTo(54, 1);
+   430→  });
+   431→
+   432→  it('small reach gives proportional gain', () => {
+   433→    // awareness = (0 × 0.98) + min(100 × 0.01, 5) = 0 + 1 = 1
+   434→    const result = calculateBrandAwareness(0, 100);
+   435→    expect(result).toBeCloseTo(1, 1);
+   436→  });
+   437→
+   438→  it('awareness eventually decays to 0 with no campaigns', () => {
+   439→    let awareness = 80;
+   440→    for (let day = 0; day < 500; day++) {
+   441→      awareness = calculateBrandAwareness(awareness, 0);
+   442→    }
+   443→    expect(awareness).toBeLessThan(1);
+   444→  });
+   445→});
+   446→
+   447→// ---- 7. calculateBrandAwarenessDemandBonus ----
+   448→
+   449→describe('calculateBrandAwarenessDemandBonus', () => {
+   450→  it('0 awareness = 1.0 (no bonus)', () => {
+   451→    expect(calculateBrandAwarenessDemandBonus(0)).toBeCloseTo(1.0, 5);
+   452→  });
+   453→
+   454→  it('100 awareness = 1.3 (maximum bonus)', () => {
+   455→    expect(calculateBrandAwarenessDemandBonus(100)).toBeCloseTo(1.3, 5);
+   456→  });
+   457→
+   458→  it('50 awareness = 1.15 (midpoint)', () => {
+   459→    expect(calculateBrandAwarenessDemandBonus(50)).toBeCloseTo(1.15, 5);
+   460→  });
+   461→
+   462→  it('linear scaling between 0 and 100', () => {
+   463→    // Should be perfectly linear: bonus = 1 + (awareness / 100) * 0.3
+   464→    const at25 = calculateBrandAwarenessDemandBonus(25);
+   465→    const at75 = calculateBrandAwarenessDemandBonus(75);
+   466→    expect(at25).toBeCloseTo(1.075, 3); // 1 + 0.25 * 0.3
+   467→    expect(at75).toBeCloseTo(1.225, 3); // 1 + 0.75 * 0.3
+   468→  });
+   469→
+   470→  it('result is always >= 1.0', () => {
+   471→    expect(calculateBrandAwarenessDemandBonus(0)).toBeGreaterThanOrEqual(1.0);
+   472→    expect(calculateBrandAwarenessDemandBonus(50)).toBeGreaterThanOrEqual(1.0);
+   473→    expect(calculateBrandAwarenessDemandBonus(100)).toBeGreaterThanOrEqual(1.0);
+   474→  });
+   475→
+   476→  it('result is always <= 1.3', () => {
+   477→    expect(calculateBrandAwarenessDemandBonus(100)).toBeLessThanOrEqual(1.3);
+   478→    expect(calculateBrandAwarenessDemandBonus(150)).toBeLessThanOrEqual(1.45); // beyond 100 gives more
+   479→  });
+   480→});
+   481→
+   482→// ---- 8. calculateCampaignEffectiveness ----
+   483→
+   484→describe('calculateCampaignEffectiveness', () => {
+   485→  it('returns 0 for zero spend', () => {
+   486→    expect(calculateCampaignEffectiveness(10, 1000, 0, 5000)).toBe(0);
+   487→  });
+   488→
+   489→  it('returns 0 for negative spend', () => {
+   490→    expect(calculateCampaignEffectiveness(10, 1000, -100, 5000)).toBe(0);
+   491→  });
+   492→
+   493→  it('returns value between 0 and 1', () => {
+   494→    const result = calculateCampaignEffectiveness(30, 1000, 5000, 10000);
+   495→    expect(result).toBeGreaterThanOrEqual(0);
+   496→    expect(result).toBeLessThanOrEqual(1);
+   497→  });
+   498→
+   499→  it('good campaign has higher effectiveness', () => {
+   500→    // Good: high conversions, good ROI, efficient reach
+   501→    const good = calculateCampaignEffectiveness(50, 1000, 2000, 8000);
+   502→    // Bad: low conversions, poor ROI, expensive reach
+   503→    const bad = calculateCampaignEffectiveness(5, 200, 5000, 1000);
+   504→    expect(good).toBeGreaterThan(bad);
+   505→  });
+   506→
+   507→  it('high conversion rate boosts effectiveness', () => {
+   508→    // 5% conversion rate (above expected 3.5%)
+   509→    const highConv = calculateCampaignEffectiveness(50, 1000, 3000, 6000);
+   510→    // 1% conversion rate (below expected)
+   511→    const lowConv = calculateCampaignEffectiveness(10, 1000, 3000, 6000);
+   512→    expect(highConv).toBeGreaterThan(lowConv);
+   513→  });
+   514→
+   515→  it('better ROI boosts effectiveness', () => {
+   516→    // ROI = 3 (revenue 12000 / spend 3000 = 4, ROI = 3)
+   517→    const highROI = calculateCampaignEffectiveness(30, 1000, 3000, 12000);
+   518→    // ROI = 0.33 (revenue 4000 / spend 3000, ROI = 0.33)
+   519→    const lowROI = calculateCampaignEffectiveness(30, 1000, 3000, 4000);
+   520→    expect(highROI).toBeGreaterThan(lowROI);
+   521→  });
+   522→
+   523→  it('efficient reach (low CPM) boosts effectiveness', () => {
+   524→    // Low CPM: spend 1000, reach 10000 → CPM = 100 (very efficient)
+   525→    const efficient = calculateCampaignEffectiveness(30, 10000, 1000, 3000);
+   526→    // High CPM: spend 5000, reach 200 → CPM = 25000 (very inefficient)
+   527→    const inefficient = calculateCampaignEffectiveness(30, 200, 5000, 3000);
+   528→    expect(efficient).toBeGreaterThan(inefficient);
+   529→  });
+   530→
+   531→  it('zero reach with spend gives low effectiveness', () => {
+   532→    const result = calculateCampaignEffectiveness(0, 0, 5000, 0);
+   533→    // conversionScore = 0, roiScore = 0, reachScore = 0.2 (worst CPM)
+   534→    // effectiveness = 0 * 0.4 + 0 * 0.35 + 0.2 * 0.25 = 0.05
+   535→    expect(result).toBeCloseTo(0.05, 3);
+   536→  });
+   537→});
+   538→
+   539→// ---- 9. calculateCampaignROI ----
+   540→
+   541→describe('calculateCampaignROI', () => {
+   542→  it('break even: revenue equals spend → ROI = 0', () => {
+   543→    expect(calculateCampaignROI(5000, 5000)).toBeCloseTo(0, 5);
+   544→  });
+   545→
+   546→  it('profitable: revenue > spend → positive ROI', () => {
+   547→    // Revenue 10000, spend 5000 → ROI = (10000-5000)/5000 = 1.0
+   548→    expect(calculateCampaignROI(5000, 10000)).toBeCloseTo(1.0, 5);
+   549→  });
+   550→
+   551→  it('losing: revenue < spend → negative ROI', () => {
+   552→    // Revenue 2000, spend 5000 → ROI = (2000-5000)/5000 = -0.6
+   553→    expect(calculateCampaignROI(5000, 2000)).toBeCloseTo(-0.6, 5);
+   554→  });
+   555→
+   556→  it('zero spend → ROI = 0', () => {
+   557→    expect(calculateCampaignROI(0, 5000)).toBe(0);
+   558→  });
+   559→
+   560→  it('negative spend → ROI = 0', () => {
+   561→    expect(calculateCampaignROI(-100, 5000)).toBe(0);
+   562→  });
+   563→
+   564→  it('zero revenue with spend → ROI = -1', () => {
+   565→    expect(calculateCampaignROI(5000, 0)).toBeCloseTo(-1.0, 5);
+   566→  });
+   567→
+   568→  it('doubled money: ROI = 1', () => {
+   569→    expect(calculateCampaignROI(5000, 10000)).toBeCloseTo(1.0, 5);
+   570→  });
+   571→
+   572→  it('tripled money: ROI = 2', () => {
+   573→    expect(calculateCampaignROI(5000, 15000)).toBeCloseTo(2.0, 5);
+   574→  });
+   575→});
+   576→
+   577→// ---- 10. validateCampaign ----
+   578→
+   579→describe('validateCampaign', () => {
+   580→  it('valid inputs return no errors', () => {
+   581→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 7, 1, 0, 50000);
+   582→    expect(errors).toHaveLength(0);
+   583→  });
+   584→
+   585→  it('valid inputs for higher-level channel', () => {
+   586→    const errors = validateCampaign('TV_MEDIA', 25000, 7, 5, 0, 100000);
+   587→    expect(errors).toHaveLength(0);
+   588→  });
+   589→
+   590→  it('invalid channel returns error', () => {
+   591→    // @ts-expect-error - testing invalid channel
+   592→    const errors = validateCampaign('INVALID_CHANNEL', 1000, 7, 1, 0, 50000);
+   593→    expect(errors.length).toBeGreaterThan(0);
+   594→    expect(errors[0]).toContain('Invalid marketing channel');
+   595→  });
+   596→
+   597→  it('level too low for channel returns error', () => {
+   598→    // INFLUENCER requires level 2
+   599→    const errors = validateCampaign('INFLUENCER', 5000, 7, 1, 0, 100000);
+   600→    expect(errors.length).toBeGreaterThan(0);
+   601→    expect(errors.some(e => e.includes('too low'))).toBe(true);
+   602→  });
+   603→
+   604→  it('level too low for BILLBOARD (requires level 3)', () => {
+   605→    const errors = validateCampaign('BILLBOARD', 8000, 7, 2, 0, 100000);
+   606→    expect(errors.some(e => e.includes('too low'))).toBe(true);
+   607→  });
+   608→
+   609→  it('level too low for TV_MEDIA (requires level 4)', () => {
+   610→    const errors = validateCampaign('TV_MEDIA', 20000, 7, 3, 0, 100000);
+   611→    expect(errors.some(e => e.includes('too low'))).toBe(true);
+   612→  });
+   613→
+   614→  it('budget too low returns error', () => {
+   615→    // SOCIAL_MEDIA baseDailyCost=500, min = 500*0.5 = 250
+   616→    const errors = validateCampaign('SOCIAL_MEDIA', 100, 7, 1, 0, 50000);
+   617→    expect(errors.some(e => e.includes('too low'))).toBe(true);
+   618→  });
+   619→
+   620→  it('budget too high returns error', () => {
+   621→    // SOCIAL_MEDIA baseDailyCost=500, max = 500*20 = 10000
+   622→    const errors = validateCampaign('SOCIAL_MEDIA', 15000, 7, 1, 0, 50000);
+   623→    expect(errors.some(e => e.includes('too high'))).toBe(true);
+   624→  });
+   625→
+   626→  it('duration too short returns error', () => {
+   627→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 1, 1, 0, 50000);
+   628→    expect(errors.some(e => e.includes('too short'))).toBe(true);
+   629→  });
+   630→
+   631→  it('duration too long returns error', () => {
+   632→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 50, 1, 0, 50000);
+   633→    expect(errors.some(e => e.includes('too long'))).toBe(true);
+   634→  });
+   635→
+   636→  it('too many active campaigns returns error', () => {
+   637→    // maxActiveCampaignsPerBusiness = 3, so 3 already active
+   638→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 7, 1, 3, 50000);
+   639→    expect(errors.some(e => e.includes('Maximum'))).toBe(true);
+   640→  });
+   641→
+   642→  it('not enough cash returns error', () => {
+   643→    // dailyBudget 1000 but only 500 cash
+   644→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 7, 1, 0, 500);
+   645→    expect(errors.some(e => e.includes('Not enough cash'))).toBe(true);
+   646→  });
+   647→
+   648→  it('multiple errors can be returned at once', () => {
+   649→    // Level too low AND budget too low AND duration too short
+   650→    const errors = validateCampaign('INFLUENCER', 100, 1, 1, 0, 50);
+   651→    expect(errors.length).toBeGreaterThanOrEqual(2);
+   652→  });
+   653→
+   654→  it('boundary: exact minimum budget is valid', () => {
+   655→    // SOCIAL_MEDIA min = 500 * 0.5 = 250
+   656→    const errors = validateCampaign('SOCIAL_MEDIA', 250, 3, 1, 0, 50000);
+   657→    expect(errors).toHaveLength(0);
+   658→  });
+   659→
+   660→  it('boundary: exact maximum budget is valid', () => {
+   661→    // SOCIAL_MEDIA max = 500 * 20 = 10000
+   662→    const errors = validateCampaign('SOCIAL_MEDIA', 10000, 3, 1, 0, 50000);
+   663→    expect(errors).toHaveLength(0);
+   664→  });
+   665→
+   666→  it('boundary: minimum duration is valid', () => {
+   667→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 3, 1, 0, 50000);
+   668→    expect(errors).toHaveLength(0);
+   669→  });
+   670→
+   671→  it('boundary: maximum duration is valid', () => {
+   672→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 30, 1, 0, 50000);
+   673→    expect(errors).toHaveLength(0);
+   674→  });
+   675→
+   676→  it('boundary: exact minimum level for channel', () => {
+   677→    // INFLUENCER minLevel = 2
+   678→    const errors = validateCampaign('INFLUENCER', 5000, 7, 2, 0, 100000);
+   679→    expect(errors).toHaveLength(0);
+   680→  });
+   681→
+   682→  it('boundary: max campaigns minus 1 is valid', () => {
+   683→    // maxActiveCampaignsPerBusiness = 3, so 2 already active is fine
+   684→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 7, 1, 2, 50000);
+   685→    expect(errors).toHaveLength(0);
+   686→  });
+   687→
+   688→  it('exact cash equal to daily budget is valid', () => {
+   689→    const errors = validateCampaign('SOCIAL_MEDIA', 1000, 7, 1, 0, 1000);
+   690→    expect(errors).toHaveLength(0);
+   691→  });
+   692→});
+   693→

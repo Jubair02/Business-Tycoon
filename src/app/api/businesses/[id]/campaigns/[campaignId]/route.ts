@@ -159,9 +159,8 @@ export async function GET(
     const channelConfig = getChannelConfig(campaign.channel);
 
     // Get current game day for daysRemaining calculation
-    const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
-    const currentGameDay = parseInt(gameDayState?.value || '1', 10);
-    const daysRemaining = Math.max(0, campaign.endDay - currentGameDay);
+    // Use duration - daysRun for accurate remaining (handles paused campaigns correctly)
+    const daysRemaining = Math.max(0, campaign.duration - campaign.daysRun);
 
     return successResponse({
       ...campaign,
