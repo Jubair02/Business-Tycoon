@@ -87,10 +87,9 @@ export const ECONOMY_CONFIG = {
   eventMarketEffectStrength: 0.3,
 
   // ---- AI Players ----
-  /** AI profit center (0 = no bias, -0.1 = slight negative bias) */
-  aiProfitCenter: -0.05,
-  /** AI profit range multiplier */
-  aiProfitRange: 15000,
+  // NOTE: AI profit tuning was originally planned as aiProfitCenter/aiProfitRange
+  // but is now handled per-personality via PERSONALITY_CONFIGS in ai-strategy.ts.
+  // These config knobs were removed as they were never consumed by the AI engine.
 };
 
 // ---- Health Score Thresholds ----

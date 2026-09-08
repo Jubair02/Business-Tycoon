@@ -440,3 +440,26 @@ Stage Summary:
 - No information leaks: only public data (name, share %, revenue, personality badge) exposed
 - Zero errors in browser console
 - All Phase 2 UI verification passes
+---
+Task ID: Pre-Phase3-Cleanup
+Agent: Main
+Task: Pre-Phase 3 cleanup and stabilization pass
+
+Work Log:
+- Removed unused `aiProfitCenter` and `aiProfitRange` from economy-config.ts (never consumed by any code)
+- Added comment in economy-config.ts explaining AI profit tuning is handled per-personality in ai-strategy.ts
+- Documented 12 known differences between ai-simulation-test.ts and real game engine (events, market prices, product sales pipeline, tick order, reputation, metrics, market share, AI actions, determinism, human players, concurrency, cash floor)
+- Added developer warning to ai-simulation-test.ts header that it's NOT the real engine
+- Added developer warning to balance-sim.ts header about simplified model assumptions
+- Created BALANCE-RISKS.md with 6 documented balance risks and simulation limitation table
+- Verified simulation files are clearly marked as not suitable for final balance decisions
+- Ran tests: 105/105 passed (ai-system: 60, economy-formulas: 45)
+- Ran lint: 0 errors
+- Ran build: successful
+
+Stage Summary:
+- Files changed: economy-config.ts, ai-simulation-test.ts, balance-sim.ts, BALANCE-RISKS.md (new)
+- All unused config fields removed/documented
+- All simulation files clearly documented as simplified approximations
+- No balance changes made (no bugs found)
+- Project is READY FOR PHASE 3

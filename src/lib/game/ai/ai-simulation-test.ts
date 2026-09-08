@@ -6,6 +6,58 @@
 // - Verify per-personality balance
 // - Detect infinite growth / bankruptcy patterns
 // - Ensure no single personality dominates
+//
+// ⚠️  DEVELOPER WARNING — THIS IS NOT THE REAL GAME ENGINE
+// ⚠️  This simulation is a simplified approximation for rapid
+// ⚠️  iteration and sanity-checking. It does NOT fully reproduce
+// ⚠️  the real tick pipeline (game-engine.ts). DO NOT use this
+// ⚠️  as the sole source of truth for balance decisions.
+// ⚠️  Use full-engine integration test results for final tuning.
+//
+// ---- Known Differences from Real Engine ----
+//
+// 1. EVENTS: No game events are generated or applied.
+//    eventCustomerEffect=0, eventDemandEffect=0, activeEvents=[].
+//    Real engine: events affect customer counts, demand, and market prices.
+//
+// 2. MARKET PRICES: No per-city market price multipliers or retention-based
+//    updates. Real engine: MarketPrice table updated every 3 ticks with
+//    retention blending and event effects.
+//
+// 3. PRODUCT SALES: Uses individual formula calls (calculateProductDemand,
+//    calculatePriceDemandMultiplier, etc.) instead of simulateProductSales()
+//    which is the unified pipeline used by the real engine. The unified
+//    function adds random variation/volatility per product per day.
+//
+// 4. TICK ORDER: Real engine order is:
+//    Expire events → Update game state → Generate events → Update market prices
+//    → Simulate ALL businesses → Process loans → AI tick → Generate news
+//    Simulation order (per-player):
+//    Simulate businesses → Process loans → Mandatory restock → AI decision
+//
+// 5. REPUTATION: Uses simplified reputation update (profitable +0.5,
+//    unprofitable -0.8, stockout penalty, decay). Real engine uses
+//    calculateReputationChange() which includes manager/cleaner skill bonuses.
+//
+// 6. BUSINESS METRICS: No BusinessMetric recording. Real engine records
+//    daily metrics per business for trend analysis.
+//
+// 7. MARKET SHARE: No market share calculation. Real engine computes
+//    attractiveness scores and share percentages per city+type.
+//
+// 8. AI ACTIONS: In-memory execution is simplified. Real engine uses
+//    executeAIAction() with database transactions and full validation.
+//
+// 9. DETERMINISM: Uses SeededRNG (Mulberry32) for reproducibility.
+//    Real engine uses Math.random() — results vary per run.
+//
+// 10. NO HUMAN PLAYERS: Only AI players are simulated. Real engine
+//     includes human player businesses in the same economy.
+//
+// 11. NO CONCURRENCY: No tick lock, stale recovery, or transaction safety.
+//
+// 12. CASH FLOOR: Has artificial floor at -1,000,000 ৳ to prevent
+//     runaway negative values. Real engine has no such floor.
 // ============================================
 
 import type {

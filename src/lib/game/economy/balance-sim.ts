@@ -4,6 +4,18 @@
 // and verify balance across all business types
 //
 // Usage: npx tsx src/lib/game/economy/balance-sim.ts
+//
+// ⚠️  DEVELOPER WARNING — SIMPLIFIED MODEL
+// ⚠️  This simulation assumes ideal conditions:
+//    - Full stock restocked every day (no stockouts)
+//    - No employees (no salary costs, no skill bonuses)
+//    - No events (no demand/price shocks)
+//    - No market price variation (priceMultiplier=1)
+//    - Level 1, Reputation 50, Dhaka only
+// ⚠️  Real engine results will differ due to events, competition,
+//    inventory depletion, employee costs, and market variation.
+// ⚠️  DO NOT use this as the sole source of truth for balance.
+// ⚠️  Use full-engine integration results for final decisions.
 // ============================================
 
 import {
