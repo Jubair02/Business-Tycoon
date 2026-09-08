@@ -1,0 +1,1188 @@
+     1→// ============================================
+     2→// Bangladesh Business Tycoon - CX Formula Tests
+     3→// Phase 3: Tests for Customer Experience formulas
+     4→// ============================================
+     5→
+     6→import { describe, it, expect } from 'vitest';
+     7→import {
+     8→  calculatePriceCompetitiveness,
+     9→  calculateSatisfaction,
+    10→  calculateServiceQuality,
+    11→  getLoyaltyTier,
+    12→  calculateLoyalty,
+    13→  calculateNPS,
+    14→  calculateSegmentDemands,
+    15→  generateReviews,
+    16→  calculateCXDemandModifier,
+    17→  determineSentiment,
+    18→  determineCategory,
+    19→  generateRating,
+    20→} from '@/lib/game/economy/cx-formulas';
+    21→import {
+    22→  SATISFACTION_WEIGHTS,
+    23→  CUSTOMER_SEGMENTS,
+    24→  LOYALTY_TIERS,
+    25→  LOYALTY_CONFIG,
+    26→  NPS_CONFIG,
+    27→  REVIEW_CONFIG,
+    28→} from '@/lib/game/economy/cx-config';
+    29→import type {
+    30→  SatisfactionInput,
+    31→  SatisfactionResult,
+    32→  LoyaltyInput,
+    33→  ReviewSentiment,
+    34→  ReviewCategory,
+    35→} from '@/lib/game/economy/types';
+    36→
+    37→// ============================================
+    38→// 1. PRICE COMPETITIVENESS
+    39→// ============================================
+    40→
+    41→describe('calculatePriceCompetitiveness', () => {
+    42→  const productDefs = [
+    43→    { name: 'Tea', basePrice: 5, suggestedMarkup: 0.5 },
+    44→    { name: 'Rice', basePrice: 50, suggestedMarkup: 0.3 },
+    45→    { name: 'Soap', basePrice: 20, suggestedMarkup: 0.4 },
+    46→  ];
+    47→  const neutralMarket = {
+    48→    Tea: { priceMultiplier: 1.0 },
+    49→    Rice: { priceMultiplier: 1.0 },
+    50→    Soap: { priceMultiplier: 1.0 },
+    51→  };
+    52→
+    53→  it('returns 0.5 for empty inventories', () => {
+    54→    expect(calculatePriceCompetitiveness([], productDefs, neutralMarket)).toBe(0.5);
+    55→  });
+    56→
+    57→  it('returns ~1.0 when all products are at market price', () => {
+    58→    // marketRef = basePrice * (1 + suggestedMarkup)
+    59→    // Tea: 5 * 1.5 = 7.5, Rice: 50 * 1.3 = 65, Soap: 20 * 1.4 = 28
+    60→    const inventories = [
+    61→      { productName: 'Tea', sellPrice: 7.5 },
+    62→      { productName: 'Rice', sellPrice: 65 },
+    63→      { productName: 'Soap', sellPrice: 28 },
+    64→    ];
+    65→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+    66→    // ratio = 1.0 for each, competitiveness = 1 - (1-1)/2 = 1.0
+    67→    expect(result).toBeCloseTo(1.0, 2);
+    68→  });
+    69→
+    70→  it('returns 0.0 when all products are 3x market price', () => {
+    71→    const inventories = [
+    72→      { productName: 'Tea', sellPrice: 7.5 * 3 },
+    73→      { productName: 'Rice', sellPrice: 65 * 3 },
+    74→      { productName: 'Soap', sellPrice: 28 * 3 },
+    75→    ];
+    76→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+    77→    // ratio = 3.0, competitiveness = 1 - (3-1)/2 = 0
+    78→    expect(result).toBeCloseTo(0.0, 2);
+    79→  });
+    80→
+    81→  it('returns 0.5 when all products are 2x market price', () => {
+    82→    const inventories = [
+    83→      { productName: 'Tea', sellPrice: 7.5 * 2 },
+    84→      { productName: 'Rice', sellPrice: 65 * 2 },
+    85→      { productName: 'Soap', sellPrice: 28 * 2 },
+    86→    ];
+    87→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+    88→    // ratio = 2.0, competitiveness = 1 - (2-1)/2 = 0.5
+    89→    expect(result).toBeCloseTo(0.5, 2);
+    90→  });
+    91→
+    92→  it('returns ~1.0 when all products are 0.5x market price (below market)', () => {
+    93→    const inventories = [
+    94→      { productName: 'Tea', sellPrice: 7.5 * 0.5 },
+    95→      { productName: 'Rice', sellPrice: 65 * 0.5 },
+    96→      { productName: 'Soap', sellPrice: 28 * 0.5 },
+    97→    ];
+    98→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+    99→    // ratio = 0.5, competitiveness = 1 - (0.5-1)/2 = 1.25 → clamped to 1.0
+   100→    expect(result).toBeCloseTo(1.0, 2);
+   101→  });
+   102→
+   103→  it('returns 0.75 when all products are 1.5x market price', () => {
+   104→    const inventories = [
+   105→      { productName: 'Tea', sellPrice: 7.5 * 1.5 },
+   106→      { productName: 'Rice', sellPrice: 65 * 1.5 },
+   107→      { productName: 'Soap', sellPrice: 28 * 1.5 },
+   108→    ];
+   109→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+   110→    // ratio = 1.5, competitiveness = 1 - (1.5-1)/2 = 0.75
+   111→    expect(result).toBeCloseTo(0.75, 2);
+   112→  });
+   113→
+   114→  it('averages mixed pricing correctly', () => {
+   115→    const inventories = [
+   116→      { productName: 'Tea', sellPrice: 7.5 },      // ratio 1.0 → competitiveness 1.0
+   117→      { productName: 'Rice', sellPrice: 65 * 2 },   // ratio 2.0 → competitiveness 0.5
+   118→      { productName: 'Soap', sellPrice: 28 * 3 },   // ratio 3.0 → competitiveness 0.0
+   119→    ];
+   120→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+   121→    // Average: (1.0 + 0.5 + 0.0) / 3 ≈ 0.5
+   122→    expect(result).toBeCloseTo(0.5, 2);
+   123→  });
+   124→
+   125→  it('applies market price multiplier from marketPriceMap', () => {
+   126→    const hotMarket = {
+   127→      Tea: { priceMultiplier: 1.5 },  // market price is 1.5x higher
+   128→      Rice: { priceMultiplier: 1.0 },
+   129→      Soap: { priceMultiplier: 1.0 },
+   130→    };
+   131→    const inventories = [
+   132→      { productName: 'Tea', sellPrice: 7.5 },  // sell at base market, but market is now 1.5x
+   133→    ];
+   134→    const result = calculatePriceCompetitiveness(inventories, productDefs, hotMarket);
+   135→    // effectiveMarketRef = 7.5 * 1.5 = 11.25
+   136→    // ratio = 7.5 / 11.25 = 0.667
+   137→    // competitiveness = 1 - (0.667 - 1)/2 = 1.167 → clamped to 1.0
+   138→    expect(result).toBeCloseTo(1.0, 2);
+   139→  });
+   140→
+   141→  it('skips inventories with no matching product definition', () => {
+   142→    const inventories = [
+   143→      { productName: 'UnknownProduct', sellPrice: 100 },
+   144→      { productName: 'Tea', sellPrice: 7.5 },
+   145→    ];
+   146→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+   147→    // Only Tea counts: competitiveness 1.0
+   148→    // count = 2 (both iterated), but only 1 has a productDef, so totalCompetitiveness = 1.0, count = 2
+   149→    // Wait - looking at the code: count++ happens regardless of whether prodDef is found
+   150→    // Actually the code does `if (!prodDef) continue;` which skips the rest of the loop body including count++
+   151→    // So count only increments when prodDef is found AND effectiveMarketRef > 0
+   152→    // Let me re-read the code...
+   153→    // Actually: count++ is AFTER the if block, so it increments for every inventory item
+   154→    // regardless of whether prodDef was found. But totalCompetitiveness only increases
+   155→    // when both prodDef is found AND effectiveMarketRef > 0.
+   156→    // So: totalCompetitiveness = 1.0, count = 2 → average = 0.5
+   157→    // Hmm, wait. Let me re-read carefully...
+   158→    // The code is:
+   159→    //   for (const inv of inventories) {
+   160→    //     const prodDef = productDefs.find(p => p.name === inv.productName);
+   161→    //     if (!prodDef) continue;  ← this skips the rest including count++
+   162→    //     ...
+   163→    //     count++;
+   164→    //   }
+   165→    // So if !prodDef, continue skips count++. count = 1.
+   166→    expect(result).toBeCloseTo(1.0, 2);
+   167→  });
+   168→
+   169→  it('returns 0.5 when no inventories match any product definition', () => {
+   170→    const inventories = [
+   171→      { productName: 'Foo', sellPrice: 100 },
+   172→      { productName: 'Bar', sellPrice: 200 },
+   173→    ];
+   174→    const result = calculatePriceCompetitiveness(inventories, productDefs, neutralMarket);
+   175→    // count = 0, returns 0.5
+   176→    expect(result).toBe(0.5);
+   177→  });
+   178→});
+   179→
+   180→// ============================================
+   181→// 2. SATISFACTION CALCULATION
+   182→// ============================================
+   183→
+   184→describe('calculateSatisfaction', () => {
+   185→  it('perfect business (all factors 1.0) with currentSatisfaction=100 → satisfaction > 80', () => {
+   186→    const input: SatisfactionInput = {
+   187→      priceCompetitiveness: 1.0,
+   188→      productQuality: 1.0,
+   189→      serviceQuality: 1.0,
+   190→      stockAvailability: 1.0,
+   191→      atmosphere: 1.0,
+   192→      currentSatisfaction: 100,
+   193→    };
+   194→    const result = calculateSatisfaction(input);
+   195→    // rawScore = 0.30*100 + 0.25*100 + 0.20*100 + 0.15*100 + 0.10*100 = 100
+   196→    // smoothed = 100 * 0.7 + 100 * 0.3 = 100
+   197→    expect(result.overall).toBeCloseTo(100, 1);
+   198→    expect(result.overall).toBeGreaterThan(80);
+   199→  });
+   200→
+   201→  it('perfect business with currentSatisfaction=0 still yields high satisfaction', () => {
+   202→    const input: SatisfactionInput = {
+   203→      priceCompetitiveness: 1.0,
+   204→      productQuality: 1.0,
+   205→      serviceQuality: 1.0,
+   206→      stockAvailability: 1.0,
+   207→      atmosphere: 1.0,
+   208→      currentSatisfaction: 0,
+   209→    };
+   210→    const result = calculateSatisfaction(input);
+   211→    // rawScore = 100, smoothed = 0 * 0.7 + 100 * 0.3 = 30
+   212→    expect(result.overall).toBeCloseTo(30, 1);
+   213→  });
+   214→
+   215→  it('terrible business (all factors 0.0) → satisfaction < 30', () => {
+   216→    const input: SatisfactionInput = {
+   217→      priceCompetitiveness: 0.0,
+   218→      productQuality: 0.0,
+   219→      serviceQuality: 0.0,
+   220→      stockAvailability: 0.0,
+   221→      atmosphere: 0.0,
+   222→      currentSatisfaction: 0,
+   223→    };
+   224→    const result = calculateSatisfaction(input);
+   225→    // rawScore = 0, smoothed = 0
+   226→    expect(result.overall).toBeLessThan(30);
+   227→    expect(result.overall).toBeCloseTo(0, 1);
+   228→  });
+   229→
+   230→  it('terrible business with currentSatisfaction=100 still drops below 80', () => {
+   231→    const input: SatisfactionInput = {
+   232→      priceCompetitiveness: 0.0,
+   233→      productQuality: 0.0,
+   234→      serviceQuality: 0.0,
+   235→      stockAvailability: 0.0,
+   236→      atmosphere: 0.0,
+   237→      currentSatisfaction: 100,
+   238→    };
+   239→    const result = calculateSatisfaction(input);
+   240→    // rawScore = 0, smoothed = 100 * 0.7 + 0 * 0.3 = 70
+   241→    expect(result.overall).toBeCloseTo(70, 1);
+   242→    expect(result.overall).toBeLessThan(80);
+   243→  });
+   244→
+   245→  it('mixed factors produce mid-range satisfaction', () => {
+   246→    const input: SatisfactionInput = {
+   247→      priceCompetitiveness: 0.8,  // 80
+   248→      productQuality: 0.6,       // 60
+   249→      serviceQuality: 0.5,       // 50
+   250→      stockAvailability: 0.7,    // 70
+   251→      atmosphere: 0.4,           // 40
+   252→      currentSatisfaction: 50,
+   253→    };
+   254→    const result = calculateSatisfaction(input);
+   255→    // rawScore = 0.30*80 + 0.25*60 + 0.20*50 + 0.15*70 + 0.10*40
+   256→    //          = 24 + 15 + 10 + 10.5 + 4 = 63.5
+   257→    // smoothed = 50 * 0.7 + 63.5 * 0.3 = 35 + 19.05 = 54.05
+   258→    expect(result.overall).toBeCloseTo(54.05, 1);
+   259→    expect(result.overall).toBeGreaterThan(40);
+   260→    expect(result.overall).toBeLessThan(70);
+   261→  });
+   262→
+   263→  it('smoothing: current satisfaction blends with new calculation', () => {
+   264→    // Same factors but different currentSatisfaction → different results
+   265→    const baseFactors = {
+   266→      priceCompetitiveness: 0.7,
+   267→      productQuality: 0.7,
+   268→      serviceQuality: 0.7,
+   269→      stockAvailability: 0.7,
+   270→      atmosphere: 0.7,
+   271→    };
+   272→    const lowCurrent = calculateSatisfaction({ ...baseFactors, currentSatisfaction: 0 });
+   273→    const highCurrent = calculateSatisfaction({ ...baseFactors, currentSatisfaction: 100 });
+   274→    // Higher current satisfaction should produce higher result (smoothing effect)
+   275→    expect(highCurrent.overall).toBeGreaterThan(lowCurrent.overall);
+   276→  });
+   277→
+   278→  it('tracks positive factors when scores >= 60', () => {
+   279→    const input: SatisfactionInput = {
+   280→      priceCompetitiveness: 0.7,  // 70 >= 60 → positive
+   281→      productQuality: 0.7,       // 70 >= 60 → positive
+   282→      serviceQuality: 0.7,       // 70 >= 60 → positive
+   283→      stockAvailability: 0.7,    // 70 >= 60 → positive
+   284→      atmosphere: 0.7,           // 70 >= 60 → positive
+   285→      currentSatisfaction: 50,
+   286→    };
+   287→    const result = calculateSatisfaction(input);
+   288→    expect(result.positiveFactors).toContain('Fair prices');
+   289→    expect(result.positiveFactors).toContain('Good product quality');
+   290→    expect(result.positiveFactors).toContain('Good service');
+   291→    expect(result.positiveFactors).toContain('Well-stocked');
+   292→    expect(result.positiveFactors).toContain('Good atmosphere');
+   293→    expect(result.negativeFactors).toHaveLength(0);
+   294→  });
+   295→
+   296→  it('tracks negative factors when scores < 40', () => {
+   297→    const input: SatisfactionInput = {
+   298→      priceCompetitiveness: 0.3,  // 30 < 40 → negative
+   299→      productQuality: 0.3,       // 30 < 40 → negative
+   300→      serviceQuality: 0.3,       // 30 < 40 → negative
+   301→      stockAvailability: 0.3,    // 30 < 40 → negative
+   302→      atmosphere: 0.3,           // 30 < 40 → negative
+   303→      currentSatisfaction: 50,
+   304→    };
+   305→    const result = calculateSatisfaction(input);
+   306→    expect(result.negativeFactors).toContain('High prices');
+   307→    expect(result.negativeFactors).toContain('Poor product quality');
+   308→    expect(result.negativeFactors).toContain('Poor service');
+   309→    expect(result.negativeFactors).toContain('Low stock');
+   310→    expect(result.negativeFactors).toContain('Poor atmosphere');
+   311→    expect(result.positiveFactors).toHaveLength(0);
+   312→  });
+   313→
+   314→  it('factors between 40-59 are neither positive nor negative', () => {
+   315→    const input: SatisfactionInput = {
+   316→      priceCompetitiveness: 0.5,  // 50 → neither
+   317→      productQuality: 0.5,       // 50 → neither
+   318→      serviceQuality: 0.5,       // 50 → neither
+   319→      stockAvailability: 0.5,    // 50 → neither
+   320→      atmosphere: 0.5,           // 50 → neither
+   321→      currentSatisfaction: 50,
+   322→    };
+   323→    const result = calculateSatisfaction(input);
+   324→    expect(result.positiveFactors).toHaveLength(0);
+   325→    expect(result.negativeFactors).toHaveLength(0);
+   326→  });
+   327→
+   328→  it('returns individual factor scores in 0-100 range', () => {
+   329→    const input: SatisfactionInput = {
+   330→      priceCompetitiveness: 0.75,
+   331→      productQuality: 0.60,
+   332→      serviceQuality: 0.85,
+   333→      stockAvailability: 0.40,
+   334→      atmosphere: 0.95,
+   335→      currentSatisfaction: 50,
+   336→    };
+   337→    const result = calculateSatisfaction(input);
+   338→    expect(result.priceSatisfaction).toBeCloseTo(75, 5);
+   339→    expect(result.productQuality).toBeCloseTo(60, 5);
+   340→    expect(result.serviceQuality).toBeCloseTo(85, 5);
+   341→    expect(result.stockAvailability).toBeCloseTo(40, 5);
+   342→    expect(result.atmosphere).toBeCloseTo(95, 5);
+   343→  });
+   344→
+   345→  it('overall satisfaction is clamped to 0-100', () => {
+   346→    const input: SatisfactionInput = {
+   347→      priceCompetitiveness: 1.0,
+   348→      productQuality: 1.0,
+   349→      serviceQuality: 1.0,
+   350→      stockAvailability: 1.0,
+   351→      atmosphere: 1.0,
+   352→      currentSatisfaction: 100,
+   353→    };
+   354→    const result = calculateSatisfaction(input);
+   355→    expect(result.overall).toBeGreaterThanOrEqual(0);
+   356→    expect(result.overall).toBeLessThanOrEqual(100);
+   357→  });
+   358→});
+   359→
+   360→// ============================================
+   361→// 3. SERVICE QUALITY
+   362→// ============================================
+   363→
+   364→describe('calculateServiceQuality', () => {
+   365→  it('returns 0.1 when no employees', () => {
+   366→    expect(calculateServiceQuality(0, 0.5, 5)).toBe(0.1);
+   367→  });
+   368→
+   369→  it('returns 0.1 when no employees regardless of skill/ideal', () => {
+   370→    expect(calculateServiceQuality(0, 1.0, 10)).toBe(0.1);
+   371→  });
+   372→
+   373→  it('full staff (5 employees, ideal=5) with high skill → high quality', () => {
+   374→    const result = calculateServiceQuality(5, 0.9, 5);
+   375→    // coverageRatio = min(1, 5/5) = 1.0
+   376→    // quality = 1.0 * (0.3 + 0.7 * 0.9) = 1.0 * 0.93 = 0.93
+   377→    expect(result).toBeCloseTo(0.93, 2);
+   378→    expect(result).toBeGreaterThan(0.8);
+   379→  });
+   380→
+   381→  it('full staff with low skill → moderate quality', () => {
+   382→    const result = calculateServiceQuality(5, 0.3, 5);
+   383→    // coverageRatio = 1.0
+   384→    // quality = 1.0 * (0.3 + 0.7 * 0.3) = 1.0 * 0.51 = 0.51
+   385→    expect(result).toBeCloseTo(0.51, 2);
+   386→  });
+   387→
+   388→  it('half staff (3 of ideal 6) → reduced coverage', () => {
+   389→    const result = calculateServiceQuality(3, 0.8, 6);
+   390→    // coverageRatio = min(1, 3/6) = 0.5
+   391→    // quality = 0.5 * (0.3 + 0.7 * 0.8) = 0.5 * 0.86 = 0.43
+   392→    expect(result).toBeCloseTo(0.43, 2);
+   393→  });
+   394→
+   395→  it('overstaffed (10 of ideal 5) → coverage capped at 1.0', () => {
+   396→    const result = calculateServiceQuality(10, 0.8, 5);
+   397→    // coverageRatio = min(1, 10/5) = 1.0
+   398→    // quality = 1.0 * (0.3 + 0.7 * 0.8) = 0.86
+   399→    expect(result).toBeCloseTo(0.86, 2);
+   400→  });
+   401→
+   402→  it('quality increases with employee skill', () => {
+   403→    const lowSkill = calculateServiceQuality(3, 0.2, 5);
+   404→    const highSkill = calculateServiceQuality(3, 0.9, 5);
+   405→    expect(highSkill).toBeGreaterThan(lowSkill);
+   406→  });
+   407→
+   408→  it('quality increases with more employees (up to ideal)', () => {
+   409→    const few = calculateServiceQuality(1, 0.7, 5);
+   410→    const more = calculateServiceQuality(3, 0.7, 5);
+   411→    const full = calculateServiceQuality(5, 0.7, 5);
+   412→    expect(more).toBeGreaterThan(few);
+   413→    expect(full).toBeGreaterThan(more);
+   414→  });
+   415→
+   416→  it('result is always between 0 and 1', () => {
+   417→    expect(calculateServiceQuality(0, 0, 1)).toBeGreaterThanOrEqual(0);
+   418→    expect(calculateServiceQuality(0, 0, 1)).toBeLessThanOrEqual(1);
+   419→    expect(calculateServiceQuality(100, 1.0, 1)).toBeLessThanOrEqual(1);
+   420→    expect(calculateServiceQuality(100, 1.0, 1)).toBeGreaterThanOrEqual(0);
+   421→  });
+   422→});
+   423→
+   424→// ============================================
+   425→// 4. LOYALTY TIER
+   426→// ============================================
+   427→
+   428→describe('getLoyaltyTier', () => {
+   429→  it('0 points → BRONZE', () => {
+   430→    const result = getLoyaltyTier(0);
+   431→    expect(result.tier).toBe('BRONZE');
+   432→    expect(result.multiplier).toBe(1.0);
+   433→    expect(result.name).toBe('Bronze');
+   434→  });
+   435→
+   436→  it('99 points → BRONZE', () => {
+   437→    expect(getLoyaltyTier(99).tier).toBe('BRONZE');
+   438→  });
+   439→
+   440→  it('100 points → SILVER', () => {
+   441→    const result = getLoyaltyTier(100);
+   442→    expect(result.tier).toBe('SILVER');
+   443→    expect(result.multiplier).toBe(1.10);
+   444→    expect(result.name).toBe('Silver');
+   445→  });
+   446→
+   447→  it('299 points → SILVER', () => {
+   448→    expect(getLoyaltyTier(299).tier).toBe('SILVER');
+   449→  });
+   450→
+   451→  it('300 points → GOLD', () => {
+   452→    const result = getLoyaltyTier(300);
+   453→    expect(result.tier).toBe('GOLD');
+   454→    expect(result.multiplier).toBe(1.25);
+   455→    expect(result.name).toBe('Gold');
+   456→  });
+   457→
+   458→  it('599 points → GOLD', () => {
+   459→    expect(getLoyaltyTier(599).tier).toBe('GOLD');
+   460→  });
+   461→
+   462→  it('600 points → PLATINUM', () => {
+   463→    const result = getLoyaltyTier(600);
+   464→    expect(result.tier).toBe('PLATINUM');
+   465→    expect(result.multiplier).toBe(1.5);
+   466→    expect(result.name).toBe('Platinum');
+   467→  });
+   468→
+   469→  it('1000 points → PLATINUM', () => {
+   470→    expect(getLoyaltyTier(1000).tier).toBe('PLATINUM');
+   471→  });
+   472→
+   473→  it('returns correct icon for each tier', () => {
+   474→    expect(getLoyaltyTier(0).icon).toBe('🥉');
+   475→    expect(getLoyaltyTier(100).icon).toBe('🥈');
+   476→    expect(getLoyaltyTier(300).icon).toBe('🥇');
+   477→    expect(getLoyaltyTier(600).icon).toBe('💎');
+   478→  });
+   479→
+   480→  it('boundary: exactly at each tier minimum', () => {
+   481→    expect(getLoyaltyTier(LOYALTY_TIERS.BRONZE.minPoints).tier).toBe('BRONZE');
+   482→    expect(getLoyaltyTier(LOYALTY_TIERS.SILVER.minPoints).tier).toBe('SILVER');
+   483→    expect(getLoyaltyTier(LOYALTY_TIERS.GOLD.minPoints).tier).toBe('GOLD');
+   484→    expect(getLoyaltyTier(LOYALTY_TIERS.PLATINUM.minPoints).tier).toBe('PLATINUM');
+   485→  });
+   486→});
+   487→
+   488→// ============================================
+   489→// 5. LOYALTY CALCULATION
+   490→// ============================================
+   491→
+   492→describe('calculateLoyalty', () => {
+   493→  it('positive experience with customers increases loyalty', () => {
+   494→    const input: LoyaltyInput = {
+   495→      currentLoyaltyScore: 50,
+   496→      currentRepeatRate: 0.3,
+   497→      wasPositiveExperience: true,
+   498→      totalCustomers: 10,
+   499→      numberOfReviews: 0,
+   500→      averageRating: 3,
+   501→      loyaltyMultiplier: 1.0,
+   502→    };
+   503→    const result = calculateLoyalty(input);
+   504→    // newScore = 50 + 2.0 (dailyGain) = 52
+   505→    expect(result.loyaltyScore).toBeGreaterThan(50);
+   506→  });
+   507→
+   508→  it('negative experience with customers decreases loyalty', () => {
+   509→    const input: LoyaltyInput = {
+   510→      currentLoyaltyScore: 50,
+   511→      currentRepeatRate: 0.3,
+   512→      wasPositiveExperience: false,
+   513→      totalCustomers: 10,
+   514→      numberOfReviews: 0,
+   515→      averageRating: 3,
+   516→      loyaltyMultiplier: 1.0,
+   517→    };
+   518→    const result = calculateLoyalty(input);
+   519→    // newScore = 50 - 4.0 (dailyLoss) = 46
+   520→    expect(result.loyaltyScore).toBeLessThan(50);
+   521→  });
+   522→
+   523→  it('no customers causes loyalty decay', () => {
+   524→    const input: LoyaltyInput = {
+   525→      currentLoyaltyScore: 50,
+   526→      currentRepeatRate: 0.3,
+   527→      wasPositiveExperience: true,
+   528→      totalCustomers: 0,
+   529→      numberOfReviews: 0,
+   530→      averageRating: 3,
+   531→      loyaltyMultiplier: 1.0,
+   532→    };
+   533→    const result = calculateLoyalty(input);
+   534→    // newScore = 50 - 0.5 (dailyDecay) = 49.5
+   535→    expect(result.loyaltyScore).toBeLessThan(50);
+   536→  });
+   537→
+   538→  it('loyalty score is capped at maxScore (100)', () => {
+   539→    const input: LoyaltyInput = {
+   540→      currentLoyaltyScore: 99,
+   541→      currentRepeatRate: 0.3,
+   542→      wasPositiveExperience: true,
+   543→      totalCustomers: 10,
+   544→      numberOfReviews: 5,
+   545→      averageRating: 5,  // rating bonus = (5-3)*0.5 = 1
+   546→      loyaltyMultiplier: 1.0,
+   547→    };
+   548→    const result = calculateLoyalty(input);
+   549→    // newScore = 99 + 2.0 + 1.0 = 102 → clamped to 100
+   550→    expect(result.loyaltyScore).toBeLessThanOrEqual(100);
+   551→  });
+   552→
+   553→  it('loyalty score does not go below 0', () => {
+   554→    const input: LoyaltyInput = {
+   555→      currentLoyaltyScore: 1,
+   556→      currentRepeatRate: 0.3,
+   557→      wasPositiveExperience: false,
+   558→      totalCustomers: 10,
+   559→      numberOfReviews: 5,
+   560→      averageRating: 1,  // rating bonus = (?-3)*0.5 = -1
+   561→      loyaltyMultiplier: 1.0,
+   562→    };
+   563→    const result = calculateLoyalty(input);
+   564→    // newScore = 1 - 4.0 + (-1) = -4 → clamped to 0
+   565→    expect(result.loyaltyScore).toBeGreaterThanOrEqual(0);
+   566→  });
+   567→
+   568→  it('high average rating adds loyalty bonus', () => {
+   569→    const baseInput: LoyaltyInput = {
+   570→      currentLoyaltyScore: 50,
+   571→      currentRepeatRate: 0.3,
+   572→      wasPositiveExperience: true,
+   573→      totalCustomers: 10,
+   574→      numberOfReviews: 5,
+   575→      averageRating: 3,
+   576→      loyaltyMultiplier: 1.0,
+   577→    };
+   578→    const highRatingInput: LoyaltyInput = {
+   579→      ...baseInput,
+   580→      averageRating: 5,  // bonus = (5-3)*0.5 = 1
+   581→    };
+   582→    const lowRatingInput: LoyaltyInput = {
+   583→      ...baseInput,
+   584→      averageRating: 1,  // bonus = (1-3)*0.5 = -1
+   585→    };
+   586→    const highResult = calculateLoyalty(highRatingInput);
+   587→    const lowResult = calculateLoyalty(lowRatingInput);
+   588→    expect(highResult.loyaltyScore).toBeGreaterThan(lowResult.loyaltyScore);
+   589→  });
+   590→
+   591→  it('repeat rate is capped at repeatRateCap (0.86)', () => {
+   592→    const input: LoyaltyInput = {
+   593→      currentLoyaltyScore: 100,
+   594→      currentRepeatRate: 0.9,  // above cap
+   595→      wasPositiveExperience: true,
+   596→      totalCustomers: 10,
+   597→      numberOfReviews: 0,
+   598→      averageRating: 3,
+   599→      loyaltyMultiplier: 1.0,
+   600→    };
+   601→    const result = calculateLoyalty(input);
+   602→    expect(result.repeatCustomerRate).toBeLessThanOrEqual(LOYALTY_CONFIG.repeatRateCap);
+   603→  });
+   604→
+   605→  it('repeat rate is non-negative', () => {
+   606→    const input: LoyaltyInput = {
+   607→      currentLoyaltyScore: 0,
+   608→      currentRepeatRate: 0,
+   609→      wasPositiveExperience: false,
+   610→      totalCustomers: 0,
+   611→      numberOfReviews: 0,
+   612→      averageRating: 1,
+   613→      loyaltyMultiplier: 1.0,
+   614→    };
+   615→    const result = calculateLoyalty(input);
+   616→    expect(result.repeatCustomerRate).toBeGreaterThanOrEqual(0);
+   617→  });
+   618→
+   619→  it('tier promotion happens when loyalty crosses threshold', () => {
+   620→    // Start just below SILVER threshold
+   621→    const before: LoyaltyInput = {
+   622→      currentLoyaltyScore: 98,
+   623→      currentRepeatRate: 0.3,
+   624→      wasPositiveExperience: true,
+   625→      totalCustomers: 10,
+   626→      numberOfReviews: 0,
+   627→      averageRating: 3,
+   628→      loyaltyMultiplier: 1.0,
+   629→    };
+   630→    const result = calculateLoyalty(before);
+   631→    // newScore = 98 + 2 = 100 → SILVER
+   632→    expect(result.tier).toBe('SILVER');
+   633→  });
+   634→
+   635→  it('loyalty customer bonus increases with repeat rate and tier multiplier', () => {
+   636→    const bronzeInput: LoyaltyInput = {
+   637→      currentLoyaltyScore: 50,
+   638→      currentRepeatRate: 0.5,
+   639→      wasPositiveExperience: true,
+   640→      totalCustomers: 100,
+   641→      numberOfReviews: 0,
+   642→      averageRating: 3,
+   643→      loyaltyMultiplier: 1.0,
+   644→    };
+   645→    const platinumInput: LoyaltyInput = {
+   646→      currentLoyaltyScore: 700,
+   647→      currentRepeatRate: 0.5,
+   648→      wasPositiveExperience: true,
+   649→      totalCustomers: 100,
+   650→      numberOfReviews: 0,
+   651→      averageRating: 3,
+   652→      loyaltyMultiplier: 1.5,
+   653→    };
+   654→    const bronzeResult = calculateLoyalty(bronzeInput);
+   655→    const platinumResult = calculateLoyalty(platinumInput);
+   656→    // Higher tier multiplier → higher bonus
+   657→    expect(platinumResult.loyaltyCustomerBonus).toBeGreaterThanOrEqual(bronzeResult.loyaltyCustomerBonus);
+   658→  });
+   659→
+   660→  it('loyalty score is rounded to 1 decimal', () => {
+   661→    const input: LoyaltyInput = {
+   662→      currentLoyaltyScore: 50,
+   663→      currentRepeatRate: 0.3,
+   664→      wasPositiveExperience: true,
+   665→      totalCustomers: 10,
+   666→      numberOfReviews: 0,
+   667→      averageRating: 3,
+   668→      loyaltyMultiplier: 1.0,
+   669→    };
+   670→    const result = calculateLoyalty(input);
+   671→    // Should be a clean decimal like 52.0
+   672→    expect(result.loyaltyScore * 10).toBe(Math.round(result.loyaltyScore * 10));
+   673→  });
+   674→});
+   675→
+   676→// ============================================
+   677→// 6. NPS CALCULATION
+   678→// ============================================
+   679→
+   680→describe('calculateNPS', () => {
+   681→  it('returns NPS 0 when fewer than minReviews', () => {
+   682→    const reviews = [{ rating: 5 }, { rating: 5 }, { rating: 5 }, { rating: 5 }];
+   683→    const result = calculateNPS(reviews);
+   684→    expect(result.nps).toBe(0);
+   685→    expect(result.promoters).toBe(0);
+   686→    expect(result.totalReviews).toBe(4);
+   687→  });
+   688→
+   689→  it('all promoters (rating 5) → NPS 100', () => {
+   690→    const reviews = Array(10).fill(null).map(() => ({ rating: 5 }));
+   691→    const result = calculateNPS(reviews);
+   692→    expect(result.nps).toBe(100);
+   693→    expect(result.promoters).toBe(100);
+   694→    expect(result.detractors).toBe(0);
+   695→  });
+   696→
+   697→  it('all detractors (rating 1-3) → NPS -100', () => {
+   698→    const reviews = Array(10).fill(null).map(() => ({ rating: 2 }));
+   699→    const result = calculateNPS(reviews);
+   700→    expect(result.nps).toBe(-100);
+   701→    expect(result.detractors).toBe(100);
+   702→    expect(result.promoters).toBe(0);
+   703→  });
+   704→
+   705→  it('all passives (rating 4) → NPS 0', () => {
+   706→    const reviews = Array(10).fill(null).map(() => ({ rating: 4 }));
+   707→    const result = calculateNPS(reviews);
+   708→    expect(result.nps).toBe(0);
+   709→    expect(result.passives).toBe(100);
+   710→  });
+   711→
+   712→  it('mixed ratings produce correct NPS', () => {
+   713→    // 5 promoters (rating 5), 3 passives (rating 4), 2 detractors (rating 2)
+   714→    const reviews = [
+   715→      ...Array(5).fill(null).map(() => ({ rating: 5 })),
+   716→      ...Array(3).fill(null).map(() => ({ rating: 4 })),
+   717→      ...Array(2).fill(null).map(() => ({ rating: 2 })),
+   718→    ];
+   719→    const result = calculateNPS(reviews);
+   720→    // promoterPct = 50, detractorPct = 20, NPS = 30
+   721→    expect(result.nps).toBe(30);
+   722→    expect(result.promoters).toBe(50);
+   723→    expect(result.passives).toBe(30);
+   724→    expect(result.detractors).toBe(20);
+   725→    expect(result.totalReviews).toBe(10);
+   726→  });
+   727→
+   728→  it('rating 3 is a detractor', () => {
+   729→    const reviews = Array(5).fill(null).map(() => ({ rating: 3 }));
+   730→    const result = calculateNPS(reviews);
+   731→    expect(result.nps).toBe(-100);
+   732→    expect(result.detractors).toBe(100);
+   733→  });
+   734→
+   735→  it('rating 1 is a detractor', () => {
+   736→    const reviews = Array(5).fill(null).map(() => ({ rating: 1 }));
+   737→    const result = calculateNPS(reviews);
+   738→    expect(result.nps).toBe(-100);
+   739→  });
+   740→
+   741→  it('exactly minReviews produces a valid NPS', () => {
+   742→    const reviews = Array(NPS_CONFIG.minReviews).fill(null).map(() => ({ rating: 5 }));
+   743→    const result = calculateNPS(reviews);
+   744→    expect(result.nps).toBe(100);
+   745→  });
+   746→
+   747→  it('NPS is between -100 and 100', () => {
+   748→    const mixedReviews = [
+   749→      { rating: 5 }, { rating: 5 }, { rating: 4 },
+   750→      { rating: 3 }, { rating: 2 }, { rating: 1 },
+   751→    ];
+   752→    const result = calculateNPS(mixedReviews);
+   753→    expect(result.nps).toBeGreaterThanOrEqual(-100);
+   754→    expect(result.nps).toBeLessThanOrEqual(100);
+   755→  });
+   756→});
+   757→
+   758→// ============================================
+   759→// 7. SEGMENT DEMANDS
+   760→// ============================================
+   761→
+   762→describe('calculateSegmentDemands', () => {
+   763→  it('returns 4 segments', () => {
+   764→    const result = calculateSegmentDemands({
+   765→      priceCompetitiveness: 0.8,
+   766→      productQuality: 0.8,
+   767→      serviceQuality: 0.8,
+   768→      reputation: 80,
+   769→    });
+   770→    expect(result).toHaveLength(4);
+   771→    expect(result.map(r => r.segment)).toEqual(['BUDGET', 'REGULAR', 'PREMIUM', 'TOURIST']);
+   772→  });
+   773→
+   774→  it('each segment has correct base share', () => {
+   775→    const result = calculateSegmentDemands({
+   776→      priceCompetitiveness: 1.0,
+   777→      productQuality: 1.0,
+   778→      serviceQuality: 1.0,
+   779→      reputation: 100,
+   780→    });
+   781→    expect(result[0].share).toBe(CUSTOMER_SEGMENTS.BUDGET.baseShare);
+   782→    expect(result[1].share).toBe(CUSTOMER_SEGMENTS.REGULAR.baseShare);
+   783→    expect(result[2].share).toBe(CUSTOMER_SEGMENTS.PREMIUM.baseShare);
+   784→    expect(result[3].share).toBe(CUSTOMER_SEGMENTS.TOURIST.baseShare);
+   785→  });
+   786→
+   787→  it('total share sums to ~1.0', () => {
+   788→    const result = calculateSegmentDemands({
+   789→      priceCompetitiveness: 0.8,
+   790→      productQuality: 0.8,
+   791→      serviceQuality: 0.8,
+   792→      reputation: 80,
+   793→    });
+   794→    const totalShare = result.reduce((sum, r) => sum + r.share, 0);
+   795→    expect(totalShare).toBeCloseTo(1.0, 2);
+   796→  });
+   797→
+   798→  it('budget customers react more to price than premium', () => {
+   799→    // Low price competitiveness
+   800→    const result = calculateSegmentDemands({
+   801→      priceCompetitiveness: 0.5,
+   802→      productQuality: 0.8,
+   803→      serviceQuality: 0.8,
+   804→      reputation: 80,
+   805→    });
+   806→    const budgetPriceFactor = result.find(r => r.segment === 'BUDGET')!.priceFactor;
+   807→    const premiumPriceFactor = result.find(r => r.segment === 'PREMIUM')!.priceFactor;
+   808→    // Budget has higher price sensitivity (1.5 vs 0.5), so with low price competitiveness,
+   809→    // budget's priceFactor should be lower
+   810→    expect(budgetPriceFactor).toBeLessThan(premiumPriceFactor);
+   811→  });
+   812→
+   813→  it('premium customers react more to quality than budget', () => {
+   814→    const result = calculateSegmentDemands({
+   815→      priceCompetitiveness: 0.8,
+   816→      productQuality: 0.5,
+   817→      serviceQuality: 0.8,
+   818→      reputation: 80,
+   819→    });
+   820→    const budgetQualityFactor = result.find(r => r.segment === 'BUDGET')!.qualityFactor;
+   821→    const premiumQualityFactor = result.find(r => r.segment === 'PREMIUM')!.qualityFactor;
+   822→    // Premium has higher quality sensitivity (1.5 vs 0.6), so with low quality,
+   823→    // premium's qualityFactor should be lower
+   824→    expect(premiumQualityFactor).toBeLessThan(budgetQualityFactor);
+   825→  });
+   826→
+   827→  it('all 1.0 inputs produce demand multiplier equal to base share', () => {
+   828→    const result = calculateSegmentDemands({
+   829→      priceCompetitiveness: 1.0,
+   830→      productQuality: 1.0,
+   831→      serviceQuality: 1.0,
+   832→      reputation: 100,
+   833→    });
+   834→    // When all factors are 1.0, 1.0^x = 1.0, so demand = baseShare * 1 * 1 * 1 * 1 = baseShare
+   835→    for (const r of result) {
+   836→      expect(r.demandMultiplier).toBeCloseTo(r.share, 2);
+   837→    }
+   838→  });
+   839→
+   840→  it('low reputation hurts tourist segment more than budget', () => {
+   841→    const result = calculateSegmentDemands({
+   842→      priceCompetitiveness: 0.8,
+   843→      productQuality: 0.8,
+   844→      serviceQuality: 0.8,
+   845→      reputation: 20,  // low reputation
+   846→    });
+   847→    // Tourist has reputationSensitivity 1.5, Budget has 0.4
+   848→    // Low reputation should hurt tourist demand more
+   849→    const budgetDemand = result.find(r => r.segment === 'BUDGET')!.demandMultiplier;
+   850→    const touristDemand = result.find(r => r.segment === 'TOURIST')!.demandMultiplier;
+   851→    // Compare demand relative to their base shares
+   852→    const budgetRatio = budgetDemand / CUSTOMER_SEGMENTS.BUDGET.baseShare;
+   853→    const touristRatio = touristDemand / CUSTOMER_SEGMENTS.TOURIST.baseShare;
+   854→    expect(touristRatio).toBeLessThan(budgetRatio);
+   855→  });
+   856→});
+   857→
+   858→// ============================================
+   859→// 8. REVIEW GENERATION
+   860→// ============================================
+   861→
+   862→describe('determineSentiment', () => {
+   863→  it('satisfaction >= 65 → POSITIVE', () => {
+   864→    expect(determineSentiment(65)).toBe('POSITIVE');
+   865→    expect(determineSentiment(80)).toBe('POSITIVE');
+   866→    expect(determineSentiment(100)).toBe('POSITIVE');
+   867→  });
+   868→
+   869→  it('satisfaction 40-64 → NEUTRAL', () => {
+   870→    expect(determineSentiment(40)).toBe('NEUTRAL');
+   871→    expect(determineSentiment(50)).toBe('NEUTRAL');
+   872→    expect(determineSentiment(64)).toBe('NEUTRAL');
+   873→  });
+   874→
+   875→  it('satisfaction < 40 → NEGATIVE', () => {
+   876→    expect(determineSentiment(39)).toBe('NEGATIVE');
+   877→    expect(determineSentiment(0)).toBe('NEGATIVE');
+   878→  });
+   879→});
+   880→
+   881→describe('determineCategory', () => {
+   882→  it('returns the worst-performing category', () => {
+   883→    const result = determineCategory({
+   884→      priceSatisfaction: 80,
+   885→      serviceQuality: 30,  // worst
+   886→      productQuality: 70,
+   887→      stockAvailability: 60,
+   888→      atmosphere: 50,
+   889→    });
+   890→    expect(result).toBe('SERVICE');
+   891→  });
+   892→
+   893→  it('returns PRICE when price is worst', () => {
+   894→    const result = determineCategory({
+   895→      priceSatisfaction: 20,
+   896→      serviceQuality: 80,
+   897→      productQuality: 70,
+   898→      stockAvailability: 60,
+   899→      atmosphere: 50,
+   900→    });
+   901→    expect(result).toBe('PRICE');
+   902→  });
+   903→
+   904→  it('returns STOCKOUT when stock is worst', () => {
+   905→    const result = determineCategory({
+   906→      priceSatisfaction: 80,
+   907→      serviceQuality: 70,
+   908→      productQuality: 60,
+   909→      stockAvailability: 10,
+   910→      atmosphere: 50,
+   911→    });
+   912→    expect(result).toBe('STOCKOUT');
+   913→  });
+   914→
+   915→  it('returns CLEANLINESS when atmosphere is worst', () => {
+   916→    const result = determineCategory({
+   917→      priceSatisfaction: 80,
+   918→      serviceQuality: 70,
+   919→      productQuality: 60,
+   920→      stockAvailability: 50,
+   921→      atmosphere: 10,
+   922→    });
+   923→    expect(result).toBe('CLEANLINESS');
+   924→  });
+   925→
+   926→  it('returns QUALITY when productQuality is worst', () => {
+   927→    const result = determineCategory({
+   928→      priceSatisfaction: 80,
+   929→      serviceQuality: 70,
+   930→      productQuality: 10,
+   931→      stockAvailability: 50,
+   932→      atmosphere: 60,
+   933→    });
+   934→    expect(result).toBe('QUALITY');
+   935→  });
+   936→});
+   937→
+   938→describe('generateRating', () => {
+   939→  it('satisfaction 90+ → base rating 5', () => {
+   940→    // Run multiple times to check the base is 5 (with ±1 variation: 4-5)
+   941→    const ratings = Array(100).fill(null).map(() => generateRating(95));
+   942→    for (const r of ratings) {
+   943→      expect(r).toBeGreaterThanOrEqual(4);
+   944→      expect(r).toBeLessThanOrEqual(5);
+   945→    }
+   946→  });
+   947→
+   948→  it('satisfaction 70-89 → base rating 4', () => {
+   949→    const ratings = Array(100).fill(null).map(() => generateRating(75));
+   950→    for (const r of ratings) {
+   951→      expect(r).toBeGreaterThanOrEqual(3);
+   952→      expect(r).toBeLessThanOrEqual(5);
+   953→    }
+   954→  });
+   955→
+   956→  it('satisfaction 50-69 → base rating 3', () => {
+   957→    const ratings = Array(100).fill(null).map(() => generateRating(60));
+   958→    for (const r of ratings) {
+   959→      expect(r).toBeGreaterThanOrEqual(2);
+   960→      expect(r).toBeLessThanOrEqual(4);
+   961→    }
+   962→  });
+   963→
+   964→  it('satisfaction 30-49 → base rating 2', () => {
+   965→    const ratings = Array(100).fill(null).map(() => generateRating(40));
+   966→    for (const r of ratings) {
+   967→      expect(r).toBeGreaterThanOrEqual(1);
+   968→      expect(r).toBeLessThanOrEqual(3);
+   969→    }
+   970→  });
+   971→
+   972→  it('satisfaction < 30 → base rating 1', () => {
+   973→    const ratings = Array(100).fill(null).map(() => generateRating(20));
+   974→    for (const r of ratings) {
+   975→      expect(r).toBeGreaterThanOrEqual(1);
+   976→      expect(r).toBeLessThanOrEqual(2);
+   977→    }
+   978→  });
+   979→
+   980→  it('rating is always between 1 and 5', () => {
+   981→    const ratings = Array(200).fill(null).map((_, i) => generateRating(i % 101));
+   982→    for (const r of ratings) {
+   983→      expect(r).toBeGreaterThanOrEqual(1);
+   984→      expect(r).toBeLessThanOrEqual(5);
+   985→    }
+   986→  });
+   987→});
+   988→
+   989→describe('generateReviews', () => {
+   990→  const highSatisfaction: SatisfactionResult = {
+   991→    overall: 85,
+   992→    priceSatisfaction: 80,
+   993→    productQuality: 90,
+   994→    serviceQuality: 85,
+   995→    stockAvailability: 80,
+   996→    atmosphere: 75,
+   997→    positiveFactors: ['Fair prices', 'Good product quality', 'Good service'],
+   998→    negativeFactors: [],
+   999→  };
+  1000→
+  1001→  const lowSatisfaction: SatisfactionResult = {
+  1002→    overall: 25,
+  1003→    priceSatisfaction: 20,
+  1004→    productQuality: 30,
+  1005→    serviceQuality: 15,
+  1006→    stockAvailability: 25,
+  1007→    atmosphere: 30,
+  1008→    positiveFactors: [],
+  1009→    negativeFactors: ['High prices', 'Poor product quality', 'Poor service'],
+  1010→  };
+  1011→
+  1012→  const neutralSatisfaction: SatisfactionResult = {
+  1013→    overall: 50,
+  1014→    priceSatisfaction: 50,
+  1015→    productQuality: 50,
+  1016→    serviceQuality: 50,
+  1017→    stockAvailability: 50,
+  1018→    atmosphere: 50,
+  1019→    positiveFactors: [],
+  1020→    negativeFactors: [],
+  1021→  };
+  1022→
+  1023→  it('high satisfaction generates positive sentiment reviews', () => {
+  1024→    // Run multiple times to account for randomness
+  1025→    let hasPositive = false;
+  1026→    for (let i = 0; i < 50; i++) {
+  1027→      const reviews = generateReviews('biz1', 1, highSatisfaction, 5);
+  1028→      for (const review of reviews) {
+  1029→        if (review.sentiment === 'POSITIVE') hasPositive = true;
+  1030→      }
+  1031→    }
+  1032→    expect(hasPositive).toBe(true);
+  1033→  });
+  1034→
+  1035→  it('low satisfaction generates negative sentiment reviews', () => {
+  1036→    let hasNegative = false;
+  1037→    for (let i = 0; i < 50; i++) {
+  1038→      const reviews = generateReviews('biz1', 1, lowSatisfaction, 5);
+  1039→      for (const review of reviews) {
+  1040→        if (review.sentiment === 'NEGATIVE') hasNegative = true;
+  1041→      }
+  1042→    }
+  1043→    expect(hasNegative).toBe(true);
+  1044→  });
+  1045→
+  1046→  it('medium satisfaction generates neutral sentiment reviews', () => {
+  1047→    let hasNeutral = false;
+  1048→    for (let i = 0; i < 50; i++) {
+  1049→      const reviews = generateReviews('biz1', 1, neutralSatisfaction, 5);
+  1050→      for (const review of reviews) {
+  1051→        if (review.sentiment === 'NEUTRAL') hasNeutral = true;
+  1052→      }
+  1053→    }
+  1054→    expect(hasNeutral).toBe(true);
+  1055→  });
+  1056→
+  1057→  it('reviews have valid ratings (1-5)', () => {
+  1058→    for (let i = 0; i < 20; i++) {
+  1059→      const reviews = generateReviews('biz1', 1, highSatisfaction, 5);
+  1060→      for (const review of reviews) {
+  1061→        expect(review.rating).toBeGreaterThanOrEqual(1);
+  1062→        expect(review.rating).toBeLessThanOrEqual(5);
+  1063→      }
+  1064→    }
+  1065→  });
+  1066→
+  1067→  it('reviews have valid sentiments', () => {
+  1068→    const validSentiments: ReviewSentiment[] = ['POSITIVE', 'NEUTRAL', 'NEGATIVE'];
+  1069→    for (let i = 0; i < 20; i++) {
+  1070→      const reviews = generateReviews('biz1', 1, highSatisfaction, 5);
+  1071→      for (const review of reviews) {
+  1072→        expect(validSentiments).toContain(review.sentiment);
+  1073→      }
+  1074→    }
+  1075→  });
+  1076→
+  1077→  it('reviews have valid categories', () => {
+  1078→    const validCategories: ReviewCategory[] = ['PRICE', 'SERVICE', 'QUALITY', 'STOCKOUT', 'CLEANLINESS', 'WAIT_TIME'];
+  1079→    for (let i = 0; i < 20; i++) {
+  1080→      const reviews = generateReviews('biz1', 1, highSatisfaction, 5);
+  1081→      for (const review of reviews) {
+  1082→        expect(validCategories).toContain(review.category);
+  1083→      }
+  1084→    }
+  1085→  });
+  1086→
+  1087→  it('reviews have correct businessId and gameDay', () => {
+  1088→    for (let i = 0; i < 20; i++) {
+  1089→      const reviews = generateReviews('biz42', 7, highSatisfaction, 5);
+  1090→      for (const review of reviews) {
+  1091→        expect(review.businessId).toBe('biz42');
+  1092→        expect(review.gameDay).toBe(7);
+  1093→      }
+  1094→    }
+  1095→  });
+  1096→
+  1097→  it('returns empty array when maxReviews is 0', () => {
+  1098→    const reviews = generateReviews('biz1', 1, highSatisfaction, 0);
+  1099→    expect(reviews).toHaveLength(0);
+  1100→  });
+  1101→
+  1102→  it('never returns more than maxReviews reviews', () => {
+  1103→    for (let i = 0; i < 20; i++) {
+  1104→      const reviews = generateReviews('biz1', 1, highSatisfaction, 3);
+  1105→      expect(reviews.length).toBeLessThanOrEqual(3);
+  1106→    }
+  1107→  });
+  1108→});
+  1109→
+  1110→// ============================================
+  1111→// 9. CX DEMAND MODIFIER
+  1112→// ============================================
+  1113→
+  1114→describe('calculateCXDemandModifier', () => {
+  1115→  it('high satisfaction and loyalty → modifier > 1.0', () => {
+  1116→    const result = calculateCXDemandModifier(80, 0.6, 1.25);
+  1117→    // satisfactionModifier = 80/50 = 1.6
+  1118→    // loyaltyBonus = 1 + 0.6 * (1.25-1) * 0.3 = 1 + 0.6*0.25*0.3 = 1 + 0.045 = 1.045
+  1119→    // modifier = 1.6 * 1.045 = 1.672
+  1120→    expect(result).toBeGreaterThan(1.0);
+  1121→  });
+  1122→
+  1123→  it('low satisfaction and loyalty → modifier < 1.0', () => {
+  1124→    const result = calculateCXDemandModifier(20, 0.1, 1.0);
+  1125→    // satisfactionModifier = 20/50 = 0.4
+  1126→    // loyaltyBonus = 1 + 0.1 * (1.0-1) * 0.3 = 1
+  1127→    // modifier = 0.4 * 1 = 0.4
+  1128→    expect(result).toBeLessThan(1.0);
+  1129→  });
+  1130→
+  1131→  it('neutral satisfaction (50) with no loyalty bonus → modifier ~1.0', () => {
+  1132→    const result = calculateCXDemandModifier(50, 0, 1.0);
+  1133→    // satisfactionModifier = 50/50 = 1.0
+  1134→    // loyaltyBonus = 1 + 0 * (1.0-1) * 0.3 = 1.0
+  1135→    // modifier = 1.0 * 1.0 = 1.0
+  1136→    expect(result).toBeCloseTo(1.0, 2);
+  1137→  });
+  1138→
+  1139→  it('modifier at minimum is 0.2', () => {
+  1140→    const result = calculateCXDemandModifier(0, 0, 1.0);
+  1141→    // satisfactionModifier = 0/50 = 0
+  1142→    // loyaltyBonus = 1
+  1143→    // modifier = 0 * 1 = 0 → clamped to 0.2
+  1144→    expect(result).toBe(0.2);
+  1145→  });
+  1146→
+  1147→  it('modifier at maximum is 2.0', () => {
+  1148→    const result = calculateCXDemandModifier(100, 0.86, 1.5);
+  1149→    // satisfactionModifier = 100/50 = 2.0
+  1150→    // loyaltyBonus = 1 + 0.86 * (1.5-1) * 0.3 = 1 + 0.86*0.5*0.3 = 1 + 0.129 = 1.129
+  1151→    // modifier = 2.0 * 1.129 = 2.258 → clamped to 2.0
+  1152→    expect(result).toBe(2.0);
+  1153→  });
+  1154→
+  1155→  it('satisfaction 75 → modifier 1.5 (without loyalty bonus)', () => {
+  1156→    const result = calculateCXDemandModifier(75, 0, 1.0);
+  1157→    // satisfactionModifier = 75/50 = 1.5
+  1158→    // loyaltyBonus = 1
+  1159→    // modifier = 1.5
+  1160→    expect(result).toBeCloseTo(1.5, 2);
+  1161→  });
+  1162→
+  1163→  it('satisfaction 25 → modifier 0.5 (without loyalty bonus)', () => {
+  1164→    const result = calculateCXDemandModifier(25, 0, 1.0);
+  1165→    // satisfactionModifier = 25/50 = 0.5
+  1166→    expect(result).toBeCloseTo(0.5, 2);
+  1167→  });
+  1168→
+  1169→  it('higher loyalty multiplier increases modifier', () => {
+  1170→    const lowLoyalty = calculateCXDemandModifier(60, 0.5, 1.0);
+  1171→    const highLoyalty = calculateCXDemandModifier(60, 0.5, 1.5);
+  1172→    expect(highLoyalty).toBeGreaterThan(lowLoyalty);
+  1173→  });
+  1174→
+  1175→  it('higher repeat rate increases modifier (when loyaltyMultiplier > 1)', () => {
+  1176→    const lowRepeat = calculateCXDemandModifier(60, 0.1, 1.25);
+  1177→    const highRepeat = calculateCXDemandModifier(60, 0.8, 1.25);
+  1178→    expect(highRepeat).toBeGreaterThan(lowRepeat);
+  1179→  });
+  1180→
+  1181→  it('repeat rate has no effect when loyaltyMultiplier is 1.0', () => {
+  1182→    const lowRepeat = calculateCXDemandModifier(60, 0.1, 1.0);
+  1183→    const highRepeat = calculateCXDemandModifier(60, 0.8, 1.0);
+  1184→    // loyaltyBonus = 1 + rate * (1.0-1) * 0.3 = 1 + rate * 0 = 1
+  1185→    expect(lowRepeat).toBeCloseTo(highRepeat, 5);
+  1186→  });
+  1187→});
+  1188→

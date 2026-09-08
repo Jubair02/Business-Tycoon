@@ -130,8 +130,10 @@ export function calculateSatisfaction(input: SatisfactionInput): SatisfactionRes
     SATISFACTION_WEIGHTS.stockAvailability * stockAvailability +
     SATISFACTION_WEIGHTS.atmosphere * atmosphere;
 
-  // Smooth with previous satisfaction (30% new, 70% old)
-  const smoothingFactor = 0.3;
+  // Smooth with previous satisfaction (20% new, 80% old)
+  // Smoothing factor 0.2 = ~3-day half-life, gives players more reaction time
+  // before satisfaction changes trigger loyalty feedback loops
+  const smoothingFactor = 0.2;
   const smoothed = input.currentSatisfaction * (1 - smoothingFactor) + rawScore * smoothingFactor;
   const overall = Math.max(0, Math.min(100, smoothed));
 
@@ -361,6 +363,7 @@ export function determineSentiment(satisfaction: number): ReviewSentiment {
 /**
  * Determine review category from satisfaction breakdown.
  * Picks the worst-performing category as the review focus.
+ * WAIT_TIME is included when service is the worst factor (slow service = long wait).
  */
 export function determineCategory(factors: {
   priceSatisfaction: number;
@@ -380,6 +383,13 @@ export function determineCategory(factors: {
 
   // Sort by value ascending (worst first)
   entries.sort((a, b) => a[1] - b[1]);
+
+  // If service is the worst factor and very low, attribute to WAIT_TIME instead
+  // This makes WAIT_TIME reviews reachable (previously dead code)
+  if (entries[0][0] === 'SERVICE' && entries[0][1] < 30) {
+    return 'WAIT_TIME';
+  }
+
   return entries[0][0];
 }
 

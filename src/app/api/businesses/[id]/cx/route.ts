@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cookies } from 'next/headers';
 
 // GET /api/businesses/[id]/cx — Customer Experience data for a business
+// Any player can view CX data (reviews are public), but inventory/employee
+// details are only included for the business owner.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+
+    // Get current player from cookie (for ownership check)
+    const cookieStore = await cookies();
+    const playerId = cookieStore.get('playerId')?.value;
 
     const business = await db.business.findUnique({
       where: { id },
@@ -16,6 +23,7 @@ export async function GET(
         name: true,
         type: true,
         city: true,
+        playerId: true,
         satisfactionScore: true,
         loyaltyScore: true,
         repeatCustomerRate: true,
@@ -59,14 +67,16 @@ export async function GET(
       return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
 
-    // Get recent reviews
+    const isOwner = playerId === business.playerId;
+
+    // Get recent reviews (public — anyone can see reviews)
     const reviews = await db.customerReview.findMany({
       where: { businessId: id },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
 
-    // Get review statistics
+    // Get review statistics (efficient: aggregate instead of findMany + loop)
     const reviewStats = await db.customerReview.aggregate({
       where: { businessId: id },
       _count: true,
@@ -165,6 +175,7 @@ export async function GET(
       },
       positiveFactors,
       negativeFactors,
+      isOwner,  // Frontend can use this to show/hide owner-only details
     });
   } catch (error) {
     console.error('[CX API] Error:', error);

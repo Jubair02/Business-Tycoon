@@ -304,4 +304,5 @@ export interface CustomerReviewInput {
   rating: number;  // 1-5
   category: ReviewCategory;
   segment: CustomerSegmentId;
+  comment: string;  // Generated review text
 }

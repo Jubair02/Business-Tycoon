@@ -330,6 +330,42 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     };
   }
 
+  // ---- Step 0.5: CX Demand Modifier (from previous tick) ----
+  // Use the business's existing satisfaction/loyalty/reputation to calculate
+  // how CX affects THIS tick's customer count. This avoids circular dependency
+  // because we use previous-tick CX values to influence current-tick demand.
+  const previousCxDemandModifier = calculateCXDemandModifier(
+    business.satisfactionScore,
+    business.repeatCustomerRate,
+    getLoyaltyTier(business.loyaltyScore).multiplier,
+  );
+
+  // Calculate segment demand modifier from previous-tick data
+  // Segments react differently to quality, service, reputation
+  // NOTE: priceCompetitiveness is NOT passed to segment demands because price is already
+  // handled by per-product priceDemandMultiplier AND satisfaction's priceCompetitiveness.
+  // Passing it here would triple-count price effects.
+  // Similarly, reputation is already in calculatePotentialCustomers Layer 3 AND satisfaction's
+  // atmosphere factor, so we use a moderate value to avoid quadruple-counting.
+  const previousCxServiceQuality = calculateServiceQuality(
+    business.employees.length,
+    business.employees.length > 0
+      ? business.employees.reduce((sum, e) => sum + e.skill, 0) / business.employees.length
+      : 0,
+    2 + business.level,
+  );
+  const segmentDemands = calculateSegmentDemands({
+    priceCompetitiveness: 1.0,  // Price already handled by priceDemandMultiplier + satisfaction
+    productQuality: Math.max(0, Math.min(1, business.healthScore / 100)), // Use health as quality proxy from previous tick
+    serviceQuality: previousCxServiceQuality,
+    reputation: Math.min(100, business.reputation * 0.5 + 50),  // Dampened: avg 50 ± 25 from reputation
+  });
+  // Aggregate segment demand: sum of demand multipliers (NOT weighted by share again)
+  // demandMultiplier already includes baseShare, so we just sum them
+  const segmentDemandModifier = segmentDemands.reduce(
+    (sum, seg) => sum + seg.demandMultiplier, 0
+  );
+
   // ---- Step 1: Calculate potential customers ----
   const totalStock = business.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
   // Max stock capacity: sum of product maxStock values for this business type
@@ -339,7 +375,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     ? business.employees.reduce((sum, e) => sum + e.skill, 0) / business.employees.length
     : 0;
 
-  const potentialCustomers = calculatePotentialCustomers({
+  const basePotentialCustomers = calculatePotentialCustomers({
     baseCustomers: businessType.baseCustomers,
     cityMultiplier: city.customerMultiplier,
     level: business.level,
@@ -352,6 +388,13 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     businessDemandEffect: combinedEffects[`${businessType.id}_demand`] || 0,
     businessTypeId: business.type,
   });
+
+  // Apply CX demand modifier and segment demand modifier
+  // CX modifier: satisfaction/loyalty affect how many customers visit (0.2-2.0 range)
+  // Segment modifier: different customer segments find the business more/less attractive
+  const potentialCustomers = Math.max(0, Math.floor(
+    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier
+  ));
 
   // ---- Step 2: Product-level sales simulation ----
   let totalRevenue = 0;
@@ -504,13 +547,6 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     averageRating: business.avgReviewRating,
     loyaltyMultiplier: getLoyaltyTier(business.loyaltyScore).multiplier,
   });
-
-  // Calculate CX demand modifier
-  const cxDemandModifier = calculateCXDemandModifier(
-    cxSatisfaction.overall,
-    cxLoyalty.repeatCustomerRate,
-    cxLoyalty.tierMultiplier,
-  );
 
   // ---- Step 7: Get game day for metrics ----
   const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });

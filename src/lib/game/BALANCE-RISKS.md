@@ -1,6 +1,6 @@
 # Balance Risks & Known Issues
 
-> Last updated: Pre-Phase 3 stabilization pass
+> Last updated: Phase 3 verification & stabilization
 
 ## ⚠️ AI/Economy Balance Risks
 
@@ -24,35 +24,70 @@ rates than the real game engine. Do not tune AI difficulty solely from sim resul
 
 ### 3. Use Full-Engine Results for Final Balance Decisions
 Both `ai-simulation-test.ts` and `balance-sim.ts` are simplified approximations.
-They are useful for:
-- Quick sanity checks during development
-- Catching infinite growth / universal bankruptcy
-- Verifying personality behavioral differences
+They are useful for quick sanity checks but NOT for final balance tuning.
 
-They are NOT suitable for:
-- Final balance tuning
-- Accurate payback period estimates
-- Determining if a business type is "too strong" or "too weak"
+**Always validate balance changes against the real game engine.**
 
-**Always validate balance changes against the real game engine running with a
-database, or observe live gameplay metrics before adjusting economy constants.**
-
-### 4. No aiProfitCenter / aiProfitRange
-These fields were originally defined in `economy-config.ts` but were never
-consumed by the AI engine. AI profit behavior is now controlled per-personality
-via `PERSONALITY_CONFIGS` in `ai-strategy.ts`. The unused config fields have
-been removed and documented.
-
-### 5. Personality Dominance Risk
+### 4. Personality Dominance Risk
 If one personality type consistently outperforms others by >3x in net worth
-over 100 days, the `PERSONALITY_CONFIGS` weights should be adjusted. The
-simulation checks for this, but real-engine results may differ due to events
-and human player interaction.
+over 100 days, the `PERSONALITY_CONFIGS` weights should be adjusted.
 
-### 6. Market Share Stability
+### 5. Market Share Stability
 Market share is recalculated per tick using attractiveness scores. Rapid
 price changes by multiple AI players in the same tick can cause share
 fluctuations. This is expected behavior but should be monitored.
+
+## ⚠️ Phase 3 CX Balance Risks
+
+### 6. CX Demand Modifier Feedback Loop (MONITOR)
+Satisfaction → loyalty → CX demand modifier → customers → revenue → satisfaction.
+This creates a positive feedback loop for good businesses and a negative one for bad.
+The 0.2 smoothing factor provides ~3-day half-life damping, but sustained poor
+performance can create a loyalty "death spiral" that takes 20+ days to recover from.
+
+**Mitigation:** CX demand modifier is clamped to [0.2, 2.0], preventing
+catastrophic zeroing or runaway growth. Segment modifier further dampens extremes.
+
+### 7. Stock and Employee Double-Counting (ACCEPTED)
+Stock availability affects both `calculatePotentialCustomers` Layer 4 (direct
+customer reduction) AND satisfaction (via `stockAvailability` weight 0.15), which
+feeds into the CX demand modifier. Similarly for employees.
+
+**Assessment:** These are conceptually different signals — "can we serve customers"
+(direct) vs "are customers happy" (satisfaction). The combined penalty at 0% stock
+is ~0.1× customers, which is harsh but realistic for a fully out-of-stock business.
+
+### 8. Loyalty Break-Even at 57% Positive Days
+With dailyGain=3 and dailyLoss=4, a business needs ~57% positive days to maintain
+loyalty. This means 3 out of 5 good days is needed just to break even. Below this,
+loyalty trends toward 0.
+
+**Assessment:** This mirrors real-world negativity bias. The asymmetric ratio (1.33:1)
+is moderate — not the original 2:1 that would require 67% positive days.
+
+### 9. Segment Demand Sensitivities Are Multiplicative
+When all four factor dimensions (price, quality, service, reputation) are below 1.0,
+the power sensitivities multiply together, creating potentially extreme demand
+reduction for poor businesses. A business with all factors at 0.3 could see
+segment modifier of ~0.05.
+
+**Mitigation:** `Math.max(0.01, factor)` prevents `0^x` issues. Price is excluded
+from segment demands (already handled by per-product priceDemandMultiplier and
+satisfaction). Reputation is dampened to avoid quadruple-counting.
+
+### 10. AI Does Not React to Poor CX (FUTURE IMPROVEMENT)
+AI businesses receive full CX calculations and CX affects their demand, revenue,
+and market share. However, the AI decision engine does not currently consider
+satisfaction/loyalty scores when making pricing, inventory, or hiring decisions.
+Extremely poor CX can persist indefinitely because AI does not react.
+
+**Future improvement:** Add CX-aware AI actions (e.g., if satisfaction < 30,
+consider lowering prices or hiring more staff).
+
+### 11. NPS Requires ≥90 Satisfaction for Positive Score
+At satisfaction ~85, reviews are 4★ (passive), giving NPS of 0. Positive NPS
+requires satisfaction ≥90 (5★ promoters). This is by design (NPS is harsh in
+real life too) but may frustrate players who see "NPS: 0" despite decent satisfaction.
 
 ## Simulation Files & Their Limitations
 
@@ -60,6 +95,7 @@ fluctuations. This is expected behavior but should be monitored.
 |------|---------|------------|
 | `ai/ai-simulation-test.ts` | AI personality balance over 100 days | No events, no market prices, simplified sales, no human players |
 | `economy/balance-sim.ts` | Per-business-type profitability | No employees, auto-restock, no events, no competition |
+| `__tests__/cx-simulation.test.ts` | CX stability over 30/100 days | Simplified review generation, no real engine, no events |
 
 **Rule of thumb:** If a simulation says "everything is fine," verify with the
 real engine. If a simulation says "there's a problem," the real engine likely

@@ -208,8 +208,8 @@ describe('calculateSatisfaction', () => {
       currentSatisfaction: 0,
     };
     const result = calculateSatisfaction(input);
-    // rawScore = 100, smoothed = 0 * 0.7 + 100 * 0.3 = 30
-    expect(result.overall).toBeCloseTo(30, 1);
+    // rawScore = 100, smoothed = 0 * 0.8 + 100 * 0.2 = 20
+    expect(result.overall).toBeCloseTo(20, 1);
   });
 
   it('terrible business (all factors 0.0) → satisfaction < 30', () => {
@@ -237,9 +237,9 @@ describe('calculateSatisfaction', () => {
       currentSatisfaction: 100,
     };
     const result = calculateSatisfaction(input);
-    // rawScore = 0, smoothed = 100 * 0.7 + 0 * 0.3 = 70
-    expect(result.overall).toBeCloseTo(70, 1);
-    expect(result.overall).toBeLessThan(80);
+    // rawScore = 0, smoothed = 100 * 0.8 + 0 * 0.2 = 80
+    expect(result.overall).toBeCloseTo(80, 1);
+    expect(result.overall).toBeLessThan(90);
   });
 
   it('mixed factors produce mid-range satisfaction', () => {
@@ -254,8 +254,8 @@ describe('calculateSatisfaction', () => {
     const result = calculateSatisfaction(input);
     // rawScore = 0.30*80 + 0.25*60 + 0.20*50 + 0.15*70 + 0.10*40
     //          = 24 + 15 + 10 + 10.5 + 4 = 63.5
-    // smoothed = 50 * 0.7 + 63.5 * 0.3 = 35 + 19.05 = 54.05
-    expect(result.overall).toBeCloseTo(54.05, 1);
+    // smoothed = 50 * 0.8 + 63.5 * 0.2 = 40 + 12.7 = 52.7
+    expect(result.overall).toBeCloseTo(52.7, 1);
     expect(result.overall).toBeGreaterThan(40);
     expect(result.overall).toBeLessThan(70);
   });
@@ -433,48 +433,48 @@ describe('getLoyaltyTier', () => {
     expect(result.name).toBe('Bronze');
   });
 
-  it('99 points → BRONZE', () => {
-    expect(getLoyaltyTier(99).tier).toBe('BRONZE');
+  it('24 points → BRONZE', () => {
+    expect(getLoyaltyTier(24).tier).toBe('BRONZE');
   });
 
-  it('100 points → SILVER', () => {
-    const result = getLoyaltyTier(100);
+  it('25 points → SILVER', () => {
+    const result = getLoyaltyTier(25);
     expect(result.tier).toBe('SILVER');
     expect(result.multiplier).toBe(1.10);
     expect(result.name).toBe('Silver');
   });
 
-  it('299 points → SILVER', () => {
-    expect(getLoyaltyTier(299).tier).toBe('SILVER');
+  it('59 points → SILVER', () => {
+    expect(getLoyaltyTier(59).tier).toBe('SILVER');
   });
 
-  it('300 points → GOLD', () => {
-    const result = getLoyaltyTier(300);
+  it('60 points → GOLD', () => {
+    const result = getLoyaltyTier(60);
     expect(result.tier).toBe('GOLD');
     expect(result.multiplier).toBe(1.25);
     expect(result.name).toBe('Gold');
   });
 
-  it('599 points → GOLD', () => {
-    expect(getLoyaltyTier(599).tier).toBe('GOLD');
+  it('89 points → GOLD', () => {
+    expect(getLoyaltyTier(89).tier).toBe('GOLD');
   });
 
-  it('600 points → PLATINUM', () => {
-    const result = getLoyaltyTier(600);
+  it('90 points → PLATINUM', () => {
+    const result = getLoyaltyTier(90);
     expect(result.tier).toBe('PLATINUM');
     expect(result.multiplier).toBe(1.5);
     expect(result.name).toBe('Platinum');
   });
 
-  it('1000 points → PLATINUM', () => {
-    expect(getLoyaltyTier(1000).tier).toBe('PLATINUM');
+  it('100 points → PLATINUM', () => {
+    expect(getLoyaltyTier(100).tier).toBe('PLATINUM');
   });
 
   it('returns correct icon for each tier', () => {
     expect(getLoyaltyTier(0).icon).toBe('🥉');
-    expect(getLoyaltyTier(100).icon).toBe('🥈');
-    expect(getLoyaltyTier(300).icon).toBe('🥇');
-    expect(getLoyaltyTier(600).icon).toBe('💎');
+    expect(getLoyaltyTier(25).icon).toBe('🥈');
+    expect(getLoyaltyTier(60).icon).toBe('🥇');
+    expect(getLoyaltyTier(90).icon).toBe('💎');
   });
 
   it('boundary: exactly at each tier minimum', () => {
@@ -501,7 +501,7 @@ describe('calculateLoyalty', () => {
       loyaltyMultiplier: 1.0,
     };
     const result = calculateLoyalty(input);
-    // newScore = 50 + 2.0 (dailyGain) = 52
+    // newScore = 50 + 3.0 (dailyGain) = 53
     expect(result.loyaltyScore).toBeGreaterThan(50);
   });
 
@@ -546,7 +546,7 @@ describe('calculateLoyalty', () => {
       loyaltyMultiplier: 1.0,
     };
     const result = calculateLoyalty(input);
-    // newScore = 99 + 2.0 + 1.0 = 102 → clamped to 100
+    // newScore = 99 + 3.0 + 1.0 = 103 → clamped to 100
     expect(result.loyaltyScore).toBeLessThanOrEqual(100);
   });
 
@@ -617,9 +617,9 @@ describe('calculateLoyalty', () => {
   });
 
   it('tier promotion happens when loyalty crosses threshold', () => {
-    // Start just below SILVER threshold
+    // Start just below SILVER threshold (minPoints=25)
     const before: LoyaltyInput = {
-      currentLoyaltyScore: 98,
+      currentLoyaltyScore: 22,
       currentRepeatRate: 0.3,
       wasPositiveExperience: true,
       totalCustomers: 10,
@@ -628,8 +628,20 @@ describe('calculateLoyalty', () => {
       loyaltyMultiplier: 1.0,
     };
     const result = calculateLoyalty(before);
-    // newScore = 98 + 2 = 100 → SILVER
+    // newScore = 22 + 3 = 25 → SILVER (minPoints=25)
     expect(result.tier).toBe('SILVER');
+  });
+
+  it('GOLD tier is reachable (minPoints=60)', () => {
+    const result = getLoyaltyTier(60);
+    expect(result.tier).toBe('GOLD');
+    expect(result.multiplier).toBe(1.25);
+  });
+
+  it('PLATINUM tier is reachable (minPoints=90)', () => {
+    const result = getLoyaltyTier(90);
+    expect(result.tier).toBe('PLATINUM');
+    expect(result.multiplier).toBe(1.5);
   });
 
   it('loyalty customer bonus increases with repeat rate and tier multiplier', () => {
@@ -643,7 +655,7 @@ describe('calculateLoyalty', () => {
       loyaltyMultiplier: 1.0,
     };
     const platinumInput: LoyaltyInput = {
-      currentLoyaltyScore: 700,
+      currentLoyaltyScore: 95,  // PLATINUM range (90+)
       currentRepeatRate: 0.5,
       wasPositiveExperience: true,
       totalCustomers: 100,
@@ -882,12 +894,23 @@ describe('determineCategory', () => {
   it('returns the worst-performing category', () => {
     const result = determineCategory({
       priceSatisfaction: 80,
-      serviceQuality: 30,  // worst
+      serviceQuality: 40,  // worst (but >= 30, so SERVICE not WAIT_TIME)
       productQuality: 70,
       stockAvailability: 60,
       atmosphere: 50,
     });
     expect(result).toBe('SERVICE');
+  });
+
+  it('returns WAIT_TIME when service is worst AND very low (<30)', () => {
+    const result = determineCategory({
+      priceSatisfaction: 80,
+      serviceQuality: 20,  // worst and < 30 → WAIT_TIME
+      productQuality: 70,
+      stockAvailability: 60,
+      atmosphere: 50,
+    });
+    expect(result).toBe('WAIT_TIME');
   });
 
   it('returns PRICE when price is worst', () => {
@@ -1183,5 +1206,339 @@ describe('calculateCXDemandModifier', () => {
     const highRepeat = calculateCXDemandModifier(60, 0.8, 1.0);
     // loyaltyBonus = 1 + rate * (1.0-1) * 0.3 = 1 + rate * 0 = 1
     expect(lowRepeat).toBeCloseTo(highRepeat, 5);
+  });
+});
+
+// ============================================
+// Phase 3 VERIFICATION: Comprehensive Audit Tests
+// ============================================
+
+describe('Phase 3 Verification: CX Formula Bounds', () => {
+  it('satisfaction is always within [0, 100] for extreme inputs', () => {
+    // All max
+    const maxResult = calculateSatisfaction({
+      priceCompetitiveness: 1, productQuality: 1, serviceQuality: 1,
+      stockAvailability: 1, atmosphere: 1, currentSatisfaction: 100,
+    });
+    expect(maxResult.overall).toBeGreaterThanOrEqual(0);
+    expect(maxResult.overall).toBeLessThanOrEqual(100);
+
+    // All zero
+    const minResult = calculateSatisfaction({
+      priceCompetitiveness: 0, productQuality: 0, serviceQuality: 0,
+      stockAvailability: 0, atmosphere: 0, currentSatisfaction: 0,
+    });
+    expect(minResult.overall).toBeGreaterThanOrEqual(0);
+    expect(minResult.overall).toBeLessThanOrEqual(100);
+
+    // Negative inputs (defensive)
+    const negResult = calculateSatisfaction({
+      priceCompetitiveness: -0.5, productQuality: -0.5, serviceQuality: -0.5,
+      stockAvailability: -0.5, atmosphere: -0.5, currentSatisfaction: -50,
+    });
+    expect(negResult.overall).toBeGreaterThanOrEqual(0);
+    expect(negResult.overall).toBeLessThanOrEqual(100);
+  });
+
+  it('loyalty score is always within [0, maxScore]', () => {
+    // Extreme positive
+    const highResult = calculateLoyalty({
+      currentLoyaltyScore: 100, currentRepeatRate: 0.86,
+      wasPositiveExperience: true, totalCustomers: 100,
+      numberOfReviews: 100, averageRating: 5, loyaltyMultiplier: 1.5,
+    });
+    expect(highResult.loyaltyScore).toBeGreaterThanOrEqual(0);
+    expect(highResult.loyaltyScore).toBeLessThanOrEqual(100);
+
+    // Extreme negative
+    const lowResult = calculateLoyalty({
+      currentLoyaltyScore: 0, currentRepeatRate: 0,
+      wasPositiveExperience: false, totalCustomers: 100,
+      numberOfReviews: 100, averageRating: 1, loyaltyMultiplier: 1.0,
+    });
+    expect(lowResult.loyaltyScore).toBeGreaterThanOrEqual(0);
+    expect(lowResult.loyaltyScore).toBeLessThanOrEqual(100);
+  });
+
+  it('repeat customer rate is always within [0, repeatRateCap]', () => {
+    const result = calculateLoyalty({
+      currentLoyaltyScore: 100, currentRepeatRate: 0.99,
+      wasPositiveExperience: true, totalCustomers: 100,
+      numberOfReviews: 0, averageRating: 3, loyaltyMultiplier: 1.5,
+    });
+    expect(result.repeatCustomerRate).toBeGreaterThanOrEqual(0);
+    expect(result.repeatCustomerRate).toBeLessThanOrEqual(LOYALTY_CONFIG.repeatRateCap);
+  });
+
+  it('NPS is always within [-100, 100]', () => {
+    const allPromoters = Array(10).fill(null).map(() => ({ rating: 5 }));
+    const allDetractors = Array(10).fill(null).map(() => ({ rating: 1 }));
+    expect(calculateNPS(allPromoters).nps).toBe(100);
+    expect(calculateNPS(allDetractors).nps).toBe(-100);
+  });
+
+  it('CX demand modifier is always within [0.2, 2.0]', () => {
+    expect(calculateCXDemandModifier(0, 0, 1.0)).toBe(0.2);
+    expect(calculateCXDemandModifier(100, 0.86, 1.5)).toBe(2.0);
+    expect(calculateCXDemandModifier(50, 0, 1.0)).toBeCloseTo(1.0, 2);
+  });
+
+  it('service quality is always within [0, 1]', () => {
+    expect(calculateServiceQuality(0, 0, 3)).toBeGreaterThanOrEqual(0);
+    expect(calculateServiceQuality(0, 0, 3)).toBeLessThanOrEqual(1);
+    expect(calculateServiceQuality(10, 1, 3)).toBeLessThanOrEqual(1);
+    expect(calculateServiceQuality(10, 1, 3)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('price competitiveness is always within [0, 1]', () => {
+    const productDefs = [{ name: 'Tea', basePrice: 5, suggestedMarkup: 0.5 }];
+    const neutralMarket = { Tea: { priceMultiplier: 1.0 } };
+    // At market
+    const atMarket = calculatePriceCompetitiveness(
+      [{ productName: 'Tea', sellPrice: 7.5 }], productDefs, neutralMarket
+    );
+    expect(atMarket).toBeGreaterThanOrEqual(0);
+    expect(atMarket).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('Phase 3 Verification: Loyalty Tier Reachability', () => {
+  it('all tiers are reachable within maxScore', () => {
+    // BRONZE: 0+ (always reachable)
+    expect(LOYALTY_TIERS.BRONZE.minPoints).toBeLessThanOrEqual(LOYALTY_CONFIG.maxScore);
+    // SILVER: 25+ (reachable)
+    expect(LOYALTY_TIERS.SILVER.minPoints).toBeLessThanOrEqual(LOYALTY_CONFIG.maxScore);
+    // GOLD: 60+ (reachable)
+    expect(LOYALTY_TIERS.GOLD.minPoints).toBeLessThanOrEqual(LOYALTY_CONFIG.maxScore);
+    // PLATINUM: 90+ (reachable)
+    expect(LOYALTY_TIERS.PLATINUM.minPoints).toBeLessThanOrEqual(LOYALTY_CONFIG.maxScore);
+  });
+
+  it('tiers are in ascending order', () => {
+    expect(LOYALTY_TIERS.BRONZE.minPoints).toBeLessThan(LOYALTY_TIERS.SILVER.minPoints);
+    expect(LOYALTY_TIERS.SILVER.minPoints).toBeLessThan(LOYALTY_TIERS.GOLD.minPoints);
+    expect(LOYALTY_TIERS.GOLD.minPoints).toBeLessThan(LOYALTY_TIERS.PLATINUM.minPoints);
+  });
+
+  it('multipliers increase with tier', () => {
+    expect(LOYALTY_TIERS.BRONZE.multiplier).toBeLessThan(LOYALTY_TIERS.SILVER.multiplier);
+    expect(LOYALTY_TIERS.SILVER.multiplier).toBeLessThan(LOYALTY_TIERS.GOLD.multiplier);
+    expect(LOYALTY_TIERS.GOLD.multiplier).toBeLessThan(LOYALTY_TIERS.PLATINUM.multiplier);
+  });
+
+  it('Silver is achievable from 0 in reasonable time', () => {
+    // dailyGain=3, so 25/3 = ~9 days of positive experience
+    const daysToSilver = Math.ceil(LOYALTY_TIERS.SILVER.minPoints / LOYALTY_CONFIG.dailyGain);
+    expect(daysToSilver).toBeLessThanOrEqual(15); // Should be achievable in <2 weeks
+  });
+
+  it('Gold is achievable from 0 in reasonable time', () => {
+    const daysToGold = Math.ceil(LOYALTY_TIERS.GOLD.minPoints / LOYALTY_CONFIG.dailyGain);
+    expect(daysToGold).toBeLessThanOrEqual(30); // Should be achievable in <1 month
+  });
+
+  it('Platinum is achievable from 0 in reasonable time', () => {
+    const daysToPlatinum = Math.ceil(LOYALTY_TIERS.PLATINUM.minPoints / LOYALTY_CONFIG.dailyGain);
+    expect(daysToPlatinum).toBeLessThanOrEqual(45); // Should be achievable in ~1.5 months
+  });
+});
+
+describe('Phase 3 Verification: Loyalty Dynamics Balance', () => {
+  it('break-even positive ratio is reasonable', () => {
+    // Break-even: dailyGain * p = dailyLoss * (1-p)
+    // p = dailyLoss / (dailyGain + dailyLoss)
+    const breakEven = LOYALTY_CONFIG.dailyLoss / (LOYALTY_CONFIG.dailyGain + LOYALTY_CONFIG.dailyLoss);
+    // With gain=3, loss=4: p = 4/7 ≈ 0.57 (57% positive days needed)
+    expect(breakEven).toBeLessThanOrEqual(0.65); // Should not require >65% positive days
+    expect(breakEven).toBeGreaterThanOrEqual(0.40); // Should require some effort
+  });
+
+  it('loss does not vastly exceed gain (asymmetry ratio)', () => {
+    const ratio = LOYALTY_CONFIG.dailyLoss / LOYALTY_CONFIG.dailyGain;
+    // With gain=3, loss=4: ratio = 1.33
+    expect(ratio).toBeLessThanOrEqual(2.0); // Should not be more than 2:1
+    expect(ratio).toBeGreaterThanOrEqual(1.0); // Loss should be >= gain (negativity bias)
+  });
+});
+
+describe('Phase 3 Verification: Segment Demand Aggregation', () => {
+  it('perfect business gets segment modifier ~1.0', () => {
+    const segments = calculateSegmentDemands({
+      priceCompetitiveness: 1.0,
+      productQuality: 1.0,
+      serviceQuality: 1.0,
+      reputation: 100,
+    });
+    // With all factors at 1.0, demandMultiplier = baseShare × 1^x × 1^x... = baseShare
+    // Sum of baseShares = 0.40 + 0.30 + 0.20 + 0.10 = 1.0
+    const total = segments.reduce((sum, seg) => sum + seg.demandMultiplier, 0);
+    expect(total).toBeCloseTo(1.0, 2);
+  });
+
+  it('terrible business gets reduced but non-zero segment modifier', () => {
+    const segments = calculateSegmentDemands({
+      priceCompetitiveness: 0.2,
+      productQuality: 0.2,
+      serviceQuality: 0.2,
+      reputation: 10,
+    });
+    const total = segments.reduce((sum, seg) => sum + seg.demandMultiplier, 0);
+    expect(total).toBeGreaterThan(0); // Not zero
+    expect(total).toBeLessThan(0.5); // But significantly reduced from 1.0
+  });
+
+  it('Budget segment is more price-sensitive than Premium', () => {
+    const budgetSeg = CUSTOMER_SEGMENTS.BUDGET;
+    const premiumSeg = CUSTOMER_SEGMENTS.PREMIUM;
+    expect(budgetSeg.priceSensitivity).toBeGreaterThan(premiumSeg.priceSensitivity);
+  });
+
+  it('Premium segment is more quality-sensitive than Budget', () => {
+    const budgetSeg = CUSTOMER_SEGMENTS.BUDGET;
+    const premiumSeg = CUSTOMER_SEGMENTS.PREMIUM;
+    expect(premiumSeg.qualitySensitivity).toBeGreaterThan(budgetSeg.qualitySensitivity);
+  });
+
+  it('Tourist segment is most reputation-sensitive', () => {
+    const touristRep = CUSTOMER_SEGMENTS.TOURIST.reputationSensitivity;
+    expect(touristRep).toBeGreaterThan(CUSTOMER_SEGMENTS.BUDGET.reputationSensitivity);
+    expect(touristRep).toBeGreaterThan(CUSTOMER_SEGMENTS.REGULAR.reputationSensitivity);
+    expect(touristRep).toBeGreaterThan(CUSTOMER_SEGMENTS.PREMIUM.reputationSensitivity);
+  });
+
+  it('segment shares sum to 1.0', () => {
+    const totalShare = Object.values(CUSTOMER_SEGMENTS).reduce((sum, seg) => sum + seg.baseShare, 0);
+    expect(totalShare).toBeCloseTo(1.0, 5);
+  });
+});
+
+describe('Phase 3 Verification: NPS Conversion', () => {
+  it('5-star → Promoter mapping is correct', () => {
+    const reviews = [{ rating: 5 }, { rating: 5 }, { rating: 5 }, { rating: 5 }, { rating: 5 }];
+    const result = calculateNPS(reviews);
+    expect(result.nps).toBe(100);
+    expect(result.promoters).toBe(100);
+  });
+
+  it('4-star → Passive mapping is correct', () => {
+    const reviews = [{ rating: 4 }, { rating: 4 }, { rating: 4 }, { rating: 4 }, { rating: 4 }];
+    const result = calculateNPS(reviews);
+    expect(result.nps).toBe(0);
+    expect(result.passives).toBe(100);
+  });
+
+  it('3-star → Detractor (consistent with NPS standard)', () => {
+    const reviews = [{ rating: 3 }, { rating: 3 }, { rating: 3 }, { rating: 3 }, { rating: 3 }];
+    const result = calculateNPS(reviews);
+    expect(result.nps).toBe(-100);
+    expect(result.detractors).toBe(100);
+  });
+
+  it('mixed reviews produce correct NPS', () => {
+    // 3 promoters (5★), 2 passives (4★), 5 detractors (1-3★)
+    const reviews = [
+      { rating: 5 }, { rating: 5 }, { rating: 5 },  // 3 promoters
+      { rating: 4 }, { rating: 4 },                    // 2 passives
+      { rating: 2 }, { rating: 2 }, { rating: 2 }, { rating: 2 }, { rating: 2 },  // 5 detractors
+    ];
+    const result = calculateNPS(reviews);
+    // NPS = 30% - 50% = -20
+    expect(result.nps).toBe(-20);
+  });
+});
+
+describe('Phase 3 Verification: Satisfaction Smoothing', () => {
+  it('smoothing factor is 0.2 (3-day half-life)', () => {
+    // Verify the smoothing behavior: from 0 to 100
+    let current = 0;
+    for (let i = 0; i < 100; i++) {
+      const result = calculateSatisfaction({
+        priceCompetitiveness: 1, productQuality: 1, serviceQuality: 1,
+        stockAvailability: 1, atmosphere: 1, currentSatisfaction: current,
+      });
+      current = result.overall;
+    }
+    // After 100 days of perfect, should be very close to 100
+    expect(current).toBeGreaterThan(99);
+
+    // Half-life check: how many days to reach 50?
+    let days = 0;
+    current = 0;
+    while (current < 50 && days < 50) {
+      const result = calculateSatisfaction({
+        priceCompetitiveness: 1, productQuality: 1, serviceQuality: 1,
+        stockAvailability: 1, atmosphere: 1, currentSatisfaction: current,
+      });
+      current = result.overall;
+      days++;
+    }
+    // With 0.2 smoothing: half-life ≈ ln(0.5)/ln(0.8) ≈ 3.1 days
+    expect(days).toBeGreaterThanOrEqual(2);
+    expect(days).toBeLessThanOrEqual(5);
+  });
+
+  it('satisfaction recovers from drop but not instantly', () => {
+    // Business at 80 satisfaction, sudden stockout (all 0)
+    let current = 80;
+    for (let i = 0; i < 3; i++) {
+      const result = calculateSatisfaction({
+        priceCompetitiveness: 0, productQuality: 0, serviceQuality: 0,
+        stockAvailability: 0, atmosphere: 0, currentSatisfaction: current,
+      });
+      current = result.overall;
+    }
+    // After 3 days of 0 raw score: should have dropped significantly but not to 0
+    expect(current).toBeLessThan(50);
+    expect(current).toBeGreaterThan(0);
+  });
+});
+
+describe('Phase 3 Verification: Review Generation Bounds', () => {
+  it('review count per tick is bounded by maxPerTick', () => {
+    const satisfaction: SatisfactionResult = {
+      overall: 75, priceSatisfaction: 75, productQuality: 75,
+      serviceQuality: 75, stockAvailability: 75, atmosphere: 75,
+      positiveFactors: [], negativeFactors: [],
+    };
+    // Run 100 times to check bounds
+    for (let i = 0; i < 100; i++) {
+      const reviews = generateReviews('test-biz', 1, satisfaction, REVIEW_CONFIG.maxPerTick);
+      expect(reviews.length).toBeLessThanOrEqual(REVIEW_CONFIG.maxPerTick);
+    }
+  });
+
+  it('review ratings are always 1-5', () => {
+    const satisfaction: SatisfactionResult = {
+      overall: 50, priceSatisfaction: 50, productQuality: 50,
+      serviceQuality: 50, stockAvailability: 50, atmosphere: 50,
+      positiveFactors: [], negativeFactors: [],
+    };
+    for (let i = 0; i < 100; i++) {
+      const reviews = generateReviews('test-biz', 1, satisfaction, 2);
+      for (const review of reviews) {
+        expect(review.rating).toBeGreaterThanOrEqual(1);
+        expect(review.rating).toBeLessThanOrEqual(5);
+      }
+    }
+  });
+
+  it('high satisfaction generates positive-leaning sentiment', () => {
+    const highSatisfaction: SatisfactionResult = {
+      overall: 90, priceSatisfaction: 90, productQuality: 90,
+      serviceQuality: 90, stockAvailability: 90, atmosphere: 90,
+      positiveFactors: [], negativeFactors: [],
+    };
+    const sentiment = determineSentiment(highSatisfaction.overall);
+    expect(sentiment).toBe('POSITIVE');
+  });
+
+  it('low satisfaction generates negative sentiment', () => {
+    const sentiment = determineSentiment(20);
+    expect(sentiment).toBe('NEGATIVE');
+  });
+
+  it('empty inventory produces zero-price competitiveness (default 0.5)', () => {
+    const result = calculatePriceCompetitiveness([], [], {});
+    expect(result).toBe(0.5);
   });
 });

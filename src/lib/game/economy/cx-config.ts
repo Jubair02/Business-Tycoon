@@ -60,11 +60,14 @@ export const CUSTOMER_SEGMENTS = {
 export type CustomerSegmentId = keyof typeof CUSTOMER_SEGMENTS;
 
 // ---- Loyalty Tiers ----
+// IMPORTANT: minPoints must be within [0, LOYALTY_CONFIG.maxScore]
+// Rescaled (Phase 3 verification): all tiers reachable within maxScore=100
+// Bronze: immediate | Silver: ~13 positive days | Gold: ~30 days | Platinum: ~45 days
 export const LOYALTY_TIERS = {
   BRONZE:   { minPoints: 0,   multiplier: 1.0,  name: 'Bronze',   icon: '🥉' },
-  SILVER:   { minPoints: 100, multiplier: 1.10, name: 'Silver',   icon: '🥈' },
-  GOLD:     { minPoints: 300, multiplier: 1.25, name: 'Gold',     icon: '🥇' },
-  PLATINUM: { minPoints: 600, multiplier: 1.5,  name: 'Platinum', icon: '💎' },
+  SILVER:   { minPoints: 25,  multiplier: 1.10, name: 'Silver',   icon: '🥈' },
+  GOLD:     { minPoints: 60,  multiplier: 1.25, name: 'Gold',     icon: '🥇' },
+  PLATINUM: { minPoints: 90,  multiplier: 1.5,  name: 'Platinum', icon: '💎' },
 } as const;
 
 export type LoyaltyTierId = keyof typeof LOYALTY_TIERS;
@@ -80,7 +83,7 @@ export const LOYALTY_CONFIG = {
   /** Loyalty score decay per day if no visit (prevents stale loyalty) */
   dailyDecay: 0.5,
   /** Loyalty score gain per positive experience */
-  dailyGain: 2.0,
+  dailyGain: 3.0,
   /** Loyalty score loss per negative experience */
   dailyLoss: 4.0,
   /** Maximum loyalty score */
