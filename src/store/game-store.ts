@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'competition' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings';
+type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'competition' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings' | 'portfolio';
 
 interface Employee {
   id: string;
@@ -31,6 +31,12 @@ interface Business {
   dailyProfit: number;
   totalRevenue: number;
   totalProfit: number;
+  healthScore: number;
+  satisfactionScore: number;
+  loyaltyScore: number;
+  brandAwareness: number;
+  location: string | null;
+  setupDaysRemaining: number;
   inventories?: Inventory[];
   employees?: Employee[];
 }
@@ -42,6 +48,8 @@ interface Player {
   netWorth: number;
   level: number;
   experience: number;
+  expansionCount: number;
+  lastExpansionAt: number;
   businesses?: Business[];
 }
 
@@ -107,6 +115,25 @@ interface CompetitionMarket {
   }[];
 }
 
+// Phase 5: Portfolio data
+interface PortfolioData {
+  totalDailyRevenue: number;
+  totalDailyExpense: number;
+  totalDailyProfit: number;
+  totalRevenue: number;
+  totalProfit: number;
+  totalCash: number;
+  totalEmployees: number;
+  totalBusinesses: number;
+  avgHealthScore: number;
+  avgSatisfaction: number;
+  avgLoyalty: number;
+  bestPerforming: { id: string; name: string; profit: number } | null;
+  worstPerforming: { id: string; name: string; profit: number } | null;
+  citySpread: Record<string, number>;
+  typeSpread: Record<string, number>;
+}
+
 interface GameState {
   view: GameView;
   selectedBusinessId: string | null;
@@ -121,6 +148,8 @@ interface GameState {
   gameDay: number;
   isLoading: boolean;
   competition: CompetitionMarket[];
+  // Phase 5: Portfolio
+  portfolio: PortfolioData | null;
   setView: (view: GameView) => void;
   selectBusiness: (id: string) => void;
   setSelectedCity: (city: string) => void;
@@ -134,6 +163,7 @@ interface GameState {
   setGameDay: (day: number) => void;
   setLoading: (loading: boolean) => void;
   setCompetition: (competition: CompetitionMarket[]) => void;
+  setPortfolio: (portfolio: PortfolioData | null) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -150,6 +180,7 @@ export const useGameStore = create<GameState>((set) => ({
   gameDay: 1,
   isLoading: false,
   competition: [],
+  portfolio: null,
   setView: (view) => set({ view }),
   selectBusiness: (id) => set({ selectedBusinessId: id, view: 'business-detail' }),
   setSelectedCity: (city) => set({ selectedCity: city }),
@@ -163,4 +194,5 @@ export const useGameStore = create<GameState>((set) => ({
   setGameDay: (gameDay) => set({ gameDay }),
   setLoading: (loading) => set({ isLoading: loading }),
   setCompetition: (competition) => set({ competition }),
+  setPortfolio: (portfolio) => set({ portfolio }),
 }));

@@ -15,6 +15,7 @@ import type { ScoredAction, AIDecisionContext, AIPersonality, AIPricingStrategy 
 import { getPersonalityConfig, calculateAIPrice, selectPricingStrategy } from './ai-strategy';
 import { roundTaka } from '@/lib/game/economy/formulas';
 import { AI_MARKETING_CONFIG, MARKETING_CHANNELS, type MarketingChannel } from '../marketing/marketing-config';
+import { calculateExpansionCost, calculateSetupDays, getRandomLocationForCity, EXPANSION_CONFIG, AI_EXPANSION_CONFIG } from '../expansion';
 
 /** Result of executing an AI action */
 export interface AIActionResult {
@@ -357,9 +358,20 @@ async function executeCreateBusiness(
       const bType = getBusinessType(businessType);
       if (!bType) return { action: 'CREATE_BUSINESS', success: false };
 
-      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true, name: true } });
-      if (!player || player.cash < bType.investment * 1.2) {
-        return { action: 'CREATE_BUSINESS', success: false, message: 'Cannot afford business' };
+      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true, name: true, expansionCount: true } });
+      if (!player) return { action: 'CREATE_BUSINESS', success: false, message: 'Player not found' };
+
+      // Phase 5: Check expansion limits
+      const currentBusinessCount = ctx.businesses.length;
+      const maxBusinesses = Math.min(EXPANSION_CONFIG.maxBusinessesPerPlayer, AI_EXPANSION_CONFIG.maxAIBusinesses);
+      if (currentBusinessCount >= maxBusinesses) {
+        return { action: 'CREATE_BUSINESS', success: false, message: 'Max businesses reached' };
+      }
+
+      // Phase 5: Check expansion cooldown
+      const daysSinceExpansion = ctx.gameDay - ctx.lastExpansionAt;
+      if (ctx.lastExpansionAt > 0 && daysSinceExpansion < EXPANSION_CONFIG.expansionCooldownDays) {
+        return { action: 'CREATE_BUSINESS', success: false, message: 'Expansion cooldown active' };
       }
 
       // Pick a city (consider existing presence for diversification)
@@ -368,12 +380,33 @@ async function executeCreateBusiness(
       const cityPool = newCities.length > 0 ? newCities : CITIES;
       const city = cityPool[Math.floor(Math.random() * cityPool.length)];
 
-      // Create business (same as player logic)
+      // Phase 5: Pick a location within the city
+      const location = getRandomLocationForCity(city.id);
+      const locationId = location?.id || null;
+
+      // Phase 5: Calculate expansion cost with scaling
+      const costInfo = calculateExpansionCost(bType.investment, currentBusinessCount, locationId || '', bType.id);
+
+      // Phase 5: Check affordability with personality-specific reserve
+      const personalityReserve = AI_EXPANSION_CONFIG.aiCashReserveAfterExpansion[ctx.personality] ?? 0.2;
+      const minReserve = ctx.netWorth * personalityReserve;
+      if (player.cash < costInfo.totalCost + minReserve) {
+        return { action: 'CREATE_BUSINESS', success: false, message: 'Cannot afford expansion with reserve' };
+      }
+
+      // Phase 5: Calculate setup days
+      const setupDays = calculateSetupDays(bType.investment);
+
+      // Create business (same as player logic, with Phase 5 expansion fields)
       const businessName = `${bType.name} - ${city.name}`;
 
       await tx.player.update({
         where: { id: playerId },
-        data: { cash: { decrement: bType.investment } },
+        data: {
+          cash: { decrement: costInfo.totalCost },
+          expansionCount: { increment: 1 },
+          lastExpansionAt: ctx.gameDay,
+        },
       });
 
       const business = await tx.business.create({
@@ -385,6 +418,9 @@ async function executeCreateBusiness(
           level: 1,
           reputation: 50,
           cash: 0,
+          // Phase 5: Expansion fields
+          location: locationId,
+          setupDaysRemaining: setupDays,
         },
       });
 
@@ -413,10 +449,10 @@ async function executeCreateBusiness(
       return {
         action: 'CREATE_BUSINESS',
         success: true,
-        message: `Opened ${businessName} in ${city.name}`,
+        message: `Opened ${businessName} in ${city.name}${location ? ` (${location.name})` : ''}`,
         newsWorthy: true,
         newsTitle: `New ${bType.name} Opens`,
-        newsContent: `A new ${bType.name} has opened in ${city.name}, adding competition to the local market.`,
+        newsContent: `A new ${bType.name} has opened in ${city.name}${location ? ` at ${location.name}` : ''}, adding competition to the local market.`,
       };
     });
   } catch (err) {

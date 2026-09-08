@@ -40,6 +40,10 @@ function makeContext(overrides: Partial<AIDecisionContext> = {}): AIDecisionCont
     activeLoans: [],
     activeEvents: [],
     marketPrices: {},
+    // Phase 5: Expansion fields
+    expansionCount: 0,
+    lastExpansionAt: 0,
+    playerLevel: 1,
     ...overrides,
   };
 }
@@ -63,6 +67,9 @@ function makeBusiness(overrides: Partial<AIBusinessSnapshot> = {}): AIBusinessSn
     satisfactionScore: 50,
     loyaltyScore: 20,
     repeatCustomerRate: 0.15,
+    // Phase 5: Expansion fields
+    location: null,
+    setupDaysRemaining: 0,
     ...overrides,
   };
 }

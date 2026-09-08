@@ -1,0 +1,502 @@
+   501→   501→   501→    business.repeatCustomerRate,
+   502→   502→   502→    getLoyaltyTier(business.loyaltyScore).multiplier,
+   503→   503→   503→  );
+   504→   504→   504→
+   505→   505→   505→  // Calculate segment demand modifier from previous-tick data
+   506→   506→   506→  // Segments react differently to quality, service, reputation
+   507→   507→   507→  // NOTE: priceCompetitiveness is NOT passed to segment demands because price is already
+   508→   508→   508→  // handled by per-product priceDemandMultiplier AND satisfaction's priceCompetitiveness.
+   509→   509→   509→  // Passing it here would triple-count price effects.
+   510→   510→   510→  // Similarly, reputation is already in calculatePotentialCustomers Layer 3 AND satisfaction's
+   511→   511→   511→  // atmosphere factor, so we use a moderate value to avoid quadruple-counting.
+   512→   512→   512→  const previousCxServiceQuality = calculateServiceQuality(
+   513→   513→   513→    business.employees.length,
+   514→   514→   514→    business.employees.length > 0
+   515→   515→   515→      ? business.employees.reduce((sum, e) => sum + e.skill, 0) / business.employees.length
+   516→   516→   516→      : 0,
+   517→   517→   517→    2 + business.level,
+   518→   518→   518→  );
+   519→   519→   519→  const segmentDemands = calculateSegmentDemands({
+   520→   520→   520→    priceCompetitiveness: 1.0,  // Price already handled by priceDemandMultiplier + satisfaction
+   521→   521→   521→    productQuality: Math.max(0, Math.min(1, business.healthScore / 100)), // Use health as quality proxy from previous tick
+   522→   522→   522→    serviceQuality: previousCxServiceQuality,
+   523→   523→   523→    reputation: Math.min(100, business.reputation * 0.5 + 50),  // Dampened: avg 50 ± 25 from reputation
+   524→   524→   524→  });
+   525→   525→   525→  // Aggregate segment demand: sum of demand multipliers (NOT weighted by share again)
+   526→   526→   526→  // demandMultiplier already includes baseShare, so we just sum them
+   527→   527→   527→  const segmentDemandModifier = segmentDemands.reduce(
+   528→   528→   528→    (sum, seg) => sum + seg.demandMultiplier, 0
+   529→   529→   529→  );
+   530→   530→   530→
+   531→   531→   531→  // ---- Step 0.6: Marketing Demand Modifier (Phase 4) ----
+   532→   532→   532→  // Fetch gameDay early (needed for marketing metrics and later for business metrics)
+   533→   533→   533→  const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
+   534→   534→   534→  const gameDay = parseInt(gameDayState?.value || '1', 10);
+   535→   535→   535→
+   536→   536→   536→  const marketingEffect = await processMarketingTick(
+   537→   537→   537→    business.id,
+   538→   538→   538→    business.level,
+   539→   539→   539→    business.satisfactionScore,
+   540→   540→   540→    business.loyaltyScore,
+   541→   541→   541→    business.repeatCustomerRate,
+   542→   542→   542→    business.brandAwareness,
+   543→   543→   543→    segmentDemands,
+   544→   544→   544→    gameDay,
+   545→   545→   545→  );
+   546→   546→   546→
+   547→   547→   547→  // ---- Step 1: Calculate potential customers ----
+   548→   548→   548→  const totalStock = business.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
+   549→   549→   549→  // Max stock capacity: sum of product maxStock values for this business type
+   550→   550→   550→  const productDefs = PRODUCTS[business.type] || [];
+   551→   551→   551→  const maxStockCapacity = productDefs.reduce((sum, p) => sum + p.maxStock, 0);
+   552→   552→   552→  const avgEmployeeSkill = business.employees.length > 0
+   553→   553→   553→    ? business.employees.reduce((sum, e) => sum + e.skill, 0) / business.employees.length
+   554→   554→   554→    : 0;
+   555→   555→   555→
+   556→   556→   556→  const basePotentialCustomers = calculatePotentialCustomers({
+   557→   557→   557→    baseCustomers: businessType.baseCustomers,
+   558→   558→   558→    cityMultiplier: city.customerMultiplier,
+   559→   559→   559→    level: business.level,
+   560→   560→   560→    reputation: business.reputation,
+   561→   561→   561→    totalStock,
+   562→   562→   562→    maxStockCapacity,
+   563→   563→   563→    employeeCount: business.employees.length,
+   564→   564→   564→    avgEmployeeSkill,
+   565→   565→   565→    eventCustomerEffect: combinedEffects['all_customers'] || 0,
+   566→   566→   566→    businessDemandEffect: combinedEffects[`${businessType.id}_demand`] || 0,
+   567→   567→   567→    businessTypeId: business.type,
+   568→   568→   568→  });
+   569→   569→   569→
+   570→   570→   570→  // Apply CX demand modifier, segment demand modifier, and marketing modifiers
+   571→   571→   571→  // CX modifier: satisfaction/loyalty affect how many customers visit (0.2-2.0 range)
+   572→   572→   572→  // Segment modifier: different customer segments find the business more/less attractive
+   573→   573→   573→  // Phase 4: Marketing demand modifier and brand awareness bonus
+   574→   574→   574→  const marketingDemandModifier = marketingEffect.combinedDemandModifier;
+   575→   575→   575→  const brandAwarenessBonus = calculateBrandAwarenessDemandBonus(marketingEffect.newBrandAwareness);
+   576→   576→   576→
+   577→   577→   577→  const potentialCustomers = Math.max(0, Math.floor(
+   578→   578→   578→    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus
+   579→   579→   579→  ));
+   580→   580→   580→
+   581→   581→   581→  // ---- Step 2: Product-level sales simulation ----
+   582→   582→   582→  let totalRevenue = 0;
+   583→   583→   583→  let totalCOGS = 0;
+   584→   584→   584→  const inventoryUpdates: { id: string; quantityDecrement: number }[] = [];
+   585→   585→   585→  const salesResults: ProductSalesResult[] = [];
+   586→   586→   586→
+   587→   587→   587→  for (const inventory of business.inventories) {
+   588→   588→   588→    if (inventory.quantity <= 0) continue;
+   589→   589→   589→
+   590→   590→   590→    const productDef = productDefs.find(p => p.name === inventory.productName);
+   591→   591→   591→    if (!productDef) continue;
+   592→   592→   592→
+   593→   593→   593→    // Product demand config
+   594→   594→   594→    const prodDemandConfig = getProductDemandConfig(inventory.productName);
+   595→   595→   595→
+   596→   596→   596→    // Market reference price = typical retail price (basePrice × (1 + suggestedMarkup) × priceMultiplier)
+   597→   597→   597→    // This represents what the MARKET typically charges, not the wholesale cost.
+   598→   598→   598→    // Players compare their price to market retail price, not to their own cost.
+   599→   599→   599→    const mp = marketPriceMap[inventory.productName];
+   600→   600→   600→    const typicalRetailPrice = productDef.basePrice * (1 + productDef.suggestedMarkup);
+   601→   601→   601→    const marketReferencePrice = Math.round(
+   602→   602→   602→      typicalRetailPrice * (mp?.priceMultiplier || 1)
+   603→   603→   603→    );
+   604→   604→   604→
+   605→   605→   605→    // Market demand multiplier from events
+   606→   606→   606→    const demandMult = mp?.demandMultiplier || 1;
+   607→   607→   607→
+   608→   608→   608→    // Event demand effect for this product's category
+   609→   609→   609→    const eventDemandEffect = combinedEffects[`${productDef.category}_demand`] || 0;
+   610→   610→   610→
+   611→   611→   611→    // Run the complete sales pipeline
+   612→   612→   612→    const salesResult = simulateProductSales({
+   613→   613→   613→      inventoryId: inventory.id,
+   614→   614→   614→      productName: inventory.productName,
+   615→   615→   615→      quantity: inventory.quantity,
+   616→   616→   616→      purchasePrice: inventory.purchasePrice,
+   617→   617→   617→      sellPrice: inventory.sellPrice,
+   618→   618→   618→      marketReferencePrice,
+   619→   619→   619→      baseDemand: prodDemandConfig.baseDemand,
+   620→   620→   620→      demandMultiplier: demandMult,
+   621→   621→   621→      eventDemandEffect,
+   622→   622→   622→      productPriceSensitivity: prodDemandConfig.priceSensitivity,
+   623→   623→   623→      productVolatility: prodDemandConfig.volatility,
+   624→   624→   624→      businessPriceSensitivity: economyConfig.priceSensitivity,
+   625→   625→   625→      potentialCustomers,
+   626→   626→   626→    });
+   627→   627→   627→
+   628→   628→   628→    if (salesResult.itemsSold > 0) {
+   629→   629→   629→      totalRevenue += salesResult.revenue;
+   630→   630→   630→      totalCOGS += salesResult.costOfGoodsSold;
+   631→   631→   631→      inventoryUpdates.push({
+   632→   632→   632→        id: inventory.id,
+   633→   633→   633→        quantityDecrement: salesResult.itemsSold,
+   634→   634→   634→      });
+   635→   635→   635→    }
+   636→   636→   636→
+   637→   637→   637→    salesResults.push(salesResult);
+   638→   638→   638→  }
+   639→   639→   639→
+   640→   640→   640→  // ---- Step 3: Calculate expenses ----
+   641→   641→   641→  const totalMonthlySalaries = business.employees.reduce((sum, emp) => sum + emp.salary, 0);
+   642→   642→   642→  const grossProfit = totalRevenue - totalCOGS;
+   643→   643→   643→
+   644→   644→   644→  const expenses = calculateBusinessExpenses({
+   645→   645→   645→    baseRent: businessType.rent,
+   646→   646→   646→    level: business.level,
+   647→   647→   647→    cityRentMultiplier: city.rentMultiplier,
+   648→   648→   648→    totalMonthlySalaries,
+   649→   649→   649→    businessLevel: business.level,
+   650→   650→   650→    businessTypeId: business.type,
+   651→   651→   651→    revenue: totalRevenue,
+   652→   652→   652→    grossProfit,
+   653→   653→   653→  });
+   654→   654→   654→
+   655→   655→   655→  // ---- Step 4: Calculate net profit ----
+   656→   656→   656→  // Phase 4: Include marketing spend in total expenses
+   657→   657→   657→  const totalExpenseWithMarketing = expenses.totalExpense + marketingEffect.totalMarketingSpend;
+   658→   658→   658→  const dailyProfit = calculateNetProfit(totalRevenue, totalCOGS, totalExpenseWithMarketing);
+   659→   659→   659→
+   660→   660→   660→  // ---- Step 5: Calculate reputation change ----
+   661→   661→   661→  const outOfStockRatio = business.inventories.length > 0
+   662→   662→   662→    ? business.inventories.filter(inv => inv.quantity <= 0).length / business.inventories.length
+   663→   663→   663→    : 0;
+   664→   664→   664→  const managers = business.employees.filter(e => e.role === 'MANAGER');
+   665→   665→   665→  const cleaners = business.employees.filter(e => e.role === 'CLEANER');
+   666→   666→   666→
+   667→   667→   667→  const reputationChange = calculateReputationChange({
+   668→   668→   668→    dailyProfit,
+   669→   669→   669→    outOfStockRatio,
+   670→   670→   670→    managers: managers.map(m => ({ skill: m.skill })),
+   671→   671→   671→    cleaners: cleaners.map(c => ({ skill: c.skill })),
+   672→   672→   672→  });
+   673→   673→   673→
+   674→   674→   674→  const newReputation = Math.max(
+   675→   675→   675→    ECONOMY_CONFIG.minReputation,
+   676→   676→   676→    Math.min(ECONOMY_CONFIG.maxReputation, business.reputation + reputationChange)
+   677→   677→   677→  );
+   678→   678→   678→
+   679→   679→   679→  // ---- Step 6: Calculate business health score ----
+   680→   680→   680→  const healthResult = calculateBusinessHealth({
+   681→   681→   681→    dailyProfit,
+   682→   682→   682→    dailyRevenue: totalRevenue,
+   683→   683→   683→    businessCash: business.cash + dailyProfit,
+   684→   684→   684→    totalStock,
+   685→   685→   685→    maxStockCapacity,
+   686→   686→   686→    reputation: newReputation,
+   687→   687→   687→    businessTypeId: business.type,
+   688→   688→   688→  });
+   689→   689→   689→
+   690→   690→   690→  // ---- Step 6.5: Customer Experience (Phase 3) ----
+   691→   691→   691→  // Calculate price competitiveness across all products
+   692→   692→   692→  const cxPriceCompetitiveness = calculatePriceCompetitiveness(
+   693→   693→   693→    business.inventories.map(inv => ({ productName: inv.productName, sellPrice: inv.sellPrice })),
+   694→   694→   694→    productDefs.map(p => ({ name: p.name, basePrice: p.basePrice, suggestedMarkup: p.suggestedMarkup })),
+   695→   695→   695→    marketPriceMap,
+   696→   696→   696→  );
+   697→   697→   697→
+   698→   698→   698→  // Calculate service quality from employees
+   699→   699→   699→  const idealEmployeeCount = 2 + business.level; // Base 2 + 1 per level
+   700→   700→   700→  const cxServiceQuality = calculateServiceQuality(
+   701→   701→   701→    business.employees.length,
+   702→   702→   702→    avgEmployeeSkill,
+   703→   703→   703→    idealEmployeeCount,
+   704→   704→   704→  );
+   705→   705→   705→
+   706→   706→   706→  // Calculate product quality from margin (higher margin = better products)
+   707→   707→   707→  const cxProductQuality = totalRevenue > 0
+   708→   708→   708→    ? Math.min(1, Math.max(0, (totalRevenue - totalCOGS) / totalRevenue / 0.3))
+   709→   709→   709→    : 0.5;
+   710→   710→   710→
+   711→   711→   711→  // Calculate satisfaction
+   712→   712→   712→  const cxSatisfaction = calculateSatisfaction({
+   713→   713→   713→    priceCompetitiveness: cxPriceCompetitiveness,
+   714→   714→   714→    stockAvailability: maxStockCapacity > 0 ? totalStock / maxStockCapacity : 0,
+   715→   715→   715→    serviceQuality: cxServiceQuality,
+   716→   716→   716→    productQuality: cxProductQuality,
+   717→   717→   717→    atmosphere: newReputation / 100,
+   718→   718→   718→    currentSatisfaction: business.satisfactionScore,
+   719→   719→   719→  });
+   720→   720→   720→
+   721→   721→   721→  // Determine if this was a positive experience
+   722→   722→   722→  const wasPositiveExperience = cxSatisfaction.overall >= 50 && dailyProfit >= 0;
+   723→   723→   723→
+   724→   724→   724→  // Calculate loyalty
+   725→   725→   725→  const cxLoyalty = calculateLoyalty({
+   726→   726→   726→    currentLoyaltyScore: business.loyaltyScore,
+   727→   727→   727→    currentRepeatRate: business.repeatCustomerRate,
+   728→   728→   728→    wasPositiveExperience,
+   729→   729→   729→    totalCustomers: potentialCustomers,
+   730→   730→   730→    numberOfReviews: business.totalReviews,
+   731→   731→   731→    averageRating: business.avgReviewRating,
+   732→   732→   732→    loyaltyMultiplier: getLoyaltyTier(business.loyaltyScore).multiplier,
+   733→   733→   733→  });
+   734→   734→   734→
+   735→   735→   735→  // ---- Step 7: Get game day for metrics ----
+   736→   736→   736→  // (gameDay already fetched at Step 0.6 for marketing processing)
+   737→   737→   737→
+   738→   738→   738→  // ---- Step 8: Execute all updates in a single transaction ----
+   739→   739→   739→  await db.$transaction(async (tx) => {
+   740→   740→   740→    // Update inventory quantities
+   741→   741→   741→    for (const upd of inventoryUpdates) {
+   742→   742→   742→      await tx.inventory.update({
+   743→   743→   743→        where: { id: upd.id },
+   744→   744→   744→        data: { quantity: { decrement: upd.quantityDecrement } },
+   745→   745→   745→      });
+   746→   746→   746→    }
+   747→   747→   747→
+   748→   748→   748→    // Phase 1 FIX: Distribute business profit to player cash
+   749→   749→   749→    // Previously, profit accumulated in business.cash but was never accessible.
+   750→   750→   750→    // Now: business profit is transferred to the player each tick.
+   751→   751→   751→    const profitToDistribute = dailyProfit;
+   752→   752→   752→
+   753→   753→   753→    // Update business (including Phase 3 CX fields and Phase 4 Marketing fields)
+   754→   754→   754→    await tx.business.update({
+   755→   755→   755→      where: { id: business.id },
+   756→   756→   756→      data: {
+   757→   757→   757→        dailyRevenue: roundTaka(totalRevenue),
+   758→   758→   758→        dailyExpense: roundTaka(totalExpenseWithMarketing),
+   759→   759→   759→        dailyProfit: roundTaka(dailyProfit),
+   760→   760→   760→        dailyCOGS: roundTaka(totalCOGS),
+   761→   761→   761→        dailyCustomers: potentialCustomers,
+   762→   762→   762→        cash: business.cash + roundTaka(dailyProfit),
+   763→   763→   763→        totalRevenue: business.totalRevenue + roundTaka(totalRevenue),
+   764→   764→   764→        totalProfit: business.totalProfit + roundTaka(dailyProfit),
+   765→   765→   765→        reputation: newReputation,
+   766→   766→   766→        healthScore: healthResult.score,
+   767→   767→   767→        // Phase 3: CX fields
+   768→   768→   768→        satisfactionScore: cxSatisfaction.overall,
+   769→   769→   769→        loyaltyScore: cxLoyalty.loyaltyScore,
+   770→   770→   770→        repeatCustomerRate: cxLoyalty.repeatCustomerRate,
+   771→   771→   771→        // Phase 4: Marketing fields
+   772→   772→   772→        brandAwareness: marketingEffect.newBrandAwareness,
+   773→   773→   773→      },
+   774→   774→   774→    });
+   775→   775→   775→
+   776→   776→   776→    // Distribute profit to player cash
+   777→   777→   777→    await tx.player.update({
+   778→   778→   778→      where: { id: business.playerId },
+   779→   779→   779→      data: { cash: { increment: roundTaka(profitToDistribute) } },
+   780→   780→   780→    });
+   781→   781→   781→
+   782→   782→   782→    // Phase 4: Attribute revenue to campaigns for ROI analytics
+   783→   783→   783→    // NOTE: Marketing spend is already included in totalExpenseWithMarketing
+   784→   784→   784→    // which reduced dailyProfit, so it's already deducted from player cash
+   785→   785→   785→    // via the profitToDistribute above. Do NOT deduct again.
+   786→   786→   786→    if (marketingEffect.totalMarketingSpend > 0 && totalRevenue > 0 && marketingEffect.campaignIds.length > 0) {
+   787→   787→   787→      // Fetch campaigns that were processed this tick (using IDs from processMarketingTick)
+   788→   788→   788→      const processedCampaigns = await tx.marketingCampaign.findMany({
+   789→   789→   789→        where: { id: { in: marketingEffect.campaignIds } },
+   790→   790→   790→        select: { id: true, totalSpend: true },
+   791→   791→   791→      });
+   792→   792→   792→      const totalCampaignSpend = processedCampaigns.reduce((sum, c) => sum + c.totalSpend, 0);
+   793→   793→   793→      if (totalCampaignSpend > 0) {
+   794→   794→   794→        // Only attribute the "extra" revenue from marketing (not base revenue)
+   795→   795→   795→        // Correct formula: total boost = marketingDemandModifier × brandAwarenessBonus
+   796→   796→   796→        // Extra fraction = 1 - 1/totalBoost (how much of revenue is due to marketing)
+   797→   797→   797→        const totalMarketingBoost = marketingDemandModifier * brandAwarenessBonus;
+   798→   798→   798→        const extraFraction = totalMarketingBoost > 1 ? (1 - 1 / totalMarketingBoost) : 0;
+   799→   799→   799→        const marketingRevenue = totalRevenue * extraFraction;
+   800→   800→   800→
+   801→   801→   801→        for (const campaign of processedCampaigns) {
+   802→   802→   802→          const spendShare = campaign.totalSpend / totalCampaignSpend;
+   803→   803→   803→          const attributedRevenue = Math.max(0, marketingRevenue * spendShare);
+   804→   804→   804→          if (attributedRevenue > 0) {
+   805→   805→   805→            await tx.marketingCampaign.update({
+   806→   806→   806→              where: { id: campaign.id },
+   807→   807→   807→              data: { revenueInfluenced: { increment: roundTaka(attributedRevenue) } },
+   808→   808→   808→            });
+   809→   809→   809→          }
+   810→   810→   810→        }
+   811→   811→   811→      }
+   812→   812→   812→    }
+   813→   813→   813→
+   814→   814→   814→    // Save daily metrics for analytics (including Phase 3 CX metrics)
+   815→   815→   815→    await tx.businessMetric.upsert({
+   816→   816→   816→      where: { businessId_gameDay: { businessId: business.id, gameDay } },
+   817→   817→   817→      create: {
+   818→   818→   818→        businessId: business.id,
+   819→   819→   819→        gameDay,
+   820→   820→   820→        revenue: roundTaka(totalRevenue),
+   821→   821→   821→        expenses: roundTaka(totalExpenseWithMarketing),
+   822→   822→   822→        profit: roundTaka(dailyProfit),
+   823→   823→   823→        cogs: roundTaka(totalCOGS),
+   824→   824→   824→        customers: potentialCustomers,
+   825→   825→   825→        reputation: newReputation,
+   826→   826→   826→        // Phase 3: CX metrics
+   827→   827→   827→        satisfaction: cxSatisfaction.overall,
+   828→   828→   828→        loyalty: cxLoyalty.loyaltyScore,
+   829→   829→   829→        nps: business.npsScore,
+   830→   830→   830→      },
+   831→   831→   831→      update: {
+   832→   832→   832→        revenue: roundTaka(totalRevenue),
+   833→   833→   833→        expenses: roundTaka(totalExpenseWithMarketing),
+   834→   834→   834→        profit: roundTaka(dailyProfit),
+   835→   835→   835→        cogs: roundTaka(totalCOGS),
+   836→   836→   836→        customers: potentialCustomers,
+   837→   837→   837→        reputation: newReputation,
+   838→   838→   838→        // Phase 3: CX metrics
+   839→   839→   839→        satisfaction: cxSatisfaction.overall,
+   840→   840→   840→        loyalty: cxLoyalty.loyaltyScore,
+   841→   841→   841→        nps: business.npsScore,
+   842→   842→   842→      },
+   843→   843→   843→    });
+   844→   844→   844→
+   845→   845→   845→    // Log (with Phase 3 CX info)
+   846→   846→   846→    const cogsStr = totalCOGS > 0 ? ` | COGS ৳${roundTaka(totalCOGS).toLocaleString()}` : '';
+   847→   847→   847→    await tx.gameLog.create({
+   848→   848→   848→      data: {
+   849→   849→   849→        playerId: business.playerId,
+   850→   850→   850→        businessId: business.id,
+   851→   851→   851→        type: dailyProfit >= 0 ? 'PROFIT' : 'LOSS',
+   852→   852→   852→        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(totalExpenseWithMarketing).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score} | Sat ${Math.round(cxSatisfaction.overall)} | Loy ${cxLoyalty.tier} | Mkt ৳${roundTaka(marketingEffect.totalMarketingSpend).toLocaleString()}`,
+   853→   853→   853→        amount: dailyProfit,
+   854→   854→   854→      },
+   855→   855→   855→    });
+   856→   856→   856→
+   857→   857→   857→    // Phase 3: Generate and persist customer reviews
+   858→   858→   858→    const cxReviews = generateReviews(business.id, gameDay, cxSatisfaction, REVIEW_CONFIG.maxPerTick);
+   859→   859→   859→    for (const review of cxReviews) {
+   860→   860→   860→      await tx.customerReview.create({
+   861→   861→   861→        data: {
+   862→   862→   862→          businessId: review.businessId,
+   863→   863→   863→          gameDay: review.gameDay,
+   864→   864→   864→          rating: review.rating,
+   865→   865→   865→          sentiment: review.sentiment,
+   866→   866→   866→          category: review.category,
+   867→   867→   867→          comment: review.comment,
+   868→   868→   868→          segment: review.segment,
+   869→   869→   869→        },
+   870→   870→   870→      });
+   871→   871→   871→    }
+   872→   872→   872→
+   873→   873→   873→    // Phase 3: Update NPS and review stats
+   874→   874→   874→    if (cxReviews.length > 0) {
+   875→   875→   875→      const allReviews = await tx.customerReview.findMany({
+   876→   876→   876→        where: { businessId: business.id },
+   877→   877→   877→        select: { rating: true },
+   878→   878→   878→        orderBy: { createdAt: 'desc' },
+   879→   879→   879→        take: REVIEW_CONFIG.keepLast,
+   880→   880→   880→      });
+   881→   881→   881→      const npsResult = calculateNPS(allReviews);
+   882→   882→   882→      const totalReviews = allReviews.length;
+   883→   883→   883→      const avgRating = totalReviews > 0
+   884→   884→   884→        ? allReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
+   885→   885→   885→        : 0;
+   886→   886→   886→
+   887→   887→   887→      await tx.business.update({
+   888→   888→   888→        where: { id: business.id },
+   889→   889→   889→        data: {
+   890→   890→   890→          npsScore: npsResult.nps,
+   891→   891→   891→          totalReviews,
+   892→   892→   892→          avgReviewRating: Math.round(avgRating * 100) / 100,
+   893→   893→   893→        },
+   894→   894→   894→      });
+   895→   895→   895→
+   896→   896→   896→      // Prune old reviews (keep only last N)
+   897→   897→   897→      const reviewCount = await tx.customerReview.count({
+   898→   898→   898→        where: { businessId: business.id },
+   899→   899→   899→      });
+   900→   900→   900→      if (reviewCount > REVIEW_CONFIG.keepLast) {
+   901→   901→   901→        const oldReviews = await tx.customerReview.findMany({
+   902→   902→   902→          where: { businessId: business.id },
+   903→   903→   903→          orderBy: { createdAt: 'asc' },
+   904→   904→   904→          take: reviewCount - REVIEW_CONFIG.keepLast,
+   905→   905→   905→          select: { id: true },
+   906→   906→   906→        });
+   907→   907→   907→        for (const old of oldReviews) {
+   908→   908→   908→          await tx.customerReview.delete({ where: { id: old.id } });
+   909→   909→   909→        }
+   910→   910→   910→      }
+   911→   911→   911→    }
+   912→   912→   912→
+   913→   913→   913→    // Recalculate net worth within the same transaction
+   914→   914→   914→    await recalculateNetWorth(tx, business.playerId);
+   915→   915→   915→  });
+   916→   916→   916→}
+   917→   917→   917→
+   918→   918→   918→// ---- Loan Payment Processing ----
+   919→   919→   919→
+   920→   920→   920→async function processLoanPayments(): Promise<void> {
+   921→   921→   921→  const activeLoans = await db.loan.findMany({
+   922→   922→   922→    where: { status: 'ACTIVE' },
+   923→   923→   923→  });
+   924→   924→   924→
+   925→   925→   925→  if (activeLoans.length === 0) return;
+   926→   926→   926→
+   927→   927→   927→  for (const loan of activeLoans) {
+   928→   928→   928→    const payment = loan.dailyPayment;
+   929→   929→   929→    const isPaidOff = loan.daysRemaining - 1 <= 0;
+   930→   930→   930→    const actualPayment = isPaidOff ? loan.remainingDebt : payment;
+   931→   931→   931→
+   932→   932→   932→    await db.$transaction(async (tx) => {
+   933→   933→   933→      const player = await tx.player.findUnique({
+   934→   934→   934→        where: { id: loan.playerId },
+   935→   935→   935→        select: { cash: true },
+   936→   936→   936→      });
+   937→   937→   937→      if (!player) {
+   938→   938→   938→        console.error(`[GameEngine] processLoanPayments: Player ${loan.playerId} not found for loan ${loan.id}`);
+   939→   939→   939→        return;
+   940→   940→   940→      }
+   941→   941→   941→
+   942→   942→   942→      const deductAmount = Math.min(actualPayment, Math.max(0, player.cash));
+   943→   943→   943→      const newRemainingDebt = Math.max(loan.remainingDebt - deductAmount, 0);
+   944→   944→   944→
+   945→   945→   945→      await tx.loan.update({
+   946→   946→   946→        where: { id: loan.id },
+   947→   947→   947→        data: {
+   948→   948→   948→          remainingDebt: newRemainingDebt,
+   949→   949→   949→          daysRemaining: Math.max(loan.daysRemaining - 1, 0),
+   950→   950→   950→          status: newRemainingDebt <= 0 ? 'PAID_OFF' : 'ACTIVE',
+   951→   951→   951→        },
+   952→   952→   952→      });
+   953→   953→   953→
+   954→   954→   954→      await tx.player.update({
+   955→   955→   955→        where: { id: loan.playerId },
+   956→   956→   956→        data: { cash: { decrement: deductAmount } },
+   957→   957→   957→      });
+   958→   958→   958→
+   959→   959→   959→      await tx.gameLog.create({
+   960→   960→   960→        data: {
+   961→   961→   961→          playerId: loan.playerId,
+   962→   962→   962→          type: newRemainingDebt <= 0 ? 'LOAN_PAID' : 'LOAN_PAYMENT',
+   963→   963→   963→          message: newRemainingDebt <= 0
+   964→   964→   964→            ? `Loan of ৳${loan.amount.toLocaleString()} fully repaid! Final deduction: ৳${Math.round(deductAmount).toLocaleString()}`
+   965→   965→   965→            : `Loan payment: ৳${Math.round(deductAmount).toLocaleString()} deducted. Remaining debt: ৳${Math.round(newRemainingDebt).toLocaleString()} (${loan.daysRemaining - 1} days left)`,
+   966→   966→   966→          amount: -deductAmount,
+   967→   967→   967→        },
+   968→   968→   968→      });
+   969→   969→   969→    });
+   970→   970→   970→  }
+   971→   971→   971→}
+   972→   972→   972→
+   973→   973→   973→// ---- Full Game Tick ----
+   974→   974→   974→
+   975→   975→   975→export async function gameTick(): Promise<void> {
+   976→   976→   976→  // NOTE: The tick lock is managed by the API route handler.
+   977→   977→   977→  // gameTick() is the pure simulation function and does NOT acquire/release the lock.
+   978→   978→   978→
+   979→   979→   979→  // Log tick start
+   980→   980→   980→  await db.gameLog.create({
+   981→   981→   981→    data: {
+   982→   982→   982→      type: 'GAME_TICK_STARTED',
+   983→   983→   983→      message: `Game tick started at ${new Date().toISOString()}`,
+   984→   984→   984→    },
+   985→   985→   985→  });
+   986→   986→   986→
+   987→   987→   987→  // 0. Game state housekeeping
+   988→   988→   988→  const tickState = await db.gameState.findUnique({ where: { key: 'tickCount' } });
+   989→   989→   989→  const tickNum = parseInt(tickState?.value || '0');
+   990→   990→   990→
+   991→   991→   991→  await db.$transaction(async (tx) => {
+   992→   992→   992→    // Expire old events
+   993→   993→   993→    await tx.gameEvent.updateMany({
+   994→   994→   994→      where: { active: true, endsAt: { lt: new Date() } },
+   995→   995→   995→      data: { active: false },
+   996→   996→   996→    });
+   997→   997→   997→
+   998→   998→   998→    // Update game state
+   999→   999→   999→    const now = new Date().toISOString();
+  1000→  1000→  1000→    await tx.gameState.upsert({
+
+[showing lines 501-1000 of 1346; use offset=1001 with limit to continue reading]

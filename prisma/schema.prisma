@@ -25,6 +25,10 @@ model Player {
   lastAction   String?  // Last AI action taken (e.g., BUY_INVENTORY, CHANGE_PRICE)
   lastActionAt Int     @default(0)  // Game day when last action was taken (for cooldowns)
 
+  // Phase 5: Expansion Fields
+  expansionCount   Int     @default(0)  // Total number of expansions performed
+  lastExpansionAt  Int     @default(0)  // Game day of last expansion (for cooldown)
+
   businesses    Business[]
   gameLogs      GameLog[]
   loans         Loan[]
@@ -60,6 +64,10 @@ model Business {
 
   // Phase 4: Marketing Fields
   brandAwareness      Float    @default(0)    // 0-100, brand awareness from marketing
+
+  // Phase 5: Expansion & Location Fields
+  location            String?  // Location ID (e.g., DHAKA_GULSHAN, CTG_AGRABAD)
+  setupDaysRemaining  Int      @default(0)    // Days remaining in setup period (0 = fully operational)
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

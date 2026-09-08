@@ -72,6 +72,17 @@ import {
 } from './game/marketing/marketing-formulas';
 import { MARKETING_CONFIG } from './game/marketing/marketing-config';
 
+// Phase 5: Expansion & Location System
+import {
+  calculateLocationDemandModifier,
+  calculateLocationRentModifier,
+  calculateLocationOperatingCostModifier,
+  calculateSetupModifier,
+  advanceSetupDay,
+  getRandomLocationForCity,
+  calculateSetupDays,
+} from './game/expansion';
+
 // ---- Prisma Transaction Client Type ----
 type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
@@ -553,9 +564,16 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     ? business.employees.reduce((sum, e) => sum + e.skill, 0) / business.employees.length
     : 0;
 
+  // Phase 5: Location demand modifier (replaces city multiplier with more granular location data)
+  const locationDemandModifier = calculateLocationDemandModifier(
+    business.location || '',
+    business.type,
+    city.customerMultiplier,
+  );
+
   const basePotentialCustomers = calculatePotentialCustomers({
     baseCustomers: businessType.baseCustomers,
-    cityMultiplier: city.customerMultiplier,
+    cityMultiplier: locationDemandModifier, // Phase 5: Location modifier instead of raw city multiplier
     level: business.level,
     reputation: business.reputation,
     totalStock,
@@ -571,11 +589,13 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   // CX modifier: satisfaction/loyalty affect how many customers visit (0.2-2.0 range)
   // Segment modifier: different customer segments find the business more/less attractive
   // Phase 4: Marketing demand modifier and brand awareness bonus
+  // Phase 5: Setup period modifier (reduced capacity during setup)
   const marketingDemandModifier = marketingEffect.combinedDemandModifier;
   const brandAwarenessBonus = calculateBrandAwarenessDemandBonus(marketingEffect.newBrandAwareness);
+  const setupModifier = calculateSetupModifier(business.setupDaysRemaining);
 
   const potentialCustomers = Math.max(0, Math.floor(
-    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus
+    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus * setupModifier
   ));
 
   // ---- Step 2: Product-level sales simulation ----
@@ -641,10 +661,14 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   const totalMonthlySalaries = business.employees.reduce((sum, emp) => sum + emp.salary, 0);
   const grossProfit = totalRevenue - totalCOGS;
 
+  // Phase 5: Location modifiers for rent and operating costs
+  const locationRentModifier = calculateLocationRentModifier(business.location || '', city.rentMultiplier);
+  const locationOperatingCostModifier = calculateLocationOperatingCostModifier(business.location || '');
+
   const expenses = calculateBusinessExpenses({
     baseRent: businessType.rent,
     level: business.level,
-    cityRentMultiplier: city.rentMultiplier,
+    cityRentMultiplier: locationRentModifier, // Phase 5: Location rent modifier
     totalMonthlySalaries,
     businessLevel: business.level,
     businessTypeId: business.type,
@@ -652,9 +676,14 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     grossProfit,
   });
 
+  // Phase 5: Apply location operating cost modifier to utilities
+  // This is a post-hoc modifier on the total expense (before marketing)
+  const locationAdjustedExpenses = expenses.totalExpense * locationOperatingCostModifier;
+
   // ---- Step 4: Calculate net profit ----
   // Phase 4: Include marketing spend in total expenses
-  const totalExpenseWithMarketing = expenses.totalExpense + marketingEffect.totalMarketingSpend;
+  // Phase 5: Use location-adjusted expenses
+  const totalExpenseWithMarketing = locationAdjustedExpenses + marketingEffect.totalMarketingSpend;
   const dailyProfit = calculateNetProfit(totalRevenue, totalCOGS, totalExpenseWithMarketing);
 
   // ---- Step 5: Calculate reputation change ----
@@ -750,7 +779,10 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     // Now: business profit is transferred to the player each tick.
     const profitToDistribute = dailyProfit;
 
-    // Update business (including Phase 3 CX fields and Phase 4 Marketing fields)
+    // Update business (including Phase 3 CX fields, Phase 4 Marketing fields, Phase 5 Expansion fields)
+    // Phase 5: Advance setup days remaining
+    const newSetupDaysRemaining = advanceSetupDay(business.setupDaysRemaining);
+
     await tx.business.update({
       where: { id: business.id },
       data: {
@@ -770,6 +802,8 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         repeatCustomerRate: cxLoyalty.repeatCustomerRate,
         // Phase 4: Marketing fields
         brandAwareness: marketingEffect.newBrandAwareness,
+        // Phase 5: Expansion fields
+        setupDaysRemaining: newSetupDaysRemaining,
       },
     });
 
@@ -842,14 +876,15 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       },
     });
 
-    // Log (with Phase 3 CX info)
+    // Log (with Phase 3 CX info and Phase 5 setup info)
     const cogsStr = totalCOGS > 0 ? ` | COGS ৳${roundTaka(totalCOGS).toLocaleString()}` : '';
+    const setupStr = business.setupDaysRemaining > 0 ? ` | Setup ${business.setupDaysRemaining}d` : '';
     await tx.gameLog.create({
       data: {
         playerId: business.playerId,
         businessId: business.id,
         type: dailyProfit >= 0 ? 'PROFIT' : 'LOSS',
-        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(totalExpenseWithMarketing).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score} | Sat ${Math.round(cxSatisfaction.overall)} | Loy ${cxLoyalty.tier} | Mkt ৳${roundTaka(marketingEffect.totalMarketingSpend).toLocaleString()}`,
+        message: `${business.name}: Rev ৳${roundTaka(totalRevenue).toLocaleString()}${cogsStr} | Exp ৳${roundTaka(totalExpenseWithMarketing).toLocaleString()} | ${dailyProfit >= 0 ? 'Profit' : 'Loss'} ৳${Math.abs(roundTaka(dailyProfit)).toLocaleString()} | ${potentialCustomers} customers | Health ${healthResult.score} | Sat ${Math.round(cxSatisfaction.overall)} | Loy ${cxLoyalty.tier} | Mkt ৳${roundTaka(marketingEffect.totalMarketingSpend).toLocaleString()}${setupStr}`,
         amount: dailyProfit,
       },
     });
@@ -1250,6 +1285,10 @@ export async function seedAIPlayers(): Promise<void> {
       // Pick city
       const city = CITIES[Math.floor(Math.random() * CITIES.length)];
 
+      // Phase 5: Pick location within city
+      const aiLocation = getRandomLocationForCity(city.id);
+      const aiLocationId = aiLocation?.id || null;
+
       // Deduct investment from AI cash
       const investmentCost = bType.investment;
       remainingCash -= investmentCost;
@@ -1264,6 +1303,9 @@ export async function seedAIPlayers(): Promise<void> {
           level: 1,
           reputation: 40 + Math.random() * 20, // Start at 40-60
           cash: 0,
+          // Phase 5: Location and setup
+          location: aiLocationId,
+          setupDaysRemaining: 0, // AI initial businesses start fully operational
         },
       });
 

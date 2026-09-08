@@ -6,6 +6,7 @@ import { useGameStore } from '@/store/game-store';
 import {
   formatTaka, formatTakaShort, getBusinessType, getCity, GAME_CONFIG
 } from '@/lib/game-data';
+import { EXPANSION_CONFIG } from '@/lib/game/expansion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +15,8 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Wallet, Building2, Users, TrendingUp, TrendingDown, ArrowRight,
-  Zap, Package, Plus, Flame, Newspaper, BarChart3, Clock, Shield
+  Zap, Package, Plus, Flame, Newspaper, BarChart3, Clock, Shield,
+  LayoutGrid, Timer
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer
@@ -287,6 +289,49 @@ export default function Dashboard() {
         </motion.div>
       )}
 
+      {/* Multi-Business Summary / Portfolio Link */}
+      {businesses.length > 1 && (
+        <motion.div variants={item}>
+          <Card className="shadow-sm border-green-200/50" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.03), rgba(0,168,107,0.05))' }}>
+            <CardContent className="p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
+                    <LayoutGrid className="h-4.5 w-4.5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold">Your Portfolio</div>
+                    <div className="text-xs text-muted-foreground">
+                      {businesses.length} business{businesses.length > 1 ? 'es' : ''} · {formatTakaShort(totalDailyProfit)}/day profit
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1 text-xs text-white rounded-lg"
+                  style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}
+                  onClick={() => setView('portfolio')}
+                >
+                  View <ArrowRight className="h-3 w-3" />
+                </Button>
+              </div>
+              {/* Setup period indicators */}
+              {businesses.some((b: any) => b.setupDaysRemaining > 0) && (
+                <div className="mt-2.5 pt-2.5 border-t border-green-200/30 space-y-1.5">
+                  {businesses.filter((b: any) => b.setupDaysRemaining > 0).map((b: any) => (
+                    <div key={b.id} className="flex items-center gap-1.5 text-[10px] text-blue-600 font-medium">
+                      <Timer className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{b.name}</span>
+                      <span>— {b.setupDaysRemaining}d setup remaining</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
       {/* Quick Business List */}
       <motion.div variants={item}>
         <div className="flex items-center justify-between mb-2.5">
@@ -295,14 +340,16 @@ export default function Dashboard() {
             Your Businesses
           </h3>
           {businesses.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs gap-0.5 text-green-700 hover:text-green-800"
-              onClick={() => setView('businesses')}
-            >
-              View All <ArrowRight className="h-3 w-3" />
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs gap-0.5 text-green-700 hover:text-green-800"
+                onClick={() => setView('portfolio')}
+              >
+                Portfolio <ArrowRight className="h-3 w-3" />
+              </Button>
+            </div>
           )}
         </div>
 
@@ -328,6 +375,7 @@ export default function Dashboard() {
               const bt = getBusinessType(b.type);
               const city = getCity(b.city);
               const profit = b.dailyProfit || 0;
+              const isSetup = b.setupDaysRemaining > 0;
               return (
                 <motion.div
                   key={b.id}
@@ -348,6 +396,11 @@ export default function Dashboard() {
                             <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">
                               Lv.{b.level || 1}
                             </Badge>
+                            {isSetup && (
+                              <Badge className="text-[9px] px-1.5 py-0 bg-blue-50 text-blue-700 border border-blue-200 shrink-0" variant="outline">
+                                <Timer className="h-2.5 w-2.5 mr-0.5" /> Setup {b.setupDaysRemaining}d
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-[10px] text-muted-foreground mt-0.5">
                             {bt?.name} · {city?.name}
@@ -365,6 +418,14 @@ export default function Dashboard() {
                               {formatTakaShort(profit)}/day
                             </div>
                           </div>
+                          {isSetup && (
+                            <div className="mt-2 p-1.5 rounded-md bg-blue-50/60 border border-blue-200/40">
+                              <div className="text-[10px] text-blue-600 font-medium flex items-center gap-1">
+                                <Timer className="h-2.5 w-2.5" />
+                                Setup in progress — {b.setupDaysRemaining} day{b.setupDaysRemaining > 1 ? 's' : ''} remaining ({Math.round(EXPANSION_CONFIG.setupRevenueMultiplier * 100)}% capacity)
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </CardContent>

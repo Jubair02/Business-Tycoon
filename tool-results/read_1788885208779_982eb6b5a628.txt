@@ -1,0 +1,871 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback } from 'react';
+     4→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+     5→import { Button } from '@/components/ui/button';
+     6→import { Badge } from '@/components/ui/badge';
+     7→import { Progress } from '@/components/ui/progress';
+     8→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+     9→import { Input } from '@/components/ui/input';
+    10→import { Label } from '@/components/ui/label';
+    11→import { Separator } from '@/components/ui/separator';
+    12→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+    13→import { Skeleton } from '@/components/ui/skeleton';
+    14→import { toast } from 'sonner';
+    15→import {
+    16→  Megaphone, Tv, Newspaper, Star, Building2, Smartphone,
+    17→  Play, Pause, XCircle, Plus, TrendingUp, TrendingDown,
+    18→  DollarSign, Eye, Target, BarChart3, Activity, Zap,
+    19→  Clock, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
+    20→  Facebook
+    21→} from 'lucide-react';
+    22→import { motion } from 'framer-motion';
+    23→import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+    24→
+    25→// ---- Types ----
+    26→type CampaignStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+    27→type MarketingChannel = 'SOCIAL_MEDIA' | 'FACEBOOK_ADS' | 'LOCAL_ADS' | 'INFLUENCER' | 'BILLBOARD' | 'TV_MEDIA';
+    28→type CampaignTargetSegment = 'BUDGET' | 'REGULAR' | 'PREMIUM' | 'TOURIST' | null;
+    29→
+    30→interface Campaign {
+    31→  id: string;
+    32→  name: string;
+    33→  channel: MarketingChannel;
+    34→  channelName?: string;
+    35→  channelIcon?: string;
+    36→  targetSegment: CampaignTargetSegment;
+    37→  dailyBudget: number;
+    38→  totalBudget: number;
+    39→  duration: number;
+    40→  startDay: number;
+    41→  endDay: number;
+    42→  status: CampaignStatus;
+    43→  daysRun: number;
+    44→  totalSpend: number;
+    45→  totalReach: number;
+    46→  totalConversions: number;
+    47→  revenueInfluenced: number;
+    48→  effectiveness: number;
+    49→  roi?: number;
+    50→  costPerConversion?: number;
+    51→  createdAt: string;
+    52→}
+    53→
+    54→interface AnalyticsData {
+    55→  brandAwareness: number;
+    56→  brandAwarenessBonus: number;
+    57→  activeCampaignsCount: number;
+    58→  totalDailySpend: number;
+    59→  combinedDemandModifier: number;
+    60→  campaignPerformance: {
+    61→    campaignId: string;
+    62→    campaignName: string;
+    63→    channel: string;
+    64→    status: CampaignStatus;
+    65→    totalSpend: number;
+    66→    totalReach: number;
+    67→    totalConversions: number;
+    68→    revenueInfluenced: number;
+    69→    roi: number;
+    70→    effectiveness: number;
+    71→    costPerConversion: number;
+    72→  }[];
+    73→  channelEffectiveness: {
+    74→    channel: string;
+    75→    channelName: string;
+    76→    totalSpend: number;
+    77→    totalReach: number;
+    78→    totalConversions: number;
+    79→    avgEffectiveness: number;
+    80→    campaignCount: number;
+    81→  }[];
+    82→  recentDailyMetrics: {
+    83→    gameDay: number;
+    84→    dailySpend: number;
+    85→    dailyReach: number;
+    86→    dailyConversions: number;
+    87→    revenueInfluenced: number;
+    88→  }[];
+    89→}
+    90→
+    91→// ---- Channel Config ----
+    92→const CHANNEL_CONFIG: Record<MarketingChannel, {
+    93→  name: string;
+    94→  icon: string;
+    95→  LucideIcon: React.ComponentType<{ className?: string }>;
+    96→  description: string;
+    97→  baseDailyCost: number;
+    98→  minLevel: number;
+    99→}> = {
+   100→  SOCIAL_MEDIA: { name: 'Social Media', icon: '📱', LucideIcon: Smartphone, description: 'Low cost, moderate reach. Great for budget segment.', baseDailyCost: 500, minLevel: 1 },
+   101→  FACEBOOK_ADS: { name: 'Facebook Ads', icon: '📘', LucideIcon: Facebook, description: 'Targeted ads. Good reach with precise targeting.', baseDailyCost: 1500, minLevel: 1 },
+   102→  LOCAL_ADS: { name: 'Local Advertising', icon: '📰', LucideIcon: Newspaper, description: 'Newspaper & community ads. Reaches local customers.', baseDailyCost: 2000, minLevel: 1 },
+   103→  INFLUENCER: { name: 'Influencer', icon: '⭐', LucideIcon: Star, description: 'Hire influencers. Expensive but high impact on premium.', baseDailyCost: 5000, minLevel: 2 },
+   104→  BILLBOARD: { name: 'Billboard', icon: '🏪', LucideIcon: Building2, description: 'Physical billboards. High visibility, broad reach.', baseDailyCost: 8000, minLevel: 3 },
+   105→  TV_MEDIA: { name: 'TV/Media', icon: '📺', LucideIcon: Tv, description: 'TV & radio ads. Maximum reach, highest cost.', baseDailyCost: 20000, minLevel: 4 },
+   106→};
+   107→
+   108→const TARGET_SEGMENTS: { value: CampaignTargetSegment; label: string; description: string }[] = [
+   109→  { value: null, label: 'All Segments', description: 'Target all customer segments equally' },
+   110→  { value: 'BUDGET', label: 'Budget', description: 'Price-sensitive customers' },
+   111→  { value: 'REGULAR', label: 'Regular', description: 'Mainstream customers' },
+   112→  { value: 'PREMIUM', label: 'Premium', description: 'High-spending customers' },
+   113→  { value: 'TOURIST', label: 'Tourist', description: 'Visitors and travelers' },
+   114→];
+   115→
+   116→const BUDGET_TIERS = [500, 1000, 2000, 5000, 10000, 20000, 50000];
+   117→const DURATION_OPTIONS = [3, 5, 7, 10, 14, 21, 30];
+   118→const MAX_ACTIVE_CAMPAIGNS = 3;
+   119→
+   120→// ---- Helpers ----
+   121→function formatTk(n: number): string {
+   122→  return `৳${n.toLocaleString()}`;
+   123→}
+   124→
+   125→function statusColor(status: CampaignStatus): string {
+   126→  switch (status) {
+   127→    case 'ACTIVE': return 'bg-green-100 text-green-800 border-green-300';
+   128→    case 'PAUSED': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+   129→    case 'COMPLETED': return 'bg-blue-100 text-blue-800 border-blue-300';
+   130→    case 'CANCELLED': return 'bg-gray-100 text-gray-800 border-gray-300';
+   131→  }
+   132→}
+   133→
+   134→function roiColor(roi: number): string {
+   135→  if (roi > 0) return 'text-green-600';
+   136→  if (roi < 0) return 'text-red-600';
+   137→  return 'text-gray-500';
+   138→}
+   139→
+   140→// ---- Component ----
+   141→interface MarketingViewProps {
+   142→  businessId: string;
+   143→  businessLevel?: number;
+   144→}
+   145→
+   146→export default function MarketingView({ businessId, businessLevel = 1 }: MarketingViewProps) {
+   147→  // Data state
+   148→  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+   149→  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+   150→  const [loading, setLoading] = useState(true);
+   151→  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+   152→
+   153→  // Create campaign dialog
+   154→  const [showCreateDialog, setShowCreateDialog] = useState(false);
+   155→  const [createForm, setCreateForm] = useState({
+   156→    name: '',
+   157→    channel: 'SOCIAL_MEDIA' as MarketingChannel,
+   158→    targetSegment: null as CampaignTargetSegment,
+   159→    dailyBudget: 1000,
+   160→    duration: 7,
+   161→  });
+   162→  const [createErrors, setCreateErrors] = useState<string[]>([]);
+   163→  const [creating, setCreating] = useState(false);
+   164→
+   165→  // Action state
+   166→  const [actioningId, setActioningId] = useState<string | null>(null);
+   167→
+   168→  // History expansion
+   169→  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+   170→
+   171→  // ---- Fetch campaigns ----
+   172→  const fetchCampaigns = useCallback(async () => {
+   173→    try {
+   174→      const res = await fetch(`/api/businesses/${businessId}/campaigns`);
+   175→      if (res.ok) {
+   176→        const data = await res.json();
+   177→        setCampaigns(Array.isArray(data) ? data : data.campaigns || []);
+   178→      }
+   179→    } catch {
+   180→      // silent
+   181→    } finally {
+   182→      setLoading(false);
+   183→    }
+   184→  }, [businessId]);
+   185→
+   186→  // ---- Fetch analytics ----
+   187→  const fetchAnalytics = useCallback(async () => {
+   188→    try {
+   189→      const res = await fetch(`/api/businesses/${businessId}/campaigns/analytics`);
+   190→      if (res.ok) {
+   191→        const data = await res.json();
+   192→        setAnalytics(data.data || data);
+   193→      }
+   194→    } catch {
+   195→      // silent
+   196→    } finally {
+   197→      setAnalyticsLoading(false);
+   198→    }
+   199→  }, [businessId]);
+   200→
+   201→  useEffect(() => {
+   202→    setLoading(true);
+   203→    setAnalyticsLoading(true);
+   204→    fetchCampaigns();
+   205→    fetchAnalytics();
+   206→  }, [fetchCampaigns, fetchAnalytics]);
+   207→
+   208→  // ---- Campaign actions ----
+   209→  const handleCampaignAction = async (campaignId: string, action: 'pause' | 'resume' | 'cancel') => {
+   210→    setActioningId(campaignId);
+   211→    try {
+   212→      const res = await fetch(`/api/businesses/${businessId}/campaigns/${campaignId}`, {
+   213→        method: 'PATCH',
+   214→        headers: { 'Content-Type': 'application/json' },
+   215→        body: JSON.stringify({ action }),
+   216→      });
+   217→      if (res.ok) {
+   218→        toast.success(`Campaign ${action}d successfully`);
+   219→        fetchCampaigns();
+   220→        fetchAnalytics();
+   221→      } else {
+   222→        const err = await res.json();
+   223→        toast.error(err.error || `Failed to ${action} campaign`);
+   224→      }
+   225→    } catch {
+   226→      toast.error('Network error');
+   227→    } finally {
+   228→      setActioningId(null);
+   229→    }
+   230→  };
+   231→
+   232→  // ---- Create campaign ----
+   233→  const handleCreateCampaign = async () => {
+   234→    setCreateErrors([]);
+   235→    const errors: string[] = [];
+   236→
+   237→    if (!createForm.name.trim()) errors.push('Campaign name is required');
+   238→    if (createForm.name.trim().length > 50) errors.push('Campaign name too long (max 50 chars)');
+   239→
+   240→    const channelConf = CHANNEL_CONFIG[createForm.channel];
+   241→    if (businessLevel < channelConf.minLevel) {
+   242→      errors.push(`Business level ${businessLevel} too low for ${channelConf.name} (requires level ${channelConf.minLevel})`);
+   243→    }
+   244→
+   245→    const activeCount = campaigns.filter(c => c.status === 'ACTIVE').length;
+   246→    if (activeCount >= MAX_ACTIVE_CAMPAIGNS) {
+   247→      errors.push(`Maximum ${MAX_ACTIVE_CAMPAIGNS} active campaigns allowed`);
+   248→    }
+   249→
+   250→    if (errors.length > 0) {
+   251→      setCreateErrors(errors);
+   252→      return;
+   253→    }
+   254→
+   255→    setCreating(true);
+   256→    try {
+   257→      const res = await fetch(`/api/businesses/${businessId}/campaigns`, {
+   258→        method: 'POST',
+   259→        headers: { 'Content-Type': 'application/json' },
+   260→        body: JSON.stringify({
+   261→          name: createForm.name.trim(),
+   262→          channel: createForm.channel,
+   263→          targetSegment: createForm.targetSegment,
+   264→          dailyBudget: createForm.dailyBudget,
+   265→          duration: createForm.duration,
+   266→        }),
+   267→      });
+   268→      if (res.ok) {
+   269→        toast.success('Campaign created!');
+   270→        setShowCreateDialog(false);
+   271→        setCreateForm({ name: '', channel: 'SOCIAL_MEDIA', targetSegment: null, dailyBudget: 1000, duration: 7 });
+   272→        setCreateErrors([]);
+   273→        fetchCampaigns();
+   274→        fetchAnalytics();
+   275→      } else {
+   276→        const err = await res.json();
+   277→        const msg = err.error || err.errors?.join(', ') || 'Failed to create campaign';
+   278→        toast.error(msg);
+   279→        if (err.errors) setCreateErrors(err.errors);
+   280→      }
+   281→    } catch {
+   282→      toast.error('Network error');
+   283→    } finally {
+   284→      setCreating(false);
+   285→    }
+   286→  };
+   287→
+   288→  // ---- Derived data ----
+   289→  const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE');
+   290→  const pausedCampaigns = campaigns.filter(c => c.status === 'PAUSED');
+   291→  const historyCampaigns = campaigns.filter(c => c.status === 'COMPLETED' || c.status === 'CANCELLED');
+   292→  const brandAwareness = analytics?.brandAwareness ?? 0;
+   293→  const brandAwarenessBonus = analytics?.brandAwarenessBonus ?? 1;
+   294→  const combinedModifier = analytics?.combinedDemandModifier ?? 1;
+   295→  const totalDailySpend = analytics?.totalDailySpend ?? activeCampaigns.reduce((s, c) => s + c.dailyBudget, 0);
+   296→
+   297→  // ---- Render ----
+   298→  return (
+   299→    <div className="space-y-4">
+   300→      {/* ===== A. MARKETING OVERVIEW ===== */}
+   301→      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   302→        {/* Brand Awareness */}
+   303→        <Card>
+   304→          <CardContent className="p-4">
+   305→            <div className="flex items-center gap-2 mb-2">
+   306→              <Eye className="h-4 w-4 text-emerald-600" />
+   307→              <span className="text-xs font-medium text-muted-foreground">Brand Awareness</span>
+   308→            </div>
+   309→            {analyticsLoading ? (
+   310→              <Skeleton className="h-8 w-20 mb-1" />
+   311→            ) : (
+   312→              <div className="text-2xl font-bold">{brandAwareness.toFixed(0)}<span className="text-sm text-muted-foreground">/100</span></div>
+   313→            )}
+   314→            <Progress value={brandAwareness} className="h-2 mt-1" />
+   315→            <p className="text-xs text-muted-foreground mt-1">Demand bonus: ×{brandAwarenessBonus.toFixed(2)}</p>
+   316→          </CardContent>
+   317→        </Card>
+   318→
+   319→        {/* Active Campaigns */}
+   320→        <Card>
+   321→          <CardContent className="p-4">
+   322→            <div className="flex items-center gap-2 mb-2">
+   323→              <Megaphone className="h-4 w-4 text-emerald-600" />
+   324→              <span className="text-xs font-medium text-muted-foreground">Active Campaigns</span>
+   325→            </div>
+   326→            {loading ? (
+   327→              <Skeleton className="h-8 w-10" />
+   328→            ) : (
+   329→              <div className="text-2xl font-bold">{activeCampaigns.length}<span className="text-sm text-muted-foreground">/{MAX_ACTIVE_CAMPAIGNS}</span></div>
+   330→            )}
+   331→            {pausedCampaigns.length > 0 && (
+   332→              <p className="text-xs text-yellow-600 mt-1">{pausedCampaigns.length} paused</p>
+   333→            )}
+   334→          </CardContent>
+   335→        </Card>
+   336→
+   337→        {/* Daily Spend */}
+   338→        <Card>
+   339→          <CardContent className="p-4">
+   340→            <div className="flex items-center gap-2 mb-2">
+   341→              <DollarSign className="h-4 w-4 text-emerald-600" />
+   342→              <span className="text-xs font-medium text-muted-foreground">Daily Spend</span>
+   343→            </div>
+   344→            {analyticsLoading ? (
+   345→              <Skeleton className="h-8 w-24" />
+   346→            ) : (
+   347→              <div className="text-2xl font-bold">{formatTk(totalDailySpend)}</div>
+   348→            )}
+   349→          </CardContent>
+   350→        </Card>
+   351→
+   352→        {/* Demand Boost */}
+   353→        <Card>
+   354→          <CardContent className="p-4">
+   355→            <div className="flex items-center gap-2 mb-2">
+   356→              <Zap className="h-4 w-4 text-emerald-600" />
+   357→              <span className="text-xs font-medium text-muted-foreground">Demand Boost</span>
+   358→            </div>
+   359→            {analyticsLoading ? (
+   360→              <Skeleton className="h-8 w-16" />
+   361→            ) : (
+   362→              <div className="text-2xl font-bold">×{combinedModifier.toFixed(2)}</div>
+   363→            )}
+   364→            <p className="text-xs text-muted-foreground mt-1">
+   365→              {combinedModifier > 1.1 ? '↑ Significant boost' : combinedModifier > 1.0 ? '↑ Moderate boost' : 'No active boost'}
+   366→            </p>
+   367→          </CardContent>
+   368→        </Card>
+   369→      </div>
+   370→
+   371→      {/* ===== B. ACTIVE CAMPAIGNS ===== */}
+   372→      <div>
+   373→        <div className="flex items-center justify-between mb-3">
+   374→          <h3 className="text-sm font-semibold flex items-center gap-2">
+   375→            <Activity className="h-4 w-4" /> Active Campaigns
+   376→          </h3>
+   377→          <Button
+   378→            size="sm"
+   379→            className="gap-1 text-white text-xs"
+   380→            style={{ background: '#006a4e' }}
+   381→            onClick={() => setShowCreateDialog(true)}
+   382→            disabled={activeCampaigns.length >= MAX_ACTIVE_CAMPAIGNS}
+   383→          >
+   384→            <Plus className="h-3.5 w-3.5" /> New Campaign
+   385→          </Button>
+   386→        </div>
+   387→
+   388→        {loading ? (
+   389→          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+   390→            {[1, 2].map(i => (
+   391→              <Card key={i}><CardContent className="p-4"><Skeleton className="h-32 w-full" /></CardContent></Card>
+   392→            ))}
+   393→          </div>
+   394→        ) : activeCampaigns.length === 0 && pausedCampaigns.length === 0 ? (
+   395→          <Card>
+   396→            <CardContent className="p-8 text-center">
+   397→              <Megaphone className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+   398→              <p className="text-sm text-muted-foreground">No active campaigns</p>
+   399→              <p className="text-xs text-muted-foreground mb-3">Launch a campaign to boost customer demand</p>
+   400→              <Button size="sm" className="gap-1 text-white" style={{ background: '#006a4e' }} onClick={() => setShowCreateDialog(true)}>
+   401→                <Plus className="h-3.5 w-3.5" /> Create Campaign
+   402→              </Button>
+   403→            </CardContent>
+   404→          </Card>
+   405→        ) : (
+   406→          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+   407→            {[...activeCampaigns, ...pausedCampaigns].map(campaign => {
+   408→              const ch = CHANNEL_CONFIG[campaign.channel];
+   409→              const IconComp = ch?.LucideIcon || Megaphone;
+   410→              const progress = campaign.duration > 0 ? Math.min(100, (campaign.daysRun / campaign.duration) * 100) : 0;
+   411→              const roi = campaign.roi ?? (campaign.totalSpend > 0 ? (campaign.revenueInfluenced - campaign.totalSpend) / campaign.totalSpend : 0);
+   412→              const eff = campaign.effectiveness ?? 0;
+   413→
+   414→              return (
+   415→                <motion.div key={campaign.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+   416→                  <Card className="overflow-hidden">
+   417→                    <CardContent className="p-4 space-y-3">
+   418→                      {/* Header */}
+   419→                      <div className="flex items-start justify-between">
+   420→                        <div className="flex items-center gap-2">
+   421→                          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50">
+   422→                            <IconComp className="h-4 w-4 text-emerald-600" />
+   423→                          </div>
+   424→                          <div>
+   425→                            <p className="text-sm font-semibold leading-tight">{campaign.name}</p>
+   426→                            <p className="text-xs text-muted-foreground">{ch?.name || campaign.channel}</p>
+   427→                          </div>
+   428→                        </div>
+   429→                        <Badge variant="outline" className={statusColor(campaign.status)}>
+   430→                          {campaign.status}
+   431→                        </Badge>
+   432→                      </div>
+   433→
+   434→                      {/* Progress */}
+   435→                      <div>
+   436→                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+   437→                          <span>Day {campaign.daysRun} / {campaign.duration}</span>
+   438→                          <span>{progress.toFixed(0)}%</span>
+   439→                        </div>
+   440→                        <Progress value={progress} className="h-2" />
+   441→                      </div>
+   442→
+   443→                      {/* Metrics */}
+   444→                      <div className="grid grid-cols-3 gap-2 text-center">
+   445→                        <div>
+   446→                          <p className="text-xs text-muted-foreground">Reach</p>
+   447→                          <p className="text-sm font-semibold">{campaign.totalReach.toLocaleString()}</p>
+   448→                        </div>
+   449→                        <div>
+   450→                          <p className="text-xs text-muted-foreground">Conversions</p>
+   451→                          <p className="text-sm font-semibold">{campaign.totalConversions.toLocaleString()}</p>
+   452→                        </div>
+   453→                        <div>
+   454→                          <p className="text-xs text-muted-foreground">Effectiveness</p>
+   455→                          <p className="text-sm font-semibold">{(eff * 100).toFixed(0)}%</p>
+   456→                        </div>
+   457→                      </div>
+   458→
+   459→                      {/* Budget & ROI */}
+   460→                      <div className="flex items-center justify-between text-xs">
+   461→                        <span className="text-muted-foreground">Daily: {formatTk(campaign.dailyBudget)}</span>
+   462→                        <span className={`font-semibold flex items-center gap-1 ${roiColor(roi)}`}>
+   463→                          ROI: {(roi * 100).toFixed(0)}%
+   464→                          {roi > 0 ? <TrendingUp className="h-3 w-3" /> : roi < 0 ? <TrendingDown className="h-3 w-3" /> : null}
+   465→                        </span>
+   466→                      </div>
+   467→
+   468→                      {/* Actions */}
+   469→                      <div className="flex gap-2 pt-1">
+   470→                        {campaign.status === 'ACTIVE' && (
+   471→                          <>
+   472→                            <Button
+   473→                              size="sm" variant="outline" className="flex-1 text-xs gap-1"
+   474→                              onClick={() => handleCampaignAction(campaign.id, 'pause')}
+   475→                              disabled={actioningId === campaign.id}
+   476→                            >
+   477→                              <Pause className="h-3 w-3" /> Pause
+   478→                            </Button>
+   479→                            <Button
+   480→                              size="sm" variant="outline" className="text-xs gap-1 text-red-600 hover:text-red-700"
+   481→                              onClick={() => handleCampaignAction(campaign.id, 'cancel')}
+   482→                              disabled={actioningId === campaign.id}
+   483→                            >
+   484→                              <XCircle className="h-3 w-3" /> Cancel
+   485→                            </Button>
+   486→                          </>
+   487→                        )}
+   488→                        {campaign.status === 'PAUSED' && (
+   489→                          <>
+   490→                            <Button
+   491→                              size="sm" variant="outline" className="flex-1 text-xs gap-1 text-green-600 hover:text-green-700"
+   492→                              onClick={() => handleCampaignAction(campaign.id, 'resume')}
+   493→                              disabled={actioningId === campaign.id}
+   494→                            >
+   495→                              <Play className="h-3 w-3" /> Resume
+   496→                            </Button>
+   497→                            <Button
+   498→                              size="sm" variant="outline" className="text-xs gap-1 text-red-600 hover:text-red-700"
+   499→                              onClick={() => handleCampaignAction(campaign.id, 'cancel')}
+   500→                              disabled={actioningId === campaign.id}
+   501→                            >
+   502→                              <XCircle className="h-3 w-3" /> Cancel
+   503→                            </Button>
+   504→                          </>
+   505→                        )}
+   506→                      </div>
+   507→                    </CardContent>
+   508→                  </Card>
+   509→                </motion.div>
+   510→              );
+   511→            })}
+   512→          </div>
+   513→        )}
+   514→      </div>
+   515→
+   516→      {/* ===== D. CAMPAIGN HISTORY ===== */}
+   517→      {historyCampaigns.length > 0 && (
+   518→        <div>
+   519→          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+   520→            <Clock className="h-4 w-4" /> Campaign History
+   521→          </h3>
+   522→          <div className="space-y-2">
+   523→            {historyCampaigns.map(campaign => {
+   524→              const ch = CHANNEL_CONFIG[campaign.channel];
+   525→              const IconComp = ch?.LucideIcon || Megaphone;
+   526→              const roi = campaign.roi ?? (campaign.totalSpend > 0 ? (campaign.revenueInfluenced - campaign.totalSpend) / campaign.totalSpend : 0);
+   527→              const isExpanded = expandedHistoryId === campaign.id;
+   528→
+   529→              return (
+   530→                <Card key={campaign.id}>
+   531→                  <CardContent className="p-3">
+   532→                    <div
+   533→                      className="flex items-center justify-between cursor-pointer"
+   534→                      onClick={() => setExpandedHistoryId(isExpanded ? null : campaign.id)}
+   535→                    >
+   536→                      <div className="flex items-center gap-2">
+   537→                        <IconComp className="h-4 w-4 text-muted-foreground" />
+   538→                        <span className="text-sm font-medium">{campaign.name}</span>
+   539→                        <Badge variant="outline" className={statusColor(campaign.status)}>
+   540→                          {campaign.status}
+   541→                        </Badge>
+   542→                      </div>
+   543→                      <div className="flex items-center gap-3">
+   544→                        <span className="text-xs text-muted-foreground">{ch?.name}</span>
+   545→                        <span className={`text-xs font-semibold ${roiColor(roi)}`}>
+   546→                          ROI: {(roi * 100).toFixed(0)}%
+   547→                        </span>
+   548→                        {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+   549→                      </div>
+   550→                    </div>
+   551→
+   552→                    {isExpanded && (
+   553→                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-3 pt-3 border-t">
+   554→                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
+   555→                          <div>
+   556→                            <p className="text-xs text-muted-foreground">Total Spend</p>
+   557→                            <p className="text-sm font-semibold">{formatTk(campaign.totalSpend)}</p>
+   558→                          </div>
+   559→                          <div>
+   560→                            <p className="text-xs text-muted-foreground">Total Reach</p>
+   561→                            <p className="text-sm font-semibold">{campaign.totalReach.toLocaleString()}</p>
+   562→                          </div>
+   563→                          <div>
+   564→                            <p className="text-xs text-muted-foreground">Conversions</p>
+   565→                            <p className="text-sm font-semibold">{campaign.totalConversions.toLocaleString()}</p>
+   566→                          </div>
+   567→                          <div>
+   568→                            <p className="text-xs text-muted-foreground">Revenue</p>
+   569→                            <p className="text-sm font-semibold">{formatTk(campaign.revenueInfluenced)}</p>
+   570→                          </div>
+   571→                          <div>
+   572→                            <p className="text-xs text-muted-foreground">Effectiveness</p>
+   573→                            <p className="text-sm font-semibold">{((campaign.effectiveness ?? 0) * 100).toFixed(0)}%</p>
+   574→                          </div>
+   575→                        </div>
+   576→                        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+   577→                          <Clock className="h-3 w-3" /> Ran for {campaign.daysRun} / {campaign.duration} days
+   578→                          {campaign.targetSegment && (
+   579→                            <><Separator orientation="vertical" className="h-3" /><Target className="h-3 w-3" /> {campaign.targetSegment}</>
+   580→                          )}
+   581→                        </div>
+   582→                      </motion.div>
+   583→                    )}
+   584→                  </CardContent>
+   585→                </Card>
+   586→              );
+   587→            })}
+   588→          </div>
+   589→        </div>
+   590→      )}
+   591→
+   592→      {/* ===== E. CAMPAIGN ANALYTICS ===== */}
+   593→      <div>
+   594→        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+   595→          <BarChart3 className="h-4 w-4" /> Performance Analytics
+   596→        </h3>
+   597→
+   598→        {analyticsLoading ? (
+   599→          <Card><CardContent className="p-4"><Skeleton className="h-48 w-full" /></CardContent></Card>
+   600→        ) : !analytics ? (
+   601→          <Card>
+   602→            <CardContent className="p-8 text-center">
+   603→              <p className="text-sm text-muted-foreground">No analytics data available yet</p>
+   604→            </CardContent>
+   605→          </Card>
+   606→        ) : (
+   607→          <div className="space-y-3">
+   608→            {/* Channel Effectiveness */}
+   609→            {analytics.channelEffectiveness && analytics.channelEffectiveness.length > 0 && (
+   610→              <Card>
+   611→                <CardHeader className="pb-2">
+   612→                  <CardTitle className="text-sm">Channel Effectiveness</CardTitle>
+   613→                  <CardDescription className="text-xs">Performance by marketing channel</CardDescription>
+   614→                </CardHeader>
+   615→                <CardContent className="p-4 pt-0">
+   616→                  <div className="space-y-2">
+   617→                    {analytics.channelEffectiveness.map(ch => {
+   618→                      const chConfig = CHANNEL_CONFIG[ch.channel as MarketingChannel];
+   619→                      const IconComp = chConfig?.LucideIcon || Megaphone;
+   620→                      return (
+   621→                        <div key={ch.channel} className="flex items-center gap-3">
+   622→                          <IconComp className="h-4 w-4 text-muted-foreground shrink-0" />
+   623→                          <span className="text-xs w-28 shrink-0 truncate">{chConfig?.name || ch.channel}</span>
+   624→                          <Progress value={ch.avgEffectiveness * 100} className="h-3 flex-1" />
+   625→                          <span className="text-xs font-medium w-10 text-right">{(ch.avgEffectiveness * 100).toFixed(0)}%</span>
+   626→                          <span className="text-xs text-muted-foreground w-16 text-right">{ch.campaignCount} camp.</span>
+   627→                        </div>
+   628→                      );
+   629→                    })}
+   630→                  </div>
+   631→                </CardContent>
+   632→              </Card>
+   633→            )}
+   634→
+   635→            {/* Daily Metrics Trend Chart */}
+   636→            {analytics.recentDailyMetrics && analytics.recentDailyMetrics.length > 2 && (
+   637→              <Card>
+   638→                <CardHeader className="pb-2">
+   639→                  <CardTitle className="text-sm">Daily Performance Trend</CardTitle>
+   640→                  <CardDescription className="text-xs">Spend vs conversions over recent days</CardDescription>
+   641→                </CardHeader>
+   642→                <CardContent className="p-4 pt-0">
+   643→                  <div className="h-48">
+   644→                    <ResponsiveContainer width="100%" height="100%">
+   645→                      <LineChart data={analytics.recentDailyMetrics}>
+   646→                        <CartesianGrid strokeDasharray="3 3" />
+   647→                        <XAxis dataKey="gameDay" tick={{ fontSize: 10 }} label={{ value: 'Day', position: 'insideBottomRight', fontSize: 10 }} />
+   648→                        <YAxis yAxisId="spend" tick={{ fontSize: 10 }} label={{ value: 'Spend (৳)', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+   649→                        <YAxis yAxisId="conversions" orientation="right" tick={{ fontSize: 10 }} label={{ value: 'Conversions', angle: 90, position: 'insideRight', fontSize: 10 }} />
+   650→                        <RechartsTooltip />
+   651→                        <Line yAxisId="spend" type="monotone" dataKey="dailySpend" stroke="#f59e0b" strokeWidth={2} dot={false} name="Daily Spend" />
+   652→                        <Line yAxisId="conversions" type="monotone" dataKey="dailyConversions" stroke="#10b981" strokeWidth={2} dot={false} name="Conversions" />
+   653→                      </LineChart>
+   654→                    </ResponsiveContainer>
+   655→                  </div>
+   656→                </CardContent>
+   657→              </Card>
+   658→            )}
+   659→
+   660→            {/* Campaign Performance Ranking */}
+   661→            {analytics.campaignPerformance && analytics.campaignPerformance.length > 0 && (
+   662→              <Card>
+   663→                <CardHeader className="pb-2">
+   664→                  <CardTitle className="text-sm">Campaign Performance</CardTitle>
+   665→                  <CardDescription className="text-xs">Ranked by ROI (best first)</CardDescription>
+   666→                </CardHeader>
+   667→                <CardContent className="p-4 pt-0">
+   668→                  <div className="space-y-2 max-h-64 overflow-y-auto">
+   669→                    {analytics.campaignPerformance.map((cp, idx) => {
+   670→                      const chConfig = CHANNEL_CONFIG[cp.channel as MarketingChannel];
+   671→                      return (
+   672→                        <div key={cp.campaignId} className="flex items-center gap-3 text-xs py-1">
+   673→                          <span className="font-mono w-5 text-muted-foreground">#{idx + 1}</span>
+   674→                          <span className="flex-1 truncate font-medium">{cp.campaignName}</span>
+   675→                          <span className="text-muted-foreground">{chConfig?.name || cp.channel}</span>
+   676→                          <span className={roiColor(cp.roi)}>{(cp.roi * 100).toFixed(0)}%</span>
+   677→                          <span className="text-muted-foreground">{(cp.effectiveness * 100).toFixed(0)}% eff</span>
+   678→                        </div>
+   679→                      );
+   680→                    })}
+   681→                  </div>
+   682→                </CardContent>
+   683→              </Card>
+   684→            )}
+   685→          </div>
+   686→        )}
+   687→      </div>
+   688→
+   689→      {/* ===== C. CREATE CAMPAIGN DIALOG ===== */}
+   690→      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+   691→        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+   692→          <DialogHeader>
+   693→            <DialogTitle className="flex items-center gap-2">
+   694→              <Megaphone className="h-5 w-5 text-emerald-600" /> Create Marketing Campaign
+   695→            </DialogTitle>
+   696→            <DialogDescription>
+   697→              Launch a new campaign to boost customer demand for your business.
+   698→            </DialogDescription>
+   699→          </DialogHeader>
+   700→
+   701→          <div className="space-y-4 py-2">
+   702→            {/* Campaign Name */}
+   703→            <div>
+   704→              <Label className="text-xs">Campaign Name</Label>
+   705→              <Input
+   706→                className="mt-1"
+   707→                placeholder="e.g. Summer Sale Push"
+   708→                value={createForm.name}
+   709→                onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+   710→                maxLength={50}
+   711→              />
+   712→            </div>
+   713→
+   714→            {/* Channel Selector */}
+   715→            <div>
+   716→              <Label className="text-xs mb-2 block">Marketing Channel</Label>
+   717→              <div className="grid grid-cols-2 gap-2">
+   718→                {(Object.entries(CHANNEL_CONFIG) as [MarketingChannel, typeof CHANNEL_CONFIG[MarketingChannel]][]).map(([key, ch]) => {
+   719→                  const IconComp = ch.LucideIcon;
+   720→                  const locked = businessLevel < ch.minLevel;
+   721→                  const selected = createForm.channel === key;
+   722→
+   723→                  return (
+   724→                    <TooltipProvider key={key}>
+   725→                      <Tooltip>
+   726→                        <TooltipTrigger asChild>
+   727→                          <button
+   728→                            onClick={() => !locked && setCreateForm(f => ({ ...f, channel: key }))}
+   729→                            disabled={locked}
+   730→                            className={`p-2.5 rounded-lg border text-left transition-all ${
+   731→                              selected
+   732→                                ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500'
+   733→                                : locked
+   734→                                  ? 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
+   735→                                  : 'border-gray-200 hover:border-emerald-300'
+   736→                            }`}
+   737→                          >
+   738→                            <div className="flex items-center gap-2 mb-1">
+   739→                              <IconComp className={`h-4 w-4 ${locked ? 'text-gray-400' : 'text-emerald-600'}`} />
+   740→                              <span className="text-xs font-semibold">{ch.name}</span>
+   741→                              {locked && <AlertCircle className="h-3 w-3 text-gray-400 ml-auto" />}
+   742→                            </div>
+   743→                            <p className="text-[10px] text-muted-foreground leading-tight line-clamp-2">{ch.description}</p>
+   744→                            <p className="text-[10px] text-muted-foreground mt-1">
+   745→                              {locked ? `Requires Lv${ch.minLevel}` : `From ${formatTk(ch.baseDailyCost)}/day`}
+   746→                            </p>
+   747→                          </button>
+   748→                        </TooltipTrigger>
+   749→                        {locked && (
+   750→                          <TooltipContent>
+   751→                            <p>Requires business level {ch.minLevel}</p>
+   752→                          </TooltipContent>
+   753→                        )}
+   754→                      </Tooltip>
+   755→                    </TooltipProvider>
+   756→                  );
+   757→                })}
+   758→              </div>
+   759→            </div>
+   760→
+   761→            {/* Target Segment */}
+   762→            <div>
+   763→              <Label className="text-xs mb-2 block">Target Segment</Label>
+   764→              <div className="grid grid-cols-5 gap-1.5">
+   765→                {TARGET_SEGMENTS.map(seg => (
+   766→                  <button
+   767→                    key={seg.value || 'ALL'}
+   768→                    onClick={() => setCreateForm(f => ({ ...f, targetSegment: seg.value }))}
+   769→                    className={`p-2 rounded-lg border text-center text-xs transition-all ${
+   770→                      createForm.targetSegment === seg.value
+   771→                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold'
+   772→                        : 'border-gray-200 hover:border-emerald-300'
+   773→                    }`}
+   774→                  >
+   775→                    {seg.label}
+   776→                  </button>
+   777→                ))}
+   778→              </div>
+   779→            </div>
+   780→
+   781→            {/* Daily Budget */}
+   782→            <div>
+   783→              <Label className="text-xs mb-2 block">Daily Budget</Label>
+   784→              <div className="grid grid-cols-4 gap-1.5">
+   785→                {BUDGET_TIERS.map(tier => (
+   786→                  <button
+   787→                    key={tier}
+   788→                    onClick={() => setCreateForm(f => ({ ...f, dailyBudget: tier }))}
+   789→                    className={`p-2 rounded-lg border text-center text-xs transition-all ${
+   790→                      createForm.dailyBudget === tier
+   791→                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold'
+   792→                        : 'border-gray-200 hover:border-emerald-300'
+   793→                    }`}
+   794→                  >
+   795→                    {formatTk(tier)}
+   796→                  </button>
+   797→                ))}
+   798→              </div>
+   799→            </div>
+   800→
+   801→            {/* Duration */}
+   802→            <div>
+   803→              <Label className="text-xs mb-2 block">Duration (days)</Label>
+   804→              <div className="grid grid-cols-4 gap-1.5">
+   805→                {DURATION_OPTIONS.map(d => (
+   806→                  <button
+   807→                    key={d}
+   808→                    onClick={() => setCreateForm(f => ({ ...f, duration: d }))}
+   809→                    className={`p-2 rounded-lg border text-center text-xs transition-all ${
+   810→                      createForm.duration === d
+   811→                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold'
+   812→                        : 'border-gray-200 hover:border-emerald-300'
+   813→                    }`}
+   814→                  >
+   815→                    {d} days
+   816→                  </button>
+   817→                ))}
+   818→              </div>
+   819→            </div>
+   820→
+   821→            {/* Estimated Total */}
+   822→            <Card className="bg-emerald-50 border-emerald-200">
+   823→              <CardContent className="p-3">
+   824→                <div className="flex justify-between text-sm">
+   825→                  <span className="text-muted-foreground">Estimated Total Cost</span>
+   826→                  <span className="font-bold text-emerald-700">
+   827→                    {formatTk(createForm.dailyBudget * createForm.duration)}
+   828→                  </span>
+   829→                </div>
+   830→                <p className="text-xs text-muted-foreground mt-1">
+   831→                  {formatTk(createForm.dailyBudget)} × {createForm.duration} days
+   832→                </p>
+   833→              </CardContent>
+   834→            </Card>
+   835→
+   836→            {/* Validation Errors */}
+   837→            {createErrors.length > 0 && (
+   838→              <div className="space-y-1">
+   839→                {createErrors.map((err, i) => (
+   840→                  <div key={i} className="flex items-center gap-2 text-xs text-red-600">
+   841→                    <AlertCircle className="h-3 w-3 shrink-0" />
+   842→                    <span>{err}</span>
+   843→                  </div>
+   844→                ))}
+   845→              </div>
+   846→            )}
+   847→          </div>
+   848→
+   849→          <DialogFooter>
+   850→            <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={creating}>
+   851→              Cancel
+   852→            </Button>
+   853→            <Button
+   854→              className="text-white gap-1"
+   855→              style={{ background: '#006a4e' }}
+   856→              onClick={handleCreateCampaign}
+   857→              disabled={creating || !createForm.name.trim()}
+   858→            >
+   859→              {creating ? (
+   860→                <span className="flex items-center gap-1"><Activity className="h-3.5 w-3.5 animate-spin" /> Creating...</span>
+   861→              ) : (
+   862→                <><CheckCircle2 className="h-3.5 w-3.5" /> Create Campaign</>
+   863→              )}
+   864→            </Button>
+   865→          </DialogFooter>
+   866→        </DialogContent>
+   867→      </Dialog>
+   868→    </div>
+   869→  );
+   870→}
+   871→

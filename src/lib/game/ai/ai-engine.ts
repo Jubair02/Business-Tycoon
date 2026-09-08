@@ -263,7 +263,7 @@ async function buildDecisionContext(
 ): Promise<AIDecisionContext> {
   // Fetch player-specific data only (businesses + loans)
   // These are different for each AI player and cannot be shared.
-  const [businesses, loans] = await Promise.all([
+  const [businesses, loans, playerData] = await Promise.all([
     db.business.findMany({
       where: { playerId },
       include: {
@@ -273,6 +273,10 @@ async function buildDecisionContext(
     }),
     db.loan.findMany({
       where: { playerId, status: 'ACTIVE' },
+    }),
+    db.player.findUnique({
+      where: { id: playerId },
+      select: { level: true, expansionCount: true, lastExpansionAt: true },
     }),
   ]);
 
@@ -309,6 +313,9 @@ async function buildDecisionContext(
       satisfactionScore: b.satisfactionScore,
       loyaltyScore: b.loyaltyScore,
       repeatCustomerRate: b.repeatCustomerRate,
+      // Phase 5: Expansion
+      location: b.location,
+      setupDaysRemaining: b.setupDaysRemaining,
     })),
     activeLoans: loans.map(l => ({
       id: l.id,
@@ -320,6 +327,10 @@ async function buildDecisionContext(
     // Reuse pre-fetched shared context (events + market prices)
     activeEvents: sharedCtx.activeEvents,
     marketPrices: sharedCtx.marketPrices,
+    // Phase 5: Expansion context
+    expansionCount: playerData?.expansionCount ?? 0,
+    lastExpansionAt: playerData?.lastExpansionAt ?? 0,
+    playerLevel: playerData?.level ?? 1,
   };
 }
 

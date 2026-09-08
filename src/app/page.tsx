@@ -20,6 +20,7 @@ import HintBar from '@/components/game/HintBar';
 import DailySummary from '@/components/game/DailySummary';
 import TutorialOverlay from '@/components/game/TutorialOverlay';
 import CompetitionView from '@/components/game/CompetitionView';
+import PortfolioView from '@/components/game/PortfolioView';
 import { toast } from 'sonner';
 import { AutoTickSync } from '@/components/game/AutoTickSync';
 
@@ -332,6 +333,8 @@ export default function Home() {
         return <MarketView />;
       case 'competition':
         return <CompetitionView />;
+      case 'portfolio':
+        return <PortfolioView />;
       case 'bank':
         return <BankView />;
       case 'leaderboard':

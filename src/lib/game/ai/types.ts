@@ -42,6 +42,10 @@ export interface AIDecisionContext {
   activeLoans: AILoanSnapshot[];
   activeEvents: AIEventSnapshot[];
   marketPrices: Record<string, number>; // productName -> priceMultiplier
+  // Phase 5: Expansion context
+  expansionCount: number;     // Total expansions performed
+  lastExpansionAt: number;    // Game day of last expansion
+  playerLevel: number;        // Player level (for expansion requirements)
 }
 
 /** Simplified business snapshot for AI decision-making */
@@ -64,6 +68,9 @@ export interface AIBusinessSnapshot {
   satisfactionScore: number;  // 0-100
   loyaltyScore: number;      // 0-100
   repeatCustomerRate: number; // 0-1
+  // Phase 5: Expansion
+  location: string | null;     // Location ID
+  setupDaysRemaining: number;  // Days left in setup period
 }
 
 /** Simplified inventory snapshot */

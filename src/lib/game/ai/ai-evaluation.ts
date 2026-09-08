@@ -20,6 +20,7 @@ import { getPersonalityConfig } from './ai-strategy';
 import { BUSINESS_TYPES, CITIES, PRODUCTS } from '@/lib/game-data';
 import type { BusinessType } from '@/lib/game-data';
 import { AI_MARKETING_CONFIG } from '../marketing/marketing-config';
+import { EXPANSION_CONFIG, AI_EXPANSION_CONFIG, calculateExpansionCost } from '../expansion';
 
 // ---- Action Scoring Weights ----
 // Base scores for each action type (before personality modifiers)
@@ -125,23 +126,42 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
   }
 
   // ---- CREATE_BUSINESS ----
-  // Always evaluate but adjust score based on expansionEagerness
-  const expandFreqBonus = config.expansionEagerness * 10; // Higher eagerness = higher base score
+  // Phase 5: Use expansion config for limits and cost scaling
+  const expandFreqBonus = config.expansionEagerness * 10;
   const existingTypes = new Set(ctx.businesses.map(b => b.type));
-  const affordableTypes = BUSINESS_TYPES.filter(b => ctx.cash > b.investment * 1.5);
-  const newTypes = affordableTypes.filter(b => !existingTypes.has(b.id));
+  const aiMaxBusinesses = Math.min(EXPANSION_CONFIG.maxBusinessesPerPlayer, AI_EXPANSION_CONFIG.maxAIBusinesses);
 
-  for (const bType of newTypes) {
-    // Score based on profitability, cash available, diversification
-    const diversificationBonus = 20;
-    const cashAfter = ctx.cash - bType.investment;
-    const cashPressure = cashAfter < ctx.netWorth * config.cashReserveRatio ? -50 : 0;
-    const score = BASE_ACTION_SCORES.CREATE_BUSINESS + diversificationBonus + cashPressure + expandFreqBonus;
-    actions.push({
-      action: 'CREATE_BUSINESS',
-      score,
-      params: { businessType: bType.id },
-    });
+  // Phase 5: Check expansion cooldown
+  const daysSinceExpansion = ctx.gameDay - ctx.lastExpansionAt;
+  const expansionOnCooldown = ctx.lastExpansionAt > 0 && daysSinceExpansion < EXPANSION_CONFIG.expansionCooldownDays;
+
+  // Phase 5: Check business count limit
+  const atMaxBusinesses = ctx.businesses.length >= aiMaxBusinesses;
+
+  // Phase 5: Check minimum daily profit for expansion
+  const totalDailyProfit = ctx.businesses.reduce((s, b) => s + b.dailyProfit, 0);
+  const meetsProfitThreshold = totalDailyProfit >= AI_EXPANSION_CONFIG.minDailyProfitForExpansion;
+
+  if (!atMaxBusinesses && !expansionOnCooldown && meetsProfitThreshold) {
+    for (const bType of BUSINESS_TYPES) {
+      // Phase 5: Calculate actual expansion cost with scaling
+      const costInfo = calculateExpansionCost(bType.investment, ctx.businesses.length, '', bType.id);
+      const cashAfterExpansion = ctx.cash - costInfo.totalCost;
+      const personalityReserve = AI_EXPANSION_CONFIG.aiCashReserveAfterExpansion[ctx.personality] ?? 0.2;
+      const minReserve = ctx.netWorth * personalityReserve;
+
+      if (cashAfterExpansion < minReserve) continue; // Can't afford with reserve
+
+      const diversificationBonus = !existingTypes.has(bType.id) ? 20 : 0;
+      const cashPressure = cashAfterExpansion < ctx.netWorth * config.cashReserveRatio ? -50 : 0;
+      const expansionEagerness = AI_EXPANSION_CONFIG.personalityExpansionEagerness[ctx.personality] ?? 0.5;
+      const score = BASE_ACTION_SCORES.CREATE_BUSINESS + diversificationBonus + cashPressure + expandFreqBonus * expansionEagerness;
+      actions.push({
+        action: 'CREATE_BUSINESS',
+        score,
+        params: { businessType: bType.id },
+      });
+    }
   }
 
   // ---- SELL_BUSINESS ----
