@@ -1,0 +1,716 @@
+     1→// ============================================
+     2→// Bangladesh Business Tycoon - AI Action Execution
+     3→// Phase 2: Execute AI decisions against the database
+     4→//
+     5→// AI actions go through the SAME validation as player actions.
+     6→// AI cannot cheat or bypass rules.
+     7→// ============================================
+     8→
+     9→import { db } from '@/lib/db';
+    10→import {
+    11→  BUSINESS_TYPES, CITIES, PRODUCTS, EMPLOYEE_ROLES,
+    12→  getRandomName, getBusinessType, getCity,
+    13→} from '@/lib/game-data';
+    14→import type { ScoredAction, AIDecisionContext, AIPersonality, AIPricingStrategy } from './types';
+    15→import { getPersonalityConfig, calculateAIPrice, selectPricingStrategy } from './ai-strategy';
+    16→import { roundTaka } from '@/lib/game/economy/formulas';
+    17→import { AI_MARKETING_CONFIG, MARKETING_CHANNELS, type MarketingChannel } from '../marketing/marketing-config';
+    18→import { calculateExpansionCost, calculateSetupDays, getRandomLocationForCity, EXPANSION_CONFIG, AI_EXPANSION_CONFIG } from '../expansion';
+    19→
+    20→/** Result of executing an AI action */
+    21→export interface AIActionResult {
+    22→  action: string;
+    23→  success: boolean;
+    24→  message?: string;
+    25→  newsWorthy?: boolean; // Should this generate a news article?
+    26→  newsTitle?: string;
+    27→  newsContent?: string;
+    28→}
+    29→
+    30→/**
+    31→ * Execute a scored AI action.
+    32→ * All database operations happen within transactions.
+    33→ * AI respects the same rules as human players.
+    34→ */
+    35→export async function executeAIAction(
+    36→  playerId: string,
+    37→  action: ScoredAction,
+    38→  ctx: AIDecisionContext,
+    39→): Promise<AIActionResult> {
+    40→  switch (action.action) {
+    41→    case 'BUY_INVENTORY':
+    42→      return executeBuyInventory(playerId, action, ctx);
+    43→    case 'CHANGE_PRICE':
+    44→      return executeChangePrice(playerId, action, ctx);
+    45→    case 'HIRE_EMPLOYEE':
+    46→      return executeHireEmployee(playerId, action, ctx);
+    47→    case 'UPGRADE_BUSINESS':
+    48→      return executeUpgradeBusiness(playerId, action, ctx);
+    49→    case 'CREATE_BUSINESS':
+    50→      return executeCreateBusiness(playerId, action, ctx);
+    51→    case 'SELL_BUSINESS':
+    52→      return executeSellBusiness(playerId, action, ctx);
+    53→    case 'TAKE_LOAN':
+    54→      return executeTakeLoan(playerId, action, ctx);
+    55→    case 'REPAY_LOAN':
+    56→      return executeRepayLoan(playerId, action, ctx);
+    57→    case 'LAUNCH_CAMPAIGN':
+    58→      return executeLaunchCampaign(playerId, action, ctx);
+    59→    case 'HOLD':
+    60→    default:
+    61→      return { action: 'HOLD', success: true };
+    62→  }
+    63→}
+    64→
+    65→// ---- BUY_INVENTORY ----
+    66→async function executeBuyInventory(
+    67→  playerId: string,
+    68→  action: ScoredAction,
+    69→  ctx: AIDecisionContext,
+    70→): Promise<AIActionResult> {
+    71→  const businessId = action.target;
+    72→  if (!businessId) return { action: 'BUY_INVENTORY', success: false };
+    73→
+    74→  const business = ctx.businesses.find(b => b.id === businessId);
+    75→  if (!business) return { action: 'BUY_INVENTORY', success: false };
+    76→
+    77→  const config = getPersonalityConfig(ctx.personality);
+    78→
+    79→  try {
+    80→    return await db.$transaction(async (tx) => {
+    81→      // Verify player still has enough cash
+    82→      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true } });
+    83→      if (!player) return { action: 'BUY_INVENTORY', success: false };
+    84→
+    85→      // Find inventory items that need restocking
+    86→      const inventories = await tx.inventory.findMany({
+    87→        where: { businessId },
+    88→      });
+    89→
+    90→      const productDefs = PRODUCTS[business.type] || [];
+    91→      let totalSpent = 0;
+    92→      let itemsBought = 0;
+    93→
+    94→      for (const inv of inventories) {
+    95→        const prodDef = productDefs.find(p => p.name === inv.productName);
+    96→        if (!prodDef) continue;
+    97→
+    98→        const stockRatio = inv.quantity / prodDef.maxStock;
+    99→        if (stockRatio >= config.inventoryBuyThreshold) continue; // Already have enough
+   100→
+   101→        // Calculate how much to buy
+   102→        const targetStock = Math.floor(prodDef.maxStock * (config.inventoryBuyThreshold + 0.2));
+   103→        const needed = targetStock - inv.quantity;
+   104→        if (needed <= 0) continue;
+   105→
+   106→        // Cost: basePrice is the wholesale/purchase price (before markup)
+   107→        const costPerUnit = prodDef.basePrice;
+   108→        const cost = costPerUnit * needed;
+   109→
+   110→        // Check if we can afford it
+   111→        if (player.cash - totalSpent < cost) continue;
+   112→
+   113→        // Buy inventory
+   114→        await tx.inventory.update({
+   115→          where: { id: inv.id },
+   116→          data: {
+   117→            quantity: { increment: needed },
+   118→            purchasePrice: costPerUnit, // Update to current market cost
+   119→          },
+   120→        });
+   121→
+   122→        totalSpent += cost;
+   123→        itemsBought += needed;
+   124→      }
+   125→
+   126→      // Also check if there are products with NO inventory yet (new business)
+   127→      if (inventories.length < productDefs.length) {
+   128→        const existingProducts = new Set(inventories.map(i => i.productName));
+   129→        const missingProducts = productDefs.filter(p => !existingProducts.has(p.name));
+   130→
+   131→        for (const prod of missingProducts) {
+   132→          const initialStock = Math.floor(prod.maxStock * 0.5);
+   133→          const cost = prod.basePrice * initialStock;
+   134→          if (player.cash - totalSpent < cost) continue;
+   135→
+   136→          // Calculate sell price using AI pricing
+   137→          const marketRef = prod.basePrice * (1 + prod.suggestedMarkup);
+   138→          const sellPrice = calculateAIPrice(marketRef, ctx.personality, config.defaultPricingStrategy, 50, 0.5);
+   139→
+   140→          await tx.inventory.create({
+   141→            data: {
+   142→              businessId,
+   143→              productId: '', // Not used for linking
+   144→              productName: prod.name,
+   145→              category: prod.category,
+   146→              quantity: initialStock,
+   147→              purchasePrice: prod.basePrice,
+   148→              sellPrice,
+   149→            },
+   150→          });
+   151→
+   152→          totalSpent += cost;
+   153→          itemsBought += initialStock;
+   154→        }
+   155→      }
+   156→
+   157→      if (totalSpent > 0) {
+   158→        // Deduct from player cash
+   159→        await tx.player.update({
+   160→          where: { id: playerId },
+   161→          data: { cash: { decrement: roundTaka(totalSpent) } },
+   162→        });
+   163→      }
+   164→
+   165→      return {
+   166→        action: 'BUY_INVENTORY',
+   167→        success: itemsBought > 0,
+   168→        message: itemsBought > 0 ? `Bought ${itemsBought} items for ৳${roundTaka(totalSpent).toLocaleString()}` : 'No items needed',
+   169→      };
+   170→    });
+   171→  } catch (err) {
+   172→    console.error('[AI] BUY_INVENTORY failed:', err);
+   173→    return { action: 'BUY_INVENTORY', success: false };
+   174→  }
+   175→}
+   176→
+   177→// ---- CHANGE_PRICE ----
+   178→async function executeChangePrice(
+   179→  playerId: string,
+   180→  action: ScoredAction,
+   181→  ctx: AIDecisionContext,
+   182→): Promise<AIActionResult> {
+   183→  const businessId = action.target;
+   184→  if (!businessId) return { action: 'CHANGE_PRICE', success: false };
+   185→
+   186→  const business = ctx.businesses.find(b => b.id === businessId);
+   187→  if (!business) return { action: 'CHANGE_PRICE', success: false };
+   188→
+   189→  try {
+   190→    return await db.$transaction(async (tx) => {
+   191→      const inventories = await tx.inventory.findMany({ where: { businessId } });
+   192→      if (inventories.length === 0) return { action: 'CHANGE_PRICE', success: false };
+   193→
+   194→      const productDefs = PRODUCTS[business.type] || [];
+   195→      const config = getPersonalityConfig(ctx.personality);
+   196→
+   197→      // Get market prices for the city
+   198→      const marketPrices = await tx.marketPrice.findMany({ where: { city: business.city } });
+   199→      const marketMap = new Map(marketPrices.map(mp => [mp.productName, mp.priceMultiplier]));
+   200→
+   201→      let priceChanges = 0;
+   202→
+   203→      for (const inv of inventories) {
+   204→        const prodDef = productDefs.find(p => p.name === inv.productName);
+   205→        if (!prodDef) continue;
+   206→
+   207→        const marketRef = prodDef.basePrice * (1 + prodDef.suggestedMarkup) * (marketMap.get(inv.productName) || 1);
+   208→        const stockRatio = inv.quantity / prodDef.maxStock;
+   209→        const strategy = selectPricingStrategy(ctx.personality, business.healthScore, stockRatio);
+   210→        const newPrice = calculateAIPrice(marketRef, ctx.personality, strategy, business.healthScore, stockRatio);
+   211→
+   212→        // Only update if price changed meaningfully (>5% difference)
+   213→        if (Math.abs(newPrice - inv.sellPrice) / inv.sellPrice > 0.05) {
+   214→          await tx.inventory.update({
+   215→            where: { id: inv.id },
+   216→            data: { sellPrice: newPrice },
+   217→          });
+   218→          priceChanges++;
+   219→        }
+   220→      }
+   221→
+   222→      return {
+   223→        action: 'CHANGE_PRICE',
+   224→        success: priceChanges > 0,
+   225→        message: priceChanges > 0 ? `Adjusted ${priceChanges} prices` : 'No price changes needed',
+   226→      };
+   227→    });
+   228→  } catch (err) {
+   229→    console.error('[AI] CHANGE_PRICE failed:', err);
+   230→    return { action: 'CHANGE_PRICE', success: false };
+   231→  }
+   232→}
+   233→
+   234→// ---- HIRE_EMPLOYEE ----
+   235→async function executeHireEmployee(
+   236→  playerId: string,
+   237→  action: ScoredAction,
+   238→  ctx: AIDecisionContext,
+   239→): Promise<AIActionResult> {
+   240→  const businessId = action.target;
+   241→  if (!businessId) return { action: 'HIRE_EMPLOYEE', success: false };
+   242→
+   243→  try {
+   244→    return await db.$transaction(async (tx) => {
+   245→      const business = await tx.business.findUnique({
+   246→        where: { id: businessId },
+   247→        include: { employees: true },
+   248→      });
+   249→      if (!business || business.employees.length >= 5) {
+   250→        return { action: 'HIRE_EMPLOYEE', success: false, message: 'Max employees reached' };
+   251→      }
+   252→
+   253→      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true } });
+   254→      if (!player) return { action: 'HIRE_EMPLOYEE', success: false };
+   255→
+   256→      // Determine which role to hire (prefer SALESPERSON then CASHIER for AI)
+   257→      const existingRoles = new Set(business.employees.map(e => e.role));
+   258→      const hirePriority = ['SALESPERSON', 'CASHIER', 'MANAGER', 'CLEANER', 'DELIVERY_RIDER'];
+   259→      const roleToHire = hirePriority.find(r => !existingRoles.has(r)) || 'CASHIER';
+   260→      const roleDef = EMPLOYEE_ROLES.find(r => r.role === roleToHire);
+   261→      if (!roleDef) return { action: 'HIRE_EMPLOYEE', success: false };
+   262→
+   263→      // Check if can afford 30 days of salary
+   264→      if (player.cash < roleDef.baseSalary * 2) {
+   265→        return { action: 'HIRE_EMPLOYEE', success: false, message: 'Cannot afford salary' };
+   266→      }
+   267→
+   268→      // Hire employee (same as player logic)
+   269→      const skill = 3 + Math.random() * 7; // 3-10
+   270→      const efficiency = 0.5 + Math.random() * 0.5; // 0.5-1.0
+   271→
+   272→      await tx.employee.create({
+   273→        data: {
+   274→          businessId,
+   275→          role: roleDef.role,
+   276→          name: getRandomName(),
+   277→          salary: roleDef.baseSalary,
+   278→          skill: roundTaka(skill * 10) / 10,
+   279→          efficiency: roundTaka(efficiency * 100) / 100,
+   280→        },
+   281→      });
+   282→
+   283→      return {
+   284→        action: 'HIRE_EMPLOYEE',
+   285→        success: true,
+   286→        message: `Hired ${roleDef.label}`,
+   287→        newsWorthy: roleDef.role === 'MANAGER',
+   288→      };
+   289→    });
+   290→  } catch (err) {
+   291→    console.error('[AI] HIRE_EMPLOYEE failed:', err);
+   292→    return { action: 'HIRE_EMPLOYEE', success: false };
+   293→  }
+   294→}
+   295→
+   296→// ---- UPGRADE_BUSINESS ----
+   297→async function executeUpgradeBusiness(
+   298→  playerId: string,
+   299→  action: ScoredAction,
+   300→  ctx: AIDecisionContext,
+   301→): Promise<AIActionResult> {
+   302→  const businessId = action.target;
+   303→  if (!businessId) return { action: 'UPGRADE_BUSINESS', success: false };
+   304→
+   305→  try {
+   306→    return await db.$transaction(async (tx) => {
+   307→      const business = await tx.business.findUnique({ where: { id: businessId } });
+   308→      if (!business || business.level >= 10) {
+   309→        return { action: 'UPGRADE_BUSINESS', success: false };
+   310→      }
+   311→
+   312→      const bType = getBusinessType(business.type);
+   313→      if (!bType) return { action: 'UPGRADE_BUSINESS', success: false };
+   314→
+   315→      const upgradeCost = Math.round(bType.investment * business.level * 0.5);
+   316→      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true } });
+   317→      if (!player || player.cash < upgradeCost) {
+   318→        return { action: 'UPGRADE_BUSINESS', success: false, message: 'Cannot afford upgrade' };
+   319→      }
+   320→
+   321→      // Upgrade (same as player logic)
+   322→      await tx.player.update({
+   323→        where: { id: playerId },
+   324→        data: { cash: { decrement: upgradeCost } },
+   325→      });
+   326→
+   327→      await tx.business.update({
+   328→        where: { id: businessId },
+   329→        data: { level: { increment: 1 } },
+   330→      });
+   331→
+   332→      return {
+   333→        action: 'UPGRADE_BUSINESS',
+   334→        success: true,
+   335→        message: `Upgraded to Level ${business.level + 1}`,
+   336→        newsWorthy: true,
+   337→        newsTitle: `${bType.name} Upgraded`,
+   338→        newsContent: `A ${bType.name} has been upgraded to Level ${business.level + 1}.`,
+   339→      };
+   340→    });
+   341→  } catch (err) {
+   342→    console.error('[AI] UPGRADE_BUSINESS failed:', err);
+   343→    return { action: 'UPGRADE_BUSINESS', success: false };
+   344→  }
+   345→}
+   346→
+   347→// ---- CREATE_BUSINESS ----
+   348→async function executeCreateBusiness(
+   349→  playerId: string,
+   350→  action: ScoredAction,
+   351→  ctx: AIDecisionContext,
+   352→): Promise<AIActionResult> {
+   353→  const businessType = action.params?.businessType as string | undefined;
+   354→  if (!businessType) return { action: 'CREATE_BUSINESS', success: false };
+   355→
+   356→  try {
+   357→    return await db.$transaction(async (tx) => {
+   358→      const bType = getBusinessType(businessType);
+   359→      if (!bType) return { action: 'CREATE_BUSINESS', success: false };
+   360→
+   361→      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true, name: true, expansionCount: true } });
+   362→      if (!player) return { action: 'CREATE_BUSINESS', success: false, message: 'Player not found' };
+   363→
+   364→      // Phase 5: Check expansion limits
+   365→      const currentBusinessCount = ctx.businesses.length;
+   366→      const maxBusinesses = Math.min(EXPANSION_CONFIG.maxBusinessesPerPlayer, AI_EXPANSION_CONFIG.maxAIBusinesses);
+   367→      if (currentBusinessCount >= maxBusinesses) {
+   368→        return { action: 'CREATE_BUSINESS', success: false, message: 'Max businesses reached' };
+   369→      }
+   370→
+   371→      // Phase 5: Check expansion cooldown
+   372→      const daysSinceExpansion = ctx.gameDay - ctx.lastExpansionAt;
+   373→      if (ctx.lastExpansionAt > 0 && daysSinceExpansion < EXPANSION_CONFIG.expansionCooldownDays) {
+   374→        return { action: 'CREATE_BUSINESS', success: false, message: 'Expansion cooldown active' };
+   375→      }
+   376→
+   377→      // Pick a city (consider existing presence for diversification)
+   378→      const existingCities = ctx.businesses.map(b => b.city);
+   379→      const newCities = CITIES.filter(c => !existingCities.includes(c.id));
+   380→      const cityPool = newCities.length > 0 ? newCities : CITIES;
+   381→      const city = cityPool[Math.floor(Math.random() * cityPool.length)];
+   382→
+   383→      // Phase 5: Pick a location within the city
+   384→      const location = getRandomLocationForCity(city.id);
+   385→      const locationId = location?.id || null;
+   386→
+   387→      // Phase 5: Calculate expansion cost with scaling
+   388→      const costInfo = calculateExpansionCost(bType.investment, currentBusinessCount, locationId || '', bType.id);
+   389→
+   390→      // Phase 5: Check affordability with personality-specific reserve
+   391→      const personalityReserve = AI_EXPANSION_CONFIG.aiCashReserveAfterExpansion[ctx.personality] ?? 0.2;
+   392→      const minReserve = ctx.netWorth * personalityReserve;
+   393→      if (player.cash < costInfo.totalCost + minReserve) {
+   394→        return { action: 'CREATE_BUSINESS', success: false, message: 'Cannot afford expansion with reserve' };
+   395→      }
+   396→
+   397→      // Phase 5: Calculate setup days
+   398→      const setupDays = calculateSetupDays(bType.investment);
+   399→
+   400→      // Create business (same as player logic, with Phase 5 expansion fields)
+   401→      const businessName = `${bType.name} - ${city.name}`;
+   402→
+   403→      await tx.player.update({
+   404→        where: { id: playerId },
+   405→        data: {
+   406→          cash: { decrement: costInfo.totalCost },
+   407→          expansionCount: { increment: 1 },
+   408→          lastExpansionAt: ctx.gameDay,
+   409→        },
+   410→      });
+   411→
+   412→      const business = await tx.business.create({
+   413→        data: {
+   414→          playerId,
+   415→          type: bType.id,
+   416→          city: city.id,
+   417→          name: businessName,
+   418→          level: 1,
+   419→          reputation: 50,
+   420→          cash: 0,
+   421→          // Phase 5: Expansion fields
+   422→          location: locationId,
+   423→          setupDaysRemaining: setupDays,
+   424→        },
+   425→      });
+   426→
+   427→      // Create initial inventory
+   428→      const productDefs = PRODUCTS[bType.id] || [];
+   429→      const config = getPersonalityConfig(ctx.personality);
+   430→
+   431→      for (const prod of productDefs) {
+   432→        const initialStock = Math.floor(prod.maxStock * 0.4);
+   433→        const marketRef = prod.basePrice * (1 + prod.suggestedMarkup);
+   434→        const sellPrice = calculateAIPrice(marketRef, ctx.personality, config.defaultPricingStrategy, 50, 0.4);
+   435→
+   436→        await tx.inventory.create({
+   437→          data: {
+   438→            businessId: business.id,
+   439→            productId: '',
+   440→            productName: prod.name,
+   441→            category: prod.category,
+   442→            quantity: initialStock,
+   443→            purchasePrice: prod.basePrice,
+   444→            sellPrice,
+   445→          },
+   446→        });
+   447→      }
+   448→
+   449→      return {
+   450→        action: 'CREATE_BUSINESS',
+   451→        success: true,
+   452→        message: `Opened ${businessName} in ${city.name}${location ? ` (${location.name})` : ''}`,
+   453→        newsWorthy: true,
+   454→        newsTitle: `New ${bType.name} Opens`,
+   455→        newsContent: `A new ${bType.name} has opened in ${city.name}${location ? ` at ${location.name}` : ''}, adding competition to the local market.`,
+   456→      };
+   457→    });
+   458→  } catch (err) {
+   459→    console.error('[AI] CREATE_BUSINESS failed:', err);
+   460→    return { action: 'CREATE_BUSINESS', success: false };
+   461→  }
+   462→}
+   463→
+   464→// ---- SELL_BUSINESS ----
+   465→async function executeSellBusiness(
+   466→  playerId: string,
+   467→  action: ScoredAction,
+   468→  ctx: AIDecisionContext,
+   469→): Promise<AIActionResult> {
+   470→  const businessId = action.target;
+   471→  if (!businessId) return { action: 'SELL_BUSINESS', success: false };
+   472→
+   473→  try {
+   474→    return await db.$transaction(async (tx) => {
+   475→      const business = await tx.business.findUnique({
+   476→        where: { id: businessId },
+   477→        include: { inventories: true },
+   478→      });
+   479→      if (!business) return { action: 'SELL_BUSINESS', success: false };
+   480→
+   481→      const bType = getBusinessType(business.type);
+   482→      if (!bType) return { action: 'SELL_BUSINESS', success: false };
+   483→
+   484→      // Sell price = 40% of investment + inventory value
+   485→      const inventoryValue = business.inventories.reduce((sum, inv) => sum + inv.quantity * inv.purchasePrice, 0);
+   486→      const sellPrice = Math.round(bType.investment * 0.4 + inventoryValue * 0.5);
+   487→
+   488→      // Give cash to player
+   489→      await tx.player.update({
+   490→        where: { id: playerId },
+   491→        data: { cash: { increment: sellPrice } },
+   492→      });
+   493→
+   494→      // Delete business (cascades to inventory, employees, etc.)
+   495→      await tx.business.delete({ where: { id: businessId } });
+   496→
+   497→      return {
+   498→        action: 'SELL_BUSINESS',
+   499→        success: true,
+   500→        message: `Sold ${business.name} for ৳${sellPrice.toLocaleString()}`,
+   501→        newsWorthy: true,
+   502→        newsTitle: `Business Sold`,
+   503→        newsContent: `A ${bType.name} in the market has been sold off by its owner.`,
+   504→      };
+   505→    });
+   506→  } catch (err) {
+   507→    console.error('[AI] SELL_BUSINESS failed:', err);
+   508→    return { action: 'SELL_BUSINESS', success: false };
+   509→  }
+   510→}
+   511→
+   512→// ---- LAUNCH_CAMPAIGN ----
+   513→async function executeLaunchCampaign(
+   514→  playerId: string,
+   515→  action: ScoredAction,
+   516→  ctx: AIDecisionContext,
+   517→): Promise<AIActionResult> {
+   518→  const businessId = action.target;
+   519→  if (!businessId) return { action: 'LAUNCH_CAMPAIGN', success: false };
+   520→
+   521→  const business = ctx.businesses.find(b => b.id === businessId);
+   522→  if (!business) return { action: 'LAUNCH_CAMPAIGN', success: false };
+   523→
+   524→  try {
+   525→    return await db.$transaction(async (tx) => {
+   526→      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true } });
+   527→      if (!player) return { action: 'LAUNCH_CAMPAIGN', success: false };
+   528→
+   529→      // Pick channel based on personality preferences
+   530→      const preferredChannels = AI_MARKETING_CONFIG.personalityPreferredChannels[ctx.personality] || ['SOCIAL_MEDIA'];
+   531→      const availableChannels = preferredChannels.filter(ch => {
+   532→        const chConfig = MARKETING_CHANNELS[ch as MarketingChannel];
+   533→        return chConfig && business.level >= chConfig.minLevel && chConfig.aiAvailable;
+   534→      });
+   535→
+   536→      if (availableChannels.length === 0) {
+   537→        return { action: 'LAUNCH_CAMPAIGN', success: false, message: 'No available channels' };
+   538→      }
+   539→
+   540→      // Pick a random channel from available preferred channels
+   541→      const channel = availableChannels[Math.floor(Math.random() * availableChannels.length)] as MarketingChannel;
+   542→      const channelConfig = MARKETING_CHANNELS[channel];
+   543→
+   544→      // Calculate budget
+   545→      const budget = Math.max(
+   546→        channelConfig.baseDailyCost,
+   547→        Math.round(AI_MARKETING_CONFIG.aiBudgetRevenueFraction * Math.max(business.dailyRevenue, 10000))
+   548→      );
+   549→
+   550→      // Check if budget is affordable
+   551→      if (budget > player.cash * 0.2) {
+   552→        return { action: 'LAUNCH_CAMPAIGN', success: false, message: 'Cannot afford campaign' };
+   553→      }
+   554→
+   555→      // Pick duration: 5-14 days randomly
+   556→      const duration = 5 + Math.floor(Math.random() * 10);
+   557→      const totalBudget = budget * duration;
+   558→
+   559→      // Count existing active campaigns for this business
+   560→      const activeCount = await tx.marketingCampaign.count({
+   561→        where: { businessId, status: 'ACTIVE' },
+   562→      });
+   563→      if (activeCount >= AI_MARKETING_CONFIG.maxAICampaigns) {
+   564→        return { action: 'LAUNCH_CAMPAIGN', success: false, message: 'Max campaigns reached' };
+   565→      }
+   566→
+   567→      // Get current game day from context
+   568→      const gameDay = ctx.gameDay;
+   569→
+   570→      // Create campaign (consistent with player API: daysRun=1, totalSpend=budget for first day)
+   571→      await tx.marketingCampaign.create({
+   572→        data: {
+   573→          businessId,
+   574→          playerId,
+   575→          name: `${channelConfig.name} Campaign`,
+   576→          channel,
+   577→          targetSegment: null, // AI doesn't target segments
+   578→          dailyBudget: budget,
+   579→          totalBudget,
+   580→          duration,
+   581→          startDay: gameDay,
+   582→          endDay: gameDay + duration,
+   583→          status: 'ACTIVE',
+   584→          daysRun: 1,
+   585→          totalSpend: budget,
+   586→        },
+   587→      });
+   588→
+   589→      // Deduct first day's budget from player cash
+   590→      await tx.player.update({
+   591→        where: { id: playerId },
+   592→        data: { cash: { decrement: budget } },
+   593→      });
+   594→
+   595→      return {
+   596→        action: 'LAUNCH_CAMPAIGN',
+   597→        success: true,
+   598→        message: `Launched ${channelConfig.name} campaign (৳${budget.toLocaleString()}/day, ${duration} days)`,
+   599→        newsWorthy: channel === 'INFLUENCER' || channel === 'TV_MEDIA',
+   600→        newsTitle: `Marketing Campaign Launched`,
+   601→        newsContent: `A new ${channelConfig.name} marketing campaign has been launched.`,
+   602→      };
+   603→    });
+   604→  } catch (err) {
+   605→    console.error('[AI] LAUNCH_CAMPAIGN failed:', err);
+   606→    return { action: 'LAUNCH_CAMPAIGN', success: false };
+   607→  }
+   608→}
+   609→
+   610→// ---- TAKE_LOAN ----
+   611→async function executeTakeLoan(
+   612→  playerId: string,
+   613→  action: ScoredAction,
+   614→  ctx: AIDecisionContext,
+   615→): Promise<AIActionResult> {
+   616→  try {
+   617→    return await db.$transaction(async (tx) => {
+   618→      // Count existing active loans
+   619→      const activeLoans = await tx.loan.count({
+   620→        where: { playerId, status: 'ACTIVE' },
+   621→      });
+   622→      if (activeLoans >= 2) return { action: 'TAKE_LOAN', success: false, message: 'Max loans reached' };
+   623→
+   624→      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true, netWorth: true } });
+   625→      if (!player) return { action: 'TAKE_LOAN', success: false };
+   626→
+   627→      // Loan amount: 30-60% of net worth, capped at 2M
+   628→      const loanAmount = Math.min(
+   629→        roundTaka(player.netWorth * (0.3 + Math.random() * 0.3)),
+   630→        2000000,
+   631→      );
+   632→      if (loanAmount < 100000) return { action: 'TAKE_LOAN', success: false, message: 'Loan too small' };
+   633→
+   634→      const interestRate = 0.05 + Math.random() * 0.03; // 5-8%
+   635→      const durationDays = 30 + Math.floor(Math.random() * 30); // 30-60 days
+   636→      const totalOwed = roundTaka(loanAmount * (1 + interestRate));
+   637→      const dailyPayment = roundTaka(totalOwed / durationDays);
+   638→
+   639→      await tx.loan.create({
+   640→        data: {
+   641→          playerId,
+   642→          amount: loanAmount,
+   643→          interestRate,
+   644→          remainingDebt: totalOwed,
+   645→          dailyPayment,
+   646→          daysRemaining: durationDays,
+   647→          totalInterest: roundTaka(totalOwed - loanAmount),
+   648→          status: 'ACTIVE',
+   649→        },
+   650→      });
+   651→
+   652→      await tx.player.update({
+   653→        where: { id: playerId },
+   654→        data: { cash: { increment: loanAmount } },
+   655→      });
+   656→
+   657→      return {
+   658→        action: 'TAKE_LOAN',
+   659→        success: true,
+   660→        message: `Took loan of ৳${loanAmount.toLocaleString()}`,
+   661→      };
+   662→    });
+   663→  } catch (err) {
+   664→    console.error('[AI] TAKE_LOAN failed:', err);
+   665→    return { action: 'TAKE_LOAN', success: false };
+   666→  }
+   667→}
+   668→
+   669→// ---- REPAY_LOAN ----
+   670→async function executeRepayLoan(
+   671→  playerId: string,
+   672→  action: ScoredAction,
+   673→  ctx: AIDecisionContext,
+   674→): Promise<AIActionResult> {
+   675→  const loanId = action.target;
+   676→  if (!loanId) return { action: 'REPAY_LOAN', success: false };
+   677→
+   678→  try {
+   679→    return await db.$transaction(async (tx) => {
+   680→      const loan = await tx.loan.findUnique({ where: { id: loanId } });
+   681→      if (!loan || loan.status !== 'ACTIVE') return { action: 'REPAY_LOAN', success: false };
+   682→
+   683→      const player = await tx.player.findUnique({ where: { id: playerId }, select: { cash: true } });
+   684→      if (!player) return { action: 'REPAY_LOAN', success: false };
+   685→
+   686→      // Repay as much as possible
+   687→      const repayment = Math.min(loan.remainingDebt, Math.max(0, player.cash * 0.5)); // Use at most 50% of cash
+   688→      if (repayment < loan.dailyPayment) return { action: 'REPAY_LOAN', success: false, message: 'Cannot afford repayment' };
+   689→
+   690→      const newRemaining = Math.max(0, loan.remainingDebt - repayment);
+   691→
+   692→      await tx.loan.update({
+   693→        where: { id: loanId },
+   694→        data: {
+   695→          remainingDebt: newRemaining,
+   696→          status: newRemaining <= 0 ? 'PAID_OFF' : 'ACTIVE',
+   697→        },
+   698→      });
+   699→
+   700→      await tx.player.update({
+   701→        where: { id: playerId },
+   702→        data: { cash: { decrement: roundTaka(repayment) } },
+   703→      });
+   704→
+   705→      return {
+   706→        action: 'REPAY_LOAN',
+   707→        success: true,
+   708→        message: newRemaining <= 0 ? 'Loan fully repaid' : `Repaid ৳${roundTaka(repayment).toLocaleString()}`,
+   709→      };
+   710→    });
+   711→  } catch (err) {
+   712→    console.error('[AI] REPAY_LOAN failed:', err);
+   713→    return { action: 'REPAY_LOAN', success: false };
+   714→  }
+   715→}
+   716→

@@ -1,0 +1,564 @@
+     1→'use client';
+     2→
+     3→import { useEffect, useState } from 'react';
+     4→import { motion } from 'framer-motion';
+     5→import { useGameStore } from '@/store/game-store';
+     6→import {
+     7→  formatTaka, formatTakaShort, getBusinessType, getCity, GAME_CONFIG
+     8→} from '@/lib/game-data';
+     9→import { EXPANSION_CONFIG } from '@/lib/game/expansion';
+    10→import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+    11→import { Button } from '@/components/ui/button';
+    12→import { Badge } from '@/components/ui/badge';
+    13→import { Progress } from '@/components/ui/progress';
+    14→import { Separator } from '@/components/ui/separator';
+    15→import { Skeleton } from '@/components/ui/skeleton';
+    16→import {
+    17→  Wallet, Building2, Users, TrendingUp, TrendingDown, ArrowRight,
+    18→  Zap, Package, Plus, Flame, Newspaper, BarChart3, Clock, Shield,
+    19→  LayoutGrid, Timer
+    20→} from 'lucide-react';
+    21→import {
+    22→  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer
+    23→} from 'recharts';
+    24→
+    25→const container = {
+    26→  hidden: { opacity: 0 },
+    27→  show: {
+    28→    opacity: 1,
+    29→    transition: { staggerChildren: 0.06 }
+    30→  }
+    31→};
+    32→const item = {
+    33→  hidden: { opacity: 0, y: 12 },
+    34→  show: { opacity: 1, y: 0 }
+    35→};
+    36→
+    37→export default function Dashboard() {
+    38→  const { player, businesses, events, news, setView, gameDay } = useGameStore();
+    39→  const [logs, setLogs] = useState<any[]>([]);
+    40→  const [loadingLogs, setLoadingLogs] = useState(false);
+    41→
+    42→  useEffect(() => {
+    43→    const fetchLogs = async () => {
+    44→      setLoadingLogs(true);
+    45→      try {
+    46→        const res = await fetch('/api/player/logs');
+    47→        if (res.ok) setLogs(await res.json());
+    48→      } catch { /* silent */ }
+    49→      setLoadingLogs(false);
+    50→    };
+    51→    fetchLogs();
+    52→  }, [gameDay]);
+    53→
+    54→  const totalEmployees = businesses.reduce((sum: number, b: any) => sum + (b._count?.employees || 0), 0);
+    55→  const totalDailyProfit = businesses.reduce((sum: number, b: any) => sum + (b.dailyProfit || 0), 0);
+    56→  const totalDailyRevenue = businesses.reduce((sum: number, b: any) => sum + (b.dailyRevenue || 0), 0);
+    57→  const avgReputation = businesses.length > 0
+    58→    ? businesses.reduce((sum: number, b: any) => sum + (b.reputation || 0), 0) / businesses.length
+    59→    : 0;
+    60→
+    61→  const profitChartData = businesses
+    62→    .filter((b: any) => b.dailyProfit !== undefined)
+    63→    .map((b: any) => {
+    64→      const bt = getBusinessType(b.type);
+    65→      return {
+    66→        name: bt?.icon || '🏪',
+    67→        fullName: b.name,
+    68→        profit: Math.round(b.dailyProfit || 0),
+    69→        revenue: Math.round(b.dailyRevenue || 0),
+    70→      };
+    71→    });
+    72→
+    73→  const getNextLevelExp = (level: number) => level * 1000;
+    74→
+    75→  const formatLogTime = (dateStr: string) => {
+    76→    try {
+    77→      const d = new Date(dateStr);
+    78→      const now = new Date();
+    79→      const diffMs = now.getTime() - d.getTime();
+    80→      const diffMins = Math.floor(diffMs / 60000);
+    81→      if (diffMins < 1) return 'Just now';
+    82→      if (diffMins < 60) return `${diffMins}m ago`;
+    83→      const diffHrs = Math.floor(diffMins / 60);
+    84→      if (diffHrs < 24) return `${diffHrs}h ago`;
+    85→      return `${Math.floor(diffHrs / 24)}d ago`;
+    86→    } catch { return ''; }
+    87→  };
+    88→
+    89→  const getLogIcon = (type: string) => {
+    90→    switch (type) {
+    91→      case 'REVENUE': return <TrendingUp className="h-3.5 w-3.5 text-green-600" />;
+    92→      case 'EXPENSE': return <TrendingDown className="h-3.5 w-3.5 text-red-500" />;
+    93→      case 'PROFIT': return <BarChart3 className="h-3.5 w-3.5 text-emerald-600" />;
+    94→      case 'HIRE': return <Users className="h-3.5 w-3.5 text-blue-600" />;
+    95→      case 'PURCHASE': return <Package className="h-3.5 w-3.5 text-amber-600" />;
+    96→      case 'UPGRADE': return <ArrowRight className="h-3.5 w-3.5 text-purple-600" />;
+    97→      case 'EVENT': return <Zap className="h-3.5 w-3.5 text-orange-500" />;
+    98→      case 'REPUTATION': return <Shield className="h-3.5 w-3.5 text-cyan-600" />;
+    99→      default: return <Clock className="h-3.5 w-3.5 text-muted-foreground" />;
+   100→    }
+   101→  };
+   102→
+   103→  return (
+   104→    <motion.div
+   105→      variants={container}
+   106→      initial="hidden"
+   107→      animate="show"
+   108→      className="p-3 md:p-4 space-y-4 pb-24 md:pb-4"
+   109→    >
+   110→      {/* Player Greeting */}
+   111→      <motion.div variants={item}>
+   112→        <div className="flex items-center gap-3">
+   113→          <div className="h-12 w-12 rounded-full bd-gradient flex items-center justify-center text-white text-xl font-bold shadow-lg">
+   114→            {player?.name?.charAt(0) || '?'}
+   115→          </div>
+   116→          <div className="flex-1 min-w-0">
+   117→            <h2 className="text-lg font-bold truncate">Welcome back, {player?.name || 'Tycoon'}!</h2>
+   118→            <div className="flex items-center gap-2 mt-0.5">
+   119→              <Badge className="text-[10px] px-1.5 py-0 text-white" style={{ background: '#006a4e' }}>
+   120→                Level {player?.level || 1}
+   121→              </Badge>
+   122→              <span className="text-xs text-muted-foreground">Day {gameDay}</span>
+   123→              {events.length > 0 && (
+   124→                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-700 border-amber-300 bg-amber-50">
+   125→                  <Flame className="h-3 w-3 mr-0.5" /> {events.length} event{events.length > 1 ? 's' : ''}
+   126→                </Badge>
+   127→              )}
+   128→            </div>
+   129→          </div>
+   130→        </div>
+   131→        {/* XP Progress */}
+   132→        {player && (
+   133→          <div className="mt-3 space-y-1">
+   134→            <div className="flex justify-between text-[10px] text-muted-foreground">
+   135→              <span>Experience</span>
+   136→              <span>{player.experience || 0} / {getNextLevelExp(player.level || 1)} XP</span>
+   137→            </div>
+   138→            <Progress value={((player.experience || 0) / getNextLevelExp(player.level || 1)) * 100} className="h-1.5" />
+   139→          </div>
+   140→        )}
+   141→      </motion.div>
+   142→
+   143→      {/* Stat Cards */}
+   144→      <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+   145→        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-1">
+   146→          <CardContent className="p-3">
+   147→            <div className="flex items-center gap-2 mb-1.5">
+   148→              <div className="h-7 w-7 rounded-lg bg-green-100 flex items-center justify-center">
+   149→                <Wallet className="h-3.5 w-3.5 text-green-700" />
+   150→              </div>
+   151→              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cash</span>
+   152→            </div>
+   153→            <div className="text-base font-bold" style={{ color: '#006a4e' }}>
+   154→              {formatTakaShort(player?.cash || 0)}
+   155→            </div>
+   156→          </CardContent>
+   157→        </Card>
+   158→
+   159→        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-2">
+   160→          <CardContent className="p-3">
+   161→            <div className="flex items-center gap-2 mb-1.5">
+   162→              <div className="h-7 w-7 rounded-lg bg-amber-100 flex items-center justify-center">
+   163→                <TrendingUp className="h-3.5 w-3.5 text-amber-700" />
+   164→              </div>
+   165→              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Net Worth</span>
+   166→            </div>
+   167→            <div className="text-base font-bold">
+   168→              {formatTakaShort(player?.netWorth || 0)}
+   169→            </div>
+   170→          </CardContent>
+   171→        </Card>
+   172→
+   173→        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-3">
+   174→          <CardContent className="p-3">
+   175→            <div className="flex items-center gap-2 mb-1.5">
+   176→              <div className="h-7 w-7 rounded-lg bg-blue-100 flex items-center justify-center">
+   177→                <Building2 className="h-3.5 w-3.5 text-blue-700" />
+   178→              </div>
+   179→              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Businesses</span>
+   180→            </div>
+   181→            <div className="text-base font-bold">{businesses.length}</div>
+   182→          </CardContent>
+   183→        </Card>
+   184→
+   185→        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-4">
+   186→          <CardContent className="p-3">
+   187→            <div className="flex items-center gap-2 mb-1.5">
+   188→              <div className="h-7 w-7 rounded-lg bg-purple-100 flex items-center justify-center">
+   189→                <Users className="h-3.5 w-3.5 text-purple-700" />
+   190→              </div>
+   191→              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Staff</span>
+   192→            </div>
+   193→            <div className="text-base font-bold">{totalEmployees}</div>
+   194→          </CardContent>
+   195→        </Card>
+   196→      </motion.div>
+   197→
+   198→      {/* Daily Performance Row */}
+   199→      <motion.div variants={item} className="grid grid-cols-3 gap-2.5">
+   200→        <Card className="border-0 shadow-sm bg-green-50/50">
+   201→          <CardContent className="p-3 text-center">
+   202→            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</div>
+   203→            <div className="text-sm font-bold text-green-700">{formatTakaShort(totalDailyRevenue)}</div>
+   204→            <div className="text-[9px] text-muted-foreground">today</div>
+   205→          </CardContent>
+   206→        </Card>
+   207→        <Card className={`border-0 shadow-sm ${totalDailyProfit >= 0 ? 'bg-emerald-50/50' : 'bg-red-50/50'}`}>
+   208→          <CardContent className="p-3 text-center">
+   209→            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Profit</div>
+   210→            <div className={`text-sm font-bold flex items-center justify-center gap-0.5 ${totalDailyProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+   211→              {totalDailyProfit >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+   212→              {totalDailyProfit >= 0 ? '+' : ''}{formatTakaShort(totalDailyProfit)}
+   213→            </div>
+   214→            <div className="text-[9px] text-muted-foreground">today</div>
+   215→          </CardContent>
+   216→        </Card>
+   217→        <Card className="border-0 shadow-sm bg-cyan-50/50">
+   218→          <CardContent className="p-3 text-center">
+   219→            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Reputation</div>
+   220→            <div className="text-sm font-bold">{avgReputation.toFixed(0)}%</div>
+   221→            <div className="text-[9px] text-muted-foreground">average</div>
+   222→          </CardContent>
+   223→        </Card>
+   224→      </motion.div>
+   225→
+   226→      {/* Profit Chart */}
+   227→      {profitChartData.length > 0 && (
+   228→        <motion.div variants={item}>
+   229→          <Card className="shadow-sm">
+   230→            <CardHeader className="pb-2 pt-3 px-4">
+   231→              <CardTitle className="text-sm flex items-center gap-2 game-section-header">
+   232→                <BarChart3 className="h-4 w-4" style={{ color: '#006a4e' }} />
+   233→                Business Performance
+   234→              </CardTitle>
+   235→            </CardHeader>
+   236→            <CardContent className="px-2 pb-3">
+   237→              <div className="h-40">
+   238→                <ResponsiveContainer width="100%" height="100%">
+   239→                  <AreaChart data={profitChartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+   240→                    <defs>
+   241→                      <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+   242→                        <stop offset="5%" stopColor="#006a4e" stopOpacity={0.3} />
+   243→                        <stop offset="95%" stopColor="#006a4e" stopOpacity={0} />
+   244→                      </linearGradient>
+   245→                      <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+   246→                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
+   247→                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+   248→                      </linearGradient>
+   249→                    </defs>
+   250→                    <XAxis dataKey="name" tick={{ fontSize: 14 }} axisLine={false} tickLine={false} />
+   251→                    <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)} />
+   252→                    <Tooltip
+   253→                      formatter={(value: number, name: string) => [formatTaka(value), name === 'profit' ? 'Daily Profit' : 'Daily Revenue']}
+   254→                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e5e5', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+   255→                      labelFormatter={(label: string, payload: any) => payload?.[0]?.payload?.fullName || label}
+   256→                    />
+   257→                    <Area type="monotone" dataKey="revenue" stroke="#f59e0b" fill="url(#revenueGrad)" strokeWidth={2} />
+   258→                    <Area type="monotone" dataKey="profit" stroke="#006a4e" fill="url(#profitGrad)" strokeWidth={2} />
+   259→                  </AreaChart>
+   260→                </ResponsiveContainer>
+   261→              </div>
+   262→            </CardContent>
+   263→          </Card>
+   264→        </motion.div>
+   265→      )}
+   266→
+   267→      {/* Active Events */}
+   268→      {events.length > 0 && (
+   269→        <motion.div variants={item}>
+   270→          <Card className="border-amber-200 shadow-sm">
+   271→            <CardHeader className="pb-2 pt-3 px-4">
+   272→              <CardTitle className="text-sm flex items-center gap-2 game-section-header">
+   273→                <Zap className="h-4 w-4 text-amber-500" />
+   274→                Active Events
+   275→              </CardTitle>
+   276→            </CardHeader>
+   277→            <CardContent className="px-4 pb-3 space-y-2">
+   278→              {events.slice(0, 3).map((event: any) => (
+   279→                <div key={event.id} className="flex items-start gap-2 p-2 rounded-lg bg-amber-50/50">
+   280→                  <span className="text-lg shrink-0">{event.icon || '📢'}</span>
+   281→                  <div className="min-w-0">
+   282→                    <div className="text-xs font-medium">{event.title}</div>
+   283→                    <div className="text-[10px] text-muted-foreground line-clamp-1">{event.description}</div>
+   284→                  </div>
+   285→                </div>
+   286→              ))}
+   287→            </CardContent>
+   288→          </Card>
+   289→        </motion.div>
+   290→      )}
+   291→
+   292→      {/* Multi-Business Summary / Portfolio Link */}
+   293→      {businesses.length > 1 && (
+   294→        <motion.div variants={item}>
+   295→          <Card className="shadow-sm border-green-200/50" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.03), rgba(0,168,107,0.05))' }}>
+   296→            <CardContent className="p-3.5">
+   297→              <div className="flex items-center justify-between">
+   298→                <div className="flex items-center gap-2.5">
+   299→                  <div className="h-9 w-9 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
+   300→                    <LayoutGrid className="h-4.5 w-4.5 text-white" />
+   301→                  </div>
+   302→                  <div>
+   303→                    <div className="text-sm font-bold">Your Portfolio</div>
+   304→                    <div className="text-xs text-muted-foreground">
+   305→                      {businesses.length} business{businesses.length > 1 ? 'es' : ''} · {formatTakaShort(totalDailyProfit)}/day profit
+   306→                    </div>
+   307→                  </div>
+   308→                </div>
+   309→                <Button
+   310→                  size="sm"
+   311→                  className="gap-1 text-xs text-white rounded-lg"
+   312→                  style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}
+   313→                  onClick={() => setView('portfolio')}
+   314→                >
+   315→                  View <ArrowRight className="h-3 w-3" />
+   316→                </Button>
+   317→              </div>
+   318→              {/* Setup period indicators */}
+   319→              {businesses.some((b: any) => b.setupDaysRemaining > 0) && (
+   320→                <div className="mt-2.5 pt-2.5 border-t border-green-200/30 space-y-1.5">
+   321→                  {businesses.filter((b: any) => b.setupDaysRemaining > 0).map((b: any) => (
+   322→                    <div key={b.id} className="flex items-center gap-1.5 text-[10px] text-blue-600 font-medium">
+   323→                      <Timer className="h-3 w-3 shrink-0" />
+   324→                      <span className="truncate">{b.name}</span>
+   325→                      <span>— {b.setupDaysRemaining}d setup remaining</span>
+   326→                    </div>
+   327→                  ))}
+   328→                </div>
+   329→              )}
+   330→            </CardContent>
+   331→          </Card>
+   332→        </motion.div>
+   333→      )}
+   334→
+   335→      {/* Quick Business List */}
+   336→      <motion.div variants={item}>
+   337→        <div className="flex items-center justify-between mb-2.5">
+   338→          <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
+   339→            <Building2 className="h-4 w-4" style={{ color: '#006a4e' }} />
+   340→            Your Businesses
+   341→          </h3>
+   342→          {businesses.length > 0 && (
+   343→            <div className="flex items-center gap-1.5">
+   344→              <Button
+   345→                variant="ghost"
+   346→                size="sm"
+   347→                className="text-xs gap-0.5 text-green-700 hover:text-green-800"
+   348→                onClick={() => setView('portfolio')}
+   349→              >
+   350→                Portfolio <ArrowRight className="h-3 w-3" />
+   351→              </Button>
+   352→            </div>
+   353→          )}
+   354→        </div>
+   355→
+   356→        {businesses.length === 0 ? (
+   357→          <Card className="border-dashed shadow-sm">
+   358→            <CardContent className="game-empty-state">
+   359→              <div className="game-empty-icon game-float">🏗️</div>
+   360→              <h4 className="game-empty-title">No Businesses Yet</h4>
+   361→              <p className="game-empty-desc">
+   362→                Create your first business to start earning taka!
+   363→              </p>
+   364→              <button
+   365→                className="game-empty-action"
+   366→                onClick={() => setView('new-business')}
+   367→              >
+   368→                <Plus className="h-3.5 w-3.5 inline mr-1" /> Create Business
+   369→              </button>
+   370→            </CardContent>
+   371→          </Card>
+   372→        ) : (
+   373→          <div className="space-y-2">
+   374→            {businesses.slice(0, 3).map((b: any, i: number) => {
+   375→              const bt = getBusinessType(b.type);
+   376→              const city = getCity(b.city);
+   377→              const profit = b.dailyProfit || 0;
+   378→              const isSetup = b.setupDaysRemaining > 0;
+   379→              return (
+   380→                <motion.div
+   381→                  key={b.id}
+   382→                  variants={item}
+   383→                >
+   384→                  <Card
+   385→                    className="game-card-interactive game-shimmer-overlay shadow-sm"
+   386→                    onClick={() => useGameStore.getState().selectBusiness(b.id)}
+   387→                  >
+   388→                    <CardContent className="p-3">
+   389→                      <div className="flex items-center gap-3">
+   390→                        <div className={`text-2xl p-2 rounded-xl ${bt?.bgColor || 'bg-gray-50'} shrink-0`}>
+   391→                          {bt?.icon || '🏪'}
+   392→                        </div>
+   393→                        <div className="flex-1 min-w-0">
+   394→                          <div className="flex items-center gap-2">
+   395→                            <span className="text-sm font-semibold truncate">{b.name}</span>
+   396→                            <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">
+   397→                              Lv.{b.level || 1}
+   398→                            </Badge>
+   399→                            {isSetup && (
+   400→                              <Badge className="text-[9px] px-1.5 py-0 bg-blue-50 text-blue-700 border border-blue-200 shrink-0" variant="outline">
+   401→                                <Timer className="h-2.5 w-2.5 mr-0.5" /> Setup {b.setupDaysRemaining}d
+   402→                              </Badge>
+   403→                            )}
+   404→                          </div>
+   405→                          <div className="text-[10px] text-muted-foreground mt-0.5">
+   406→                            {bt?.name} · {city?.name}
+   407→                          </div>
+   408→                          <div className="flex items-center gap-3 mt-1.5">
+   409→                            <div className="flex-1">
+   410→                              <div className="flex justify-between text-[9px] text-muted-foreground mb-0.5">
+   411→                                <span>Reputation</span>
+   412→                                <span>{(b.reputation || 0).toFixed(0)}%</span>
+   413→                              </div>
+   414→                              <Progress value={b.reputation || 0} className="h-1" />
+   415→                            </div>
+   416→                            <div className={`text-xs font-bold flex items-center gap-0.5 ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   417→                              {profit >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+   418→                              {formatTakaShort(profit)}/day
+   419→                            </div>
+   420→                          </div>
+   421→                          {isSetup && (
+   422→                            <div className="mt-2 p-1.5 rounded-md bg-blue-50/60 border border-blue-200/40">
+   423→                              <div className="text-[10px] text-blue-600 font-medium flex items-center gap-1">
+   424→                                <Timer className="h-2.5 w-2.5" />
+   425→                                Setup in progress — {b.setupDaysRemaining} day{b.setupDaysRemaining > 1 ? 's' : ''} remaining ({Math.round(EXPANSION_CONFIG.setupRevenueMultiplier * 100)}% capacity)
+   426→                              </div>
+   427→                            </div>
+   428→                          )}
+   429→                        </div>
+   430→                      </div>
+   431→                    </CardContent>
+   432→                  </Card>
+   433→                </motion.div>
+   434→              );
+   435→            })}
+   436→          </div>
+   437→        )}
+   438→      </motion.div>
+   439→
+   440→      {/* Activity Feed */}
+   441→      <motion.div variants={item}>
+   442→        <div className="flex items-center justify-between mb-2.5">
+   443→          <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
+   444→            <Clock className="h-4 w-4" style={{ color: '#006a4e' }} />
+   445→            Recent Activity
+   446→          </h3>
+   447→        </div>
+   448→
+   449→        {loadingLogs ? (
+   450→          <div className="space-y-2">
+   451→            {[...Array(3)].map((_, i) => (
+   452→              <Card key={i}><CardContent className="p-3"><Skeleton className="h-10 w-full" /></CardContent></Card>
+   453→            ))}
+   454→          </div>
+   455→        ) : logs.length === 0 ? (
+   456→          <Card className="border-dashed shadow-sm">
+   457→            <CardContent className="py-6 text-center">
+   458→              <div className="text-3xl mb-1.5">📋</div>
+   459→              <p className="text-xs text-muted-foreground">No activity yet. Start playing to see your business log!</p>
+   460→            </CardContent>
+   461→          </Card>
+   462→        ) : (
+   463→          <Card className="shadow-sm">
+   464→            <CardContent className="p-2">
+   465→              <div className="space-y-0.5">
+   466→                {logs.slice(0, 8).map((log: any, i: number) => (
+   467→                  <div
+   468→                    key={log.id}
+   469→                    className={`flex items-start gap-2 p-2 rounded-lg game-activity-item ${i % 2 === 0 ? 'bg-muted/30' : ''}`}
+   470→                  >
+   471→                    <div className="mt-0.5 shrink-0">{getLogIcon(log.type)}</div>
+   472→                    <div className="flex-1 min-w-0">
+   473→                      <div className="text-xs leading-snug">{log.message}</div>
+   474→                      <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+   475→                        <Clock className="h-2.5 w-2.5" />
+   476→                        {formatLogTime(log.createdAt)}
+   477→                        {log.amount !== null && log.amount !== undefined && (
+   478→                          <span className={`ml-1 font-medium ${log.amount >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+   479→                            {log.amount >= 0 ? '+' : ''}{formatTaka(log.amount)}
+   480→                          </span>
+   481→                        )}
+   482→                      </div>
+   483→                    </div>
+   484→                  </div>
+   485→                ))}
+   486→              </div>
+   487→            </CardContent>
+   488→          </Card>
+   489→        )}
+   490→      </motion.div>
+   491→
+   492→      {/* Recent News */}
+   493→      {news.length > 0 && (
+   494→        <motion.div variants={item}>
+   495→          <div className="flex items-center justify-between mb-2.5">
+   496→            <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
+   497→              <Newspaper className="h-4 w-4" style={{ color: '#006a4e' }} />
+   498→              Latest News
+   499→            </h3>
+   500→            <Button
+   501→              variant="ghost"
+   502→              size="sm"
+   503→              className="text-xs gap-0.5 text-green-700 hover:text-green-800"
+   504→              onClick={() => setView('news')}
+   505→            >
+   506→              More <ArrowRight className="h-3 w-3" />
+   507→            </Button>
+   508→          </div>
+   509→          <div className="space-y-1.5">
+   510→            {news.slice(0, 3).map((article: any) => (
+   511→              <Card key={article.id} className="game-card-hover shadow-sm">
+   512→                <CardContent className="p-3">
+   513→                  <div className="flex items-start gap-2">
+   514→                    <Badge
+   515→                      className={`text-[9px] border shrink-0 mt-0.5 ${
+   516→                        article.category?.toUpperCase() === 'ECONOMY' ? 'bg-green-100 text-green-700 border-green-200' :
+   517→                        article.category?.toUpperCase() === 'WEATHER' ? 'bg-cyan-100 text-cyan-700 border-cyan-200' :
+   518→                        article.category?.toUpperCase() === 'EVENT' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+   519→                        'bg-gray-100 text-gray-700 border-gray-200'
+   520→                      }`}
+   521→                      variant="outline"
+   522→                    >
+   523→                      {article.category}
+   524→                    </Badge>
+   525→                    <div className="flex-1 min-w-0">
+   526→                      <div className="text-xs font-medium leading-snug">{article.title}</div>
+   527→                      <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{article.content}</div>
+   528→                    </div>
+   529→                  </div>
+   530→                </CardContent>
+   531→              </Card>
+   532→            ))}
+   533→          </div>
+   534→        </motion.div>
+   535→      )}
+   536→    </motion.div>
+   537→  );
+   538→}
+   539→
+   540→export function DashboardSkeleton() {
+   541→  return (
+   542→    <div className="p-3 md:p-4 space-y-4">
+   543→      <div className="flex items-center gap-3">
+   544→        <Skeleton className="h-12 w-12 rounded-full" />
+   545→        <div className="flex-1 space-y-2">
+   546→          <Skeleton className="h-5 w-40" />
+   547→          <Skeleton className="h-3 w-24" />
+   548→        </div>
+   549→      </div>
+   550→      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+   551→        {[...Array(4)].map((_, i) => (
+   552→          <Card key={i}><CardContent className="p-3"><Skeleton className="h-14 w-full" /></CardContent></Card>
+   553→        ))}
+   554→      </div>
+   555→      <Card><CardContent className="p-4"><Skeleton className="h-40 w-full" /></CardContent></Card>
+   556→      <div className="space-y-2">
+   557→        {[...Array(3)].map((_, i) => (
+   558→          <Card key={i}><CardContent className="p-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+   559→        ))}
+   560→      </div>
+   561→    </div>
+   562→  );
+   563→}
+   564→
