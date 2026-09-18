@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/game-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,6 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { ThemeSegmentedControl } from './ThemeToggle';
+import { LanguageSwitcher } from './LanguageSwitcher';
+import PwaManager from './PwaManager';
+import { useT } from '@/lib/i18n/I18nProvider';
+import AccountCard from './AccountCard';
 import {
   Settings as SettingsIcon,
   RotateCcw,
@@ -23,6 +28,7 @@ import {
   Check,
   AlertTriangle,
   Database,
+  Languages,
 } from 'lucide-react';
 import {
   Dialog,
@@ -34,27 +40,42 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { apiErrorMessage } from '@/lib/api-error';
 
 export default function SettingsView() {
-  const { player, gameDay, businesses, setView } = useGameStore();
-  const [autoTickSpeed, setAutoTickSpeed] = useState<'off' | 'slow' | 'normal' | 'fast'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('bd-tycoon-auto-tick');
-      if (saved === 'slow' || saved === 'normal' || saved === 'fast') return saved;
-    }
-    return 'off';
+  const { player, gameDay, businesses } = useGameStore();
+  const t = useT();
+  const [clock, setClock] = useState<{ schedulerEnabled: boolean; tickIntervalMs: number | null }>({
+    schedulerEnabled: true,
+    tickIntervalMs: null,
   });
-  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('bd-tycoon-sound') !== 'false');
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    // Guarded like the auto-tick setting above: this initialiser also runs
+    // during server rendering, where localStorage does not exist.
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem('bd-tycoon-sound') !== 'false';
+  });
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetConfirm, setResetConfirm] = useState('');
 
-  const SPEED_OPTIONS = [
-    { id: 'off' as const, label: 'Off', desc: 'Manual only', icon: <Gamepad2 className="h-4 w-4" /> },
-    { id: 'slow' as const, label: 'Slow', desc: 'Every 2 min', icon: <Clock className="h-4 w-4" /> },
-    { id: 'normal' as const, label: 'Normal', desc: 'Every 1 min', icon: <Zap className="h-4 w-4" /> },
-    { id: 'fast' as const, label: 'Fast', desc: 'Every 30s', icon: <Zap className="h-4 w-4" /> },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/game/state');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        setClock({
+          schedulerEnabled: data.schedulerEnabled !== false,
+          tickIntervalMs: typeof data.tickIntervalMs === 'number' ? data.tickIntervalMs : null,
+        });
+      } catch {
+        /* leave the defaults in place */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleResetGame = async () => {
     if (resetConfirm !== 'RESET') return;
@@ -69,7 +90,7 @@ export default function SettingsView() {
         setTimeout(() => window.location.reload(), 1000);
       } else {
         const err = await res.json();
-        toast.error(err.error || 'Failed to reset');
+        toast.error(apiErrorMessage(err, 'Failed to reset'));
       }
     } catch {
       toast.error('Network error');
@@ -101,6 +122,44 @@ export default function SettingsView() {
         </div>
       </div>
 
+      {/* Account */}
+      <AccountCard />
+
+      {/* Install & notifications */}
+      <PwaManager />
+
+      {/* Language */}
+      <Card className="game-shine">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Languages className="h-4 w-4 text-muted-foreground" />
+            {t('settings.language')}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t('settings.languageHelp')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <LanguageSwitcher />
+        </CardContent>
+      </Card>
+
+      {/* Appearance */}
+      <Card className="game-shine">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Palette className="h-4 w-4 text-muted-foreground" />
+            Appearance
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Choose a colour theme. System follows your device setting.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <ThemeSegmentedControl />
+        </CardContent>
+      </Card>
+
       {/* Game Statistics */}
       <Card className="game-shine">
         <CardHeader className="pb-2 pt-4 px-4">
@@ -117,7 +176,7 @@ export default function SettingsView() {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="rounded-lg border p-3 text-center bg-gradient-to-b from-white to-muted/30 game-stat-card"
+                className="rounded-lg border p-3 text-center bg-gradient-to-b from-[var(--bt-surface-1)] to-[var(--bt-surface-2)] game-stat-card"
               >
                 <div className="flex items-center justify-center mb-1">
                   <div
@@ -135,48 +194,36 @@ export default function SettingsView() {
         </CardContent>
       </Card>
 
-      {/* Auto-Tick Speed */}
+      {/* World clock (read-only) */}
       <Card className="game-shine">
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm font-semibold flex items-center gap-2 game-section-header">
             <Clock className="h-4 w-4 text-muted-foreground" />
-            Auto-Play Speed
+            World Clock
           </CardTitle>
           <CardDescription className="text-xs">
-            Automatically advance game days. {autoTickSpeed !== 'off' && 'Runs in background.'}
+            Days advance on the server, at the same pace for everyone.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          <div className="grid grid-cols-4 gap-1.5">
-            {SPEED_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                onClick={() => {
-                  setAutoTickSpeed(opt.id);
-                  localStorage.setItem('bd-tycoon-auto-tick', opt.id);
-                  // Dispatch a custom event for same-tab sync
-                  window.dispatchEvent(new StorageEvent('storage', {
-                    key: 'bd-tycoon-auto-tick',
-                    newValue: opt.id,
-                  }));
-                  toast.success(opt.id === 'off' ? 'Auto-play disabled' : `Auto-play: ${opt.label} (${opt.desc})`);
-                }}
-                className={cn(
-                  'flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all duration-300',
-                  autoTickSpeed === opt.id
-                    ? 'border-green-500 bg-green-50/60 shadow-md shadow-green-100 scale-[1.05]'
-                    : 'border-transparent bg-muted/40 hover:bg-muted/60 hover:border-muted'
-                )}
-              >
-                <span className={cn('transition-colors', autoTickSpeed === opt.id ? 'text-green-700' : 'text-muted-foreground')}>
-                  {opt.icon}
-                </span>
-                <span className={cn('text-[10px] font-semibold', autoTickSpeed === opt.id ? 'text-green-700' : 'text-muted-foreground')}>
-                  {opt.label}
-                </span>
-              </button>
-            ))}
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2.5">
+            <div>
+              <p className="text-xs font-semibold">
+                {clock.schedulerEnabled ? 'Running' : 'Paused'}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {clock.schedulerEnabled && clock.tickIntervalMs
+                  ? `One game day every ${Math.round(clock.tickIntervalMs / 1000)}s`
+                  : 'No clock is running on the server'}
+              </p>
+            </div>
+            <span className="bt-numeric text-sm font-semibold">Day {gameDay}</span>
           </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            This used to be a per-player auto-play speed. Because one tick moves the
+            world for every player and every competitor, the pace is now set by the
+            server rather than by whoever has the game open.
+          </p>
         </CardContent>
       </Card>
 
@@ -247,9 +294,9 @@ export default function SettingsView() {
       </Card>
 
       {/* Danger Zone - Reset Game */}
-      <Card className="border-red-200/60 game-gradient-border rounded-xl">
+      <Card className="border-red-200/60 dark:border-red-900/60 game-gradient-border rounded-xl">
         <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-red-600">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-red-600 dark:text-red-400">
             <AlertTriangle className="h-4 w-4" />
             Danger Zone
           </CardTitle>
@@ -260,7 +307,7 @@ export default function SettingsView() {
         <CardContent className="px-4 pb-4">
           <Button
             variant="outline"
-            className="w-full text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700 gap-2 game-pulse-red"
+            className="w-full text-red-600 dark:text-red-400 border-red-300 dark:border-red-800/70 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-700 dark:hover:text-red-300 gap-2 game-pulse-red"
             onClick={() => {
               setResetConfirm('');
               setShowResetDialog(true);
@@ -276,7 +323,7 @@ export default function SettingsView() {
       <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
+            <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
               <AlertTriangle className="h-5 w-5" />
               Reset Game
             </DialogTitle>
@@ -286,7 +333,7 @@ export default function SettingsView() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+            <div className="rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 p-3 text-sm text-red-700 dark:text-red-300">
               <strong>Warning:</strong> This action is irreversible. All progress will be lost.
             </div>
             <div>
@@ -296,7 +343,7 @@ export default function SettingsView() {
                 value={resetConfirm}
                 onChange={(e) => setResetConfirm(e.target.value)}
                 placeholder="RESET"
-                className="mt-1 border-red-300 focus-visible:ring-red-400"
+                className="mt-1 border-red-300 dark:border-red-800/70 focus-visible:ring-red-400"
                 autoFocus
               />
             </div>

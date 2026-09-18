@@ -23,6 +23,7 @@ import type {
   AIBusinessSnapshot,
   AIInventorySnapshot,
 } from '@/lib/game/ai/types';
+import { EMPTY_RIVAL_INTEL } from '@/lib/game/ai/ai-rivalry';
 
 // ============================================
 // Helper: Create a minimal valid AIDecisionContext
@@ -40,6 +41,9 @@ function makeContext(overrides: Partial<AIDecisionContext> = {}): AIDecisionCont
     activeLoans: [],
     activeEvents: [],
     marketPrices: {},
+    // No human-owned shops unless a test supplies some.
+    rivals: EMPTY_RIVAL_INTEL,
+    lastPoachAt: 0,
     // Phase 5: Expansion fields
     expansionCount: 0,
     lastExpansionAt: 0,

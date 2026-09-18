@@ -11,6 +11,7 @@ export type AIAction =
   | 'BUY_INVENTORY'
   | 'CHANGE_PRICE'
   | 'HIRE_EMPLOYEE'
+  | 'POACH_EMPLOYEE'
   | 'UPGRADE_BUSINESS'
   | 'CREATE_BUSINESS'
   | 'SELL_BUSINESS'
@@ -42,6 +43,13 @@ export interface AIDecisionContext {
   activeLoans: AILoanSnapshot[];
   activeEvents: AIEventSnapshot[];
   marketPrices: Record<string, number>; // productName -> priceMultiplier
+  /**
+   * What the AI knows about human-owned shops. Without this the strategy layer
+   * reasons about a world with no player in it — see `ai-rivalry.ts`.
+   */
+  rivals: import('./ai-rivalry').RivalIntel;
+  /** Game day this AI last poached someone, for the raid cooldown. */
+  lastPoachAt: number;
   // Phase 5: Expansion context
   expansionCount: number;     // Total expansions performed
   lastExpansionAt: number;    // Game day of last expansion

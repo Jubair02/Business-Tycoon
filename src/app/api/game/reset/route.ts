@@ -40,7 +40,10 @@ export async function POST() {
         });
       }
 
-      // Reset player stats
+      // Reset player stats.
+      // expansionCount/lastExpansionAt must be cleared too: leaving them set
+      // left the player with zero businesses but still inside the expansion
+      // cooldown, which made it impossible to create a business after a reset.
       await tx.player.update({
         where: { id: playerId },
         data: {
@@ -48,6 +51,10 @@ export async function POST() {
           netWorth: STARTING_CASH,
           level: 1,
           experience: 0,
+          expansionCount: 0,
+          lastExpansionAt: 0,
+          lastAction: null,
+          lastActionAt: 0,
         },
       });
     });

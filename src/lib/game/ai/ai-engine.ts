@@ -12,13 +12,17 @@
 // ============================================
 
 import { db } from '@/lib/db';
-import type { AIDecisionContext, ScoredAction, AIPersonality, AIActionResult, AIEventSnapshot } from './types';
+import type { AIDecisionContext, ScoredAction, AIPersonality, AIEventSnapshot } from './types';
+import type { AIActionResult } from './ai-actions';
 import { selectBestAction } from './ai-evaluation';
 import { executeAIAction } from './ai-actions';
 import { randomPersonality, getPersonalityConfig } from './ai-strategy';
 import { simulateAIMarketingTick } from './ai-marketing';
+import { buildRivalIntel } from './ai-rivalry';
+import type { RivalIntel } from './ai-rivalry';
 import { BUSINESS_TYPES, CITIES, PRODUCTS } from '@/lib/game-data';
 import { roundTaka } from '@/lib/game/economy/formulas';
+import { calculateShopAttractiveness, calculatePriceIndex } from '@/lib/game/economy/competition';
 
 // ---- Mandatory Inventory Restocking ----
 
@@ -116,6 +120,8 @@ async function performMandatoryRestock(playerId: string): Promise<void> {
 interface SharedAIContext {
   activeEvents: AIEventSnapshot[];
   marketPrices: Record<string, number>;
+  /** What every AI can see of the human players' shops. */
+  rivals: RivalIntel;
 }
 
 /**
@@ -123,9 +129,10 @@ interface SharedAIContext {
  * Called once per tick in simulateAIPlayersTick and passed to buildDecisionContext.
  */
 async function fetchSharedAIContext(): Promise<SharedAIContext> {
-  const [events, marketPriceRows] = await Promise.all([
+  const [events, marketPriceRows, rivals] = await Promise.all([
     db.gameEvent.findMany({ where: { active: true } }),
     db.marketPrice.findMany({}),
+    buildRivalIntel(),
   ]);
 
   const marketPrices: Record<string, number> = {};
@@ -140,6 +147,7 @@ async function fetchSharedAIContext(): Promise<SharedAIContext> {
       effects: JSON.parse(e.effects) as Record<string, number>,
     })),
     marketPrices,
+    rivals,
   };
 }
 
@@ -166,6 +174,7 @@ export async function simulateAIPlayersTick(gameDay: number): Promise<void> {
       netWorth: true,
       personality: true,
       lastActionAt: true,
+      lastPoachAt: true,
     },
   });
 
@@ -184,7 +193,7 @@ export async function simulateAIPlayersTick(gameDay: number): Promise<void> {
       await performMandatoryRestock(ai.id);
 
       // 1. Build decision context (after restock, to reflect updated state)
-      const ctx = await buildDecisionContext(ai.id, ai.personality || 'BALANCED', ai.cash, ai.netWorth, gameDay, ai.lastActionAt, sharedCtx);
+      const ctx = await buildDecisionContext(ai.id, ai.personality || 'BALANCED', ai.cash, ai.netWorth, gameDay, ai.lastActionAt, ai.lastPoachAt, sharedCtx);
 
       // 2. Select best action
       const bestAction = selectBestAction(ctx);
@@ -259,6 +268,7 @@ async function buildDecisionContext(
   netWorth: number,
   gameDay: number,
   lastActionAt: number,
+  lastPoachAt: number,
   sharedCtx: SharedAIContext,
 ): Promise<AIDecisionContext> {
   // Fetch player-specific data only (businesses + loans)
@@ -327,6 +337,8 @@ async function buildDecisionContext(
     // Reuse pre-fetched shared context (events + market prices)
     activeEvents: sharedCtx.activeEvents,
     marketPrices: sharedCtx.marketPrices,
+    rivals: sharedCtx.rivals,
+    lastPoachAt,
     // Phase 5: Expansion context
     expansionCount: playerData?.expansionCount ?? 0,
     lastExpansionAt: playerData?.lastExpansionAt ?? 0,
@@ -366,16 +378,13 @@ async function recalculateAINetWorth(playerId: string): Promise<void> {
 
     const netWorth = roundTaka(player.cash + businessCash + inventoryValue - outstandingDebt);
 
-    // Update AI level based on net worth
-    let level = 1;
-    if (netWorth > 5000000) level = 5;
-    else if (netWorth > 2000000) level = 4;
-    else if (netWorth > 1000000) level = 3;
-    else if (netWorth > 500000) level = 2;
-
+    // Level is owned by the progression system (lib/game/progression) and is
+    // earned from XP, for AI and players alike. This used to derive it from
+    // net worth brackets and overwrite it every tick, which silently undid the
+    // XP the AI had just earned.
     await db.player.update({
       where: { id: playerId },
-      data: { netWorth, level },
+      data: { netWorth },
     });
   } catch (err) {
     console.error(`[AI Engine] Failed to recalculate net worth for ${playerId}:`, err);
@@ -386,7 +395,14 @@ async function recalculateAINetWorth(playerId: string): Promise<void> {
 
 /**
  * Calculate market share for all businesses in a city+type market.
- * Uses demand-based allocation (not random).
+ *
+ * This is the same model the tick uses to decide how a market's custom is
+ * split (`economy/competition.ts`). It used to be a separate, richer scoring
+ * function — reputation, level, health, stock, price, revenue momentum and
+ * satisfaction — which was fine while market share was only ever displayed. Now
+ * that the split actually drives each shop's customers, the Competition screen
+ * has to report the number the economy is really using, or it would be telling
+ * the player one thing while the simulation did another.
  */
 export async function calculateMarketShare(
   city: string,
@@ -413,74 +429,21 @@ export async function calculateMarketShare(
 
   if (businesses.length === 0) return { shares: [], totalDemand: 0 };
 
-  // Pre-compute market-wide averages for relative factors
-  const totalRevenue = businesses.reduce((sum, b) => sum + b.dailyRevenue, 0);
-  const avgRevenue = businesses.length > 0 ? totalRevenue / businesses.length : 1;
-
-  // Compute average sell price across all businesses for pricing factor
-  const allPrices: number[] = [];
-  for (const b of businesses) {
-    for (const inv of b.inventories) {
-      if (inv.sellPrice > 0) allPrices.push(inv.sellPrice);
-    }
-  }
-  const avgMarketPrice = allPrices.length > 0
-    ? allPrices.reduce((sum, p) => sum + p, 0) / allPrices.length
-    : 1;
-
-  // Calculate "attractiveness" score for each business
-  // score = repFactor × levelFactor × healthFactor × inventoryFactor × pricingFactor × revenueFactor
-  const scored = businesses.map(b => {
-    // Reputation factor: 0-100 → 0.4-1.6
-    const repFactor = 0.4 + (b.reputation / 100) * 1.2;
-    // Level factor: level 1=1.0, level 5=1.48
-    const levelFactor = 1 + (b.level - 1) * 0.12;
-    // Health factor: 0-100 → 0.5-1.5
-    const healthFactor = 0.5 + (b.healthScore / 100);
-
-    // Inventory factor: stocked stores attract more customers
-    // 0.3 + (totalStock / maxStockCapacity) * 0.7  (range 0.3-1.0)
-    const totalStock = b.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
-    const maxStockCapacity = b.inventories.reduce((sum, inv) => {
-      const prodDef = PRODUCTS[b.type]?.find(p => p.name === inv.productName);
-      return sum + (prodDef?.maxStock || 100);
-    }, 0);
-    const stockRatio = maxStockCapacity > 0 ? totalStock / maxStockCapacity : 0;
-    const inventoryFactor = 0.3 + stockRatio * 0.7;
-
-    // Pricing factor: lower prices attract more customers
-    // Compare average sell price to market average; cheaper = more attractive
-    const bizPrices = b.inventories
-      .filter(inv => inv.sellPrice > 0)
-      .map(inv => inv.sellPrice);
-    const avgBizPrice = bizPrices.length > 0
-      ? bizPrices.reduce((sum, p) => sum + p, 0) / bizPrices.length
-      : avgMarketPrice;
-    // If price is at market average → factor = 1.0
-    // If price is 20% below market → factor = 1.2
-    // If price is 20% above market → factor = 0.8
-    // Clamped to [0.5, 1.5]
-    const pricingFactor = Math.max(0.5, Math.min(1.5, avgMarketPrice / Math.max(avgBizPrice, 1)));
-
-    // Revenue factor: businesses selling more attract more customers (momentum)
-    // 0.5 + min(dailyRevenue / avgRevenue, 2.0) * 0.25  (range ~0.5-1.0)
-    const revenueFactor = 0.5 + Math.min(b.dailyRevenue / Math.max(avgRevenue, 1), 2.0) * 0.25;
-
-    // Phase 3: Satisfaction factor — satisfied customers attract more via word-of-mouth
-    // satisfaction 50 → 1.0, satisfaction 80 → 1.12, satisfaction 20 → 0.84
-    const satisfactionFactor = 0.6 + (b.satisfactionScore / 100) * 0.6;
-
-    const score = repFactor * levelFactor * healthFactor * inventoryFactor * pricingFactor * revenueFactor * satisfactionFactor;
-    return {
+  const scored = businesses.map(b => ({
+    businessId: b.id,
+    businessName: b.name,
+    playerName: b.player.name,
+    playerId: b.player.id,
+    isAI: b.player.isAI,
+    score: calculateShopAttractiveness({
       businessId: b.id,
-      businessName: b.name,
-      playerName: b.player.name,
-      playerId: b.player.id,
-      isAI: b.player.isAI,
-      score,
-      revenue: b.dailyRevenue,
-    };
-  });
+      priceIndex: calculatePriceIndex(b.inventories, PRODUCTS[b.type] || []),
+      reputation: b.reputation,
+      level: b.level,
+      isPlayerOwned: !b.player.isAI,
+    }),
+    revenue: b.dailyRevenue,
+  }));
 
   const totalScore = scored.reduce((sum, s) => sum + s.score, 0);
 

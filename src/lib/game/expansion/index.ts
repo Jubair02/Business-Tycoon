@@ -26,3 +26,4 @@ export {
   calculatePortfolioSummary,
 } from './expansion-formulas';
 export type { ExpansionEligibility, PortfolioSummary } from './expansion-formulas';
+export * from './starting-inventory';

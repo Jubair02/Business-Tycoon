@@ -14,6 +14,7 @@
 //   - Business profit distributed to player
 // ============================================
 
+import { Prisma } from '@prisma/client';
 import { db } from './db';
 import {
   GAME_CONFIG, EVENT_TEMPLATES, PRODUCTS, CITIES, BUSINESS_TYPES, EMPLOYEE_ROLES,
@@ -38,6 +39,11 @@ import {
   roundTaka,
 } from './game/economy/formulas';
 import { getBusinessEconomyConfig } from './game/economy/business-config';
+import {
+  calculateCompetitionPressure,
+  calculatePriceIndex,
+} from './game/economy/competition';
+import type { RivalShopSnapshot } from './game/economy/types';
 import { getProductDemandConfig } from './game/economy/product-demand';
 import { ECONOMY_CONFIG } from './game/economy/economy-config';
 import type { ProductSalesResult, ExpenseBreakdown, BusinessHealthResult } from './game/economy/types';
@@ -83,6 +89,39 @@ import {
   calculateSetupDays,
 } from './game/expansion';
 
+// Phase 7: Standing restock orders
+import { runAutoRestockForTick } from './game/operations/auto-restock';
+
+// Phase 7: Offline progression — which shops are open this tick
+import { resolveTradingBusinesses } from './game/offline/offline-progression';
+
+// Phase 8: Seasons — the day belongs to a season, not to the world
+import {
+  ensureActiveSeason,
+  advanceSeasonDay,
+  getCurrentGameDay,
+  rollOverSeason,
+} from './game/seasons/seasons';
+import { daysRemaining } from './game/seasons/season-config';
+
+// Phase 8: Push notifications — the few things worth interrupting someone for
+import { notifyOutOfStock, notifySeasonEnding } from './push/notifications';
+
+// Phase 8: Season pass — cosmetic track progress, separate from player level
+import { awardPassXp } from './commerce/award-pass-xp';
+
+// Phase 8: Brand sponsorship — branded lines on real shelves, counted honestly
+import { openLedger, type SponsorshipLedger } from './sponsorship/tracking';
+import { PASS_XP } from './commerce/season-pass';
+
+// Phase 6: Player Progression (XP & levelling)
+import {
+  awardExperience,
+  calculateProfitableDayXp,
+  crossedFirstProfit,
+  PROGRESSION_CONFIG,
+} from './game/progression';
+
 // ---- Prisma Transaction Client Type ----
 type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
@@ -101,7 +140,13 @@ const STALE_TICK_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 export async function acquireTickLock(): Promise<boolean> {
   const now = new Date();
 
-  return db.$transaction(async (tx) => {
+  // The lock is read-then-written, so it is only safe under an isolation level
+  // that rejects write skew. Under the default Read Committed, two concurrent
+  // ticks both read "not locked" and both acquire it — which double-processed
+  // every business and lost the tickCount increment. Serializable makes the
+  // loser abort; we translate that abort into "someone else holds the lock".
+  try {
+    return await db.$transaction(async (tx) => {
     // Read current lock state
     const lockState = await tx.gameState.findUnique({ where: { key: 'tickInProgress' } });
     const startedAtState = await tx.gameState.findUnique({ where: { key: 'tickStartedAt' } });
@@ -142,7 +187,15 @@ export async function acquireTickLock(): Promise<boolean> {
     });
 
     return true;
-  });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    // P2034 = transaction conflict/deadlock: another tick won the race.
+    const code = (error as { code?: string })?.code;
+    if (code === 'P2034' || code === 'P2028') {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function releaseTickLock(): Promise<void> {
@@ -242,13 +295,19 @@ export async function updateMarketPrices(): Promise<void> {
 
   const updates: { productName: string; city: string; priceMultiplier: number; demandMultiplier: number }[] = [];
 
+  // One read for every market instead of 28 products x 5 cities sequential
+  // findUnique calls, which alone cost ~140 round trips per tick.
+  const existingRows = await db.marketPrice.findMany({
+    select: { productName: true, city: true, priceMultiplier: true },
+  });
+  const previousByKey = new Map(
+    existingRows.map(row => [`${row.productName}|${row.city}`, row.priceMultiplier])
+  );
+
   for (const city of cities) {
     for (const product of allProducts) {
-      // Get current market price (for retention)
-      const existing = await db.marketPrice.findUnique({
-        where: { productName_city: { productName: product.name, city } },
-      });
-      const previousPriceMult = existing?.priceMultiplier ?? 1;
+      // Current market price (for retention)
+      const previousPriceMult = previousByKey.get(`${product.name}|${city}`) ?? 1;
 
       // Calculate event price modifier for this product
       const eventPriceMod = allPriceMod + (categoryPriceMod[product.category] || 0);
@@ -263,20 +322,33 @@ export async function updateMarketPrices(): Promise<void> {
     }
   }
 
-  // Batch update in a transaction
-  await db.$transaction(async (tx) => {
-    for (const upd of updates) {
-      await tx.marketPrice.upsert({
-        where: { productName_city: { productName: upd.productName, city: upd.city } },
-        create: upd,
-        update: {
-          priceMultiplier: upd.priceMultiplier,
-          demandMultiplier: upd.demandMultiplier,
-          updatedAt: new Date(),
-        },
-      });
-    }
-  });
+  if (updates.length === 0) return;
+
+  // Single bulk upsert. This was a loop of ~140 sequential upserts inside one
+  // interactive transaction, which exceeded Prisma's 5s transaction budget
+  // against a remote database and aborted the whole tick with P2028 — market
+  // prices never updated and every later step of the tick was skipped.
+  const now = new Date();
+  await db.$executeRaw`
+    INSERT INTO "MarketPrice" ("id", "productName", "city", "priceMultiplier", "demandMultiplier", "updatedAt")
+    SELECT
+      gen_random_uuid()::text,
+      u."productName",
+      u."city",
+      u."priceMultiplier",
+      u."demandMultiplier",
+      ${now}
+    FROM UNNEST(
+      ${updates.map(u => u.productName)}::text[],
+      ${updates.map(u => u.city)}::text[],
+      ${updates.map(u => u.priceMultiplier)}::double precision[],
+      ${updates.map(u => u.demandMultiplier)}::double precision[]
+    ) AS u("productName", "city", "priceMultiplier", "demandMultiplier")
+    ON CONFLICT ("productName", "city") DO UPDATE SET
+      "priceMultiplier" = EXCLUDED."priceMultiplier",
+      "demandMultiplier" = EXCLUDED."demandMultiplier",
+      "updatedAt" = EXCLUDED."updatedAt"
+  `;
 }
 
 // ---- Apply Event Effects to Market (Phase 1: Integrated into updateMarketPrices) ----
@@ -460,13 +532,27 @@ async function processMarketingTick(
  * 8. Distribute profit to player cash (Phase 1 fix)
  * 9. Recalculate net worth
  */
-export async function simulateBusinessTick(businessId: string): Promise<void> {
+export async function simulateBusinessTick(
+  businessId: string,
+  /**
+   * The day's sponsorship ledger, when the tick is driving. Optional so the
+   * function stays callable on its own — a sponsored shelf is not a reason for
+   * a single-business simulation to need a ledger.
+   */
+  sponsorLedger?: SponsorshipLedger,
+): Promise<void> {
+  // ---- Step 0: Standing restock order ----
+  // Runs before anything is read below, so a shop with a standing order opens
+  // the day stocked and the customer/stock-availability model sees the topped-up
+  // shelves rather than yesterday's empty ones.
+  await runAutoRestockForTick(businessId);
+
   const business = await db.business.findUnique({
     where: { id: businessId },
     include: {
       inventories: true,
       employees: true,
-      player: { select: { id: true, cash: true, netWorth: true } },
+      player: { select: { id: true, cash: true, netWorth: true, userId: true, isAI: true } },
     },
   });
 
@@ -541,8 +627,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
 
   // ---- Step 0.6: Marketing Demand Modifier (Phase 4) ----
   // Fetch gameDay early (needed for marketing metrics and later for business metrics)
-  const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
-  const gameDay = parseInt(gameDayState?.value || '1', 10);
+  const gameDay = await getCurrentGameDay();
 
   const marketingEffect = await processMarketingTick(
     business.id,
@@ -585,6 +670,55 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
     businessTypeId: business.type,
   });
 
+  // ---- Step 1.5: Competitive pressure ----
+  // Shops of the same trade in the same city draw on one pool of customers.
+  // Before this existed, a rival undercutting you cost you nothing, which is
+  // why the AI ignoring the player did not matter: there was nothing for it to
+  // compete over. Price and reputation now decide the split.
+  const rivalBusinesses = await db.business.findMany({
+    where: {
+      city: business.city,
+      type: business.type,
+      id: { not: business.id },
+      // A shop still being fitted out is not trading yet, and a shop shuttered
+      // because its owner is away is not taking custom from anyone.
+      setupDaysRemaining: 0,
+      dormantSinceDay: null,
+    },
+    select: {
+      id: true,
+      reputation: true,
+      level: true,
+      player: { select: { isAI: true } },
+      inventories: { select: { productName: true, sellPrice: true } },
+    },
+  });
+
+  const priceMultipliersForMarket: Record<string, number> = {};
+  for (const [name, mp] of Object.entries(marketPriceMap)) {
+    priceMultipliersForMarket[name] = mp.priceMultiplier;
+  }
+
+  const selfSnapshot: RivalShopSnapshot = {
+    businessId: business.id,
+    priceIndex: calculatePriceIndex(business.inventories, productDefs, priceMultipliersForMarket),
+    reputation: business.reputation,
+    level: business.level,
+    isPlayerOwned: true,
+  };
+  const rivalSnapshots: RivalShopSnapshot[] = rivalBusinesses.map(r => ({
+    businessId: r.id,
+    priceIndex: calculatePriceIndex(r.inventories, productDefs, priceMultipliersForMarket),
+    reputation: r.reputation,
+    level: r.level,
+    isPlayerOwned: !r.player.isAI,
+  }));
+
+  const competition = calculateCompetitionPressure({
+    self: selfSnapshot,
+    rivals: rivalSnapshots,
+  });
+
   // Apply CX demand modifier, segment demand modifier, and marketing modifiers
   // CX modifier: satisfaction/loyalty affect how many customers visit (0.2-2.0 range)
   // Segment modifier: different customer segments find the business more/less attractive
@@ -595,7 +729,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   const setupModifier = calculateSetupModifier(business.setupDaysRemaining);
 
   const potentialCustomers = Math.max(0, Math.floor(
-    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus * setupModifier
+    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus * setupModifier * competition.pressure
   ));
 
   // ---- Step 2: Product-level sales simulation ----
@@ -645,6 +779,24 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       potentialCustomers,
     });
 
+    // A branded line counts as seen when the shop actually stocked and
+    // displayed it that day, and as engaged when units of it sold. Both are
+    // observed server-side, so neither depends on a beacon an ad blocker eats.
+    if (sponsorLedger) {
+      const placement = sponsorLedger.placementFor(
+        'PRODUCT',
+        inventory.productName,
+        `${business.id}:${inventory.productName}`,
+      );
+      if (placement) {
+        sponsorLedger.record(
+          placement.id,
+          business.player.isAI ? null : business.player.userId,
+          salesResult.itemsSold > 0,
+        );
+      }
+    }
+
     if (salesResult.itemsSold > 0) {
       totalRevenue += salesResult.revenue;
       totalCOGS += salesResult.costOfGoodsSold;
@@ -667,6 +819,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
 
   const expenses = calculateBusinessExpenses({
     baseRent: businessType.rent,
+    baseUtilities: businessType.utilities,
     level: business.level,
     cityRentMultiplier: locationRentModifier, // Phase 5: Location rent modifier
     totalMonthlySalaries,
@@ -687,6 +840,15 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   const dailyProfit = calculateNetProfit(totalRevenue, totalCOGS, totalExpenseWithMarketing);
 
   // ---- Step 5: Calculate reputation change ----
+  // Empty shelves are the one thing a player genuinely wants waking up for:
+  // the shop is still paying rent and earning nothing. Rate-limited to once
+  // every six hours per account inside the notifier.
+  if (!business.player.isAI && business.player.userId && totalStock <= 0) {
+    void notifyOutOfStock(business.player.userId, business.name, business.id).catch(() => {
+      // A notification is never worth failing a tick for.
+    });
+  }
+
   const outOfStockRatio = business.inventories.length > 0
     ? business.inventories.filter(inv => inv.quantity <= 0).length / business.inventories.length
     : 0;
@@ -709,7 +871,11 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
   const healthResult = calculateBusinessHealth({
     dailyProfit,
     dailyRevenue: totalRevenue,
-    businessCash: business.cash + dailyProfit,
+    // The till is swept to the player every tick (see Step 8), so a business
+    // never holds a balance of its own. The liquidity that actually backs this
+    // shop's rent and restocking is the owner's cash, so that is what the
+    // cash-flow factor is measured against.
+    businessCash: business.player.cash + business.cash + dailyProfit,
     totalStock,
     maxStockCapacity,
     reputation: newReputation,
@@ -774,10 +940,20 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       });
     }
 
-    // Phase 1 FIX: Distribute business profit to player cash
-    // Previously, profit accumulated in business.cash but was never accessible.
-    // Now: business profit is transferred to the player each tick.
-    const profitToDistribute = dailyProfit;
+    // Distribute business profit to player cash.
+    //
+    // This used to *add* the day's profit to `Business.cash` and *also*
+    // increment `Player.cash` by the same amount. Since net worth sums
+    // `player.cash + SUM(business.cash) + inventory - debt`, every taka of
+    // profit was counted twice and net worth grew at double the true rate
+    // (losses compounded twice as fast too).
+    //
+    // The till is now swept: the business ends each tick at zero and the
+    // player holds everything it earned. Sweeping the *existing* balance as
+    // well as today's profit also drains the stranded balances older saves
+    // accumulated — that money was already inside their net worth but was
+    // unreachable, so this moves it without changing the total.
+    const profitToDistribute = roundTaka(business.cash + dailyProfit);
 
     // Update business (including Phase 3 CX fields, Phase 4 Marketing fields, Phase 5 Expansion fields)
     // Phase 5: Advance setup days remaining
@@ -791,7 +967,7 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
         dailyProfit: roundTaka(dailyProfit),
         dailyCOGS: roundTaka(totalCOGS),
         dailyCustomers: potentialCustomers,
-        cash: business.cash + roundTaka(dailyProfit),
+        cash: 0,  // swept to the player below
         totalRevenue: business.totalRevenue + roundTaka(totalRevenue),
         totalProfit: business.totalProfit + roundTaka(dailyProfit),
         reputation: newReputation,
@@ -807,11 +983,35 @@ export async function simulateBusinessTick(businessId: string): Promise<void> {
       },
     });
 
-    // Distribute profit to player cash
+    // Sweep the till to the player.
     await tx.player.update({
       where: { id: business.playerId },
-      data: { cash: { increment: roundTaka(profitToDistribute) } },
+      data: { cash: { increment: profitToDistribute } },
     });
+
+    // ---- Phase 6: Player progression ----
+    // XP is the gate on expansion (a second business needs level 2), so it is
+    // awarded here, inside the same transaction as the day's result: a tick
+    // that rolls back must not leave the player holding XP for a day that
+    // never happened.
+    const newTotalProfit = business.totalProfit + roundTaka(dailyProfit);
+    const dayXp = calculateProfitableDayXp(dailyProfit);
+    if (dayXp > 0) {
+      await awardExperience(tx, business.playerId, dayXp, 'PROFITABLE_DAY', business.id);
+      // The cosmetic track advances alongside the player's level, but they are
+      // separate currencies: level gates expansion and borrowing, pass XP buys
+      // nothing but signage.
+      await awardPassXp(tx, business.playerId, PASS_XP.profitableDay);
+    }
+    if (crossedFirstProfit(business.totalProfit, newTotalProfit)) {
+      await awardExperience(
+        tx,
+        business.playerId,
+        PROGRESSION_CONFIG.firstProfitXp,
+        'FIRST_PROFIT',
+        business.id,
+      );
+    }
 
     // Phase 4: Attribute revenue to campaigns for ROI analytics
     // NOTE: Marketing spend is already included in totalExpenseWithMarketing
@@ -1001,6 +1201,17 @@ async function processLoanPayments(): Promise<void> {
           amount: -deductAmount,
         },
       });
+
+      // Phase 6: clearing a loan is a one-off milestone. Keyed on the
+      // ACTIVE -> cleared transition, so it fires once per loan.
+      if (newRemainingDebt <= 0) {
+        await awardExperience(
+          tx,
+          loan.playerId,
+          PROGRESSION_CONFIG.loanClearedXp,
+          'LOAN_CLEARED',
+        );
+      }
     });
   }
 }
@@ -1020,34 +1231,23 @@ export async function gameTick(): Promise<void> {
   });
 
   // 0. Game state housekeeping
-  const tickState = await db.gameState.findUnique({ where: { key: 'tickCount' } });
-  const tickNum = parseInt(tickState?.value || '0');
+  const season = await ensureActiveSeason();
+  const tickNum = season.tickCount;
 
-  await db.$transaction(async (tx) => {
-    // Expire old events
-    await tx.gameEvent.updateMany({
-      where: { active: true, endsAt: { lt: new Date() } },
-      data: { active: false },
-    });
+  // Expire old events
+  await db.gameEvent.updateMany({
+    where: { active: true, endsAt: { lt: new Date() } },
+    data: { active: false },
+  });
 
-    // Update game state
-    const now = new Date().toISOString();
-    await tx.gameState.upsert({
-      where: { key: 'lastTick' },
-      create: { key: 'lastTick', value: now },
-      update: { value: now },
-    });
-    await tx.gameState.upsert({
-      where: { key: 'tickCount' },
-      create: { key: 'tickCount', value: '1' },
-      update: { value: String(tickNum + 1) },
-    });
-    const dayState = await tx.gameState.findUnique({ where: { key: 'gameDay' } });
-    await tx.gameState.upsert({
-      where: { key: 'gameDay' },
-      create: { key: 'gameDay', value: '1' },
-      update: { value: String(parseInt(dayState?.value || '0') + 1) },
-    });
+  // The day belongs to the season now, not to the world. `lastTick` is still
+  // written to GameState because the clock UI polls it and it is genuinely
+  // world-level — the scheduler runs one clock, whichever season is active.
+  const { gameDay: currentDay, finished: seasonFinished } = await advanceSeasonDay();
+  await db.gameState.upsert({
+    where: { key: 'lastTick' },
+    create: { key: 'lastTick', value: new Date().toISOString() },
+    update: { value: new Date().toISOString() },
   });
 
   // Generate new events (20% chance)
@@ -1070,14 +1270,30 @@ export async function gameTick(): Promise<void> {
     // applyEventEffects() is now a no-op — events handled in updateMarketPrices()
   }
 
-  // 1. Simulate all businesses
-  const businesses = await db.business.findMany({ select: { id: true } });
-  for (const business of businesses) {
+  // 1. Simulate the businesses that are open today.
+  //
+  // A human owner's shops trade while the owner is inside the offline grace
+  // window and are shuttered past it, so a player who closes the tab overnight
+  // comes back to a paused chain rather than to hundreds of unattended days of
+  // rent. AI competitors always trade. See `game/offline/offline-progression`.
+  const tradingBusinessIds = await resolveTradingBusinesses(currentDay);
+  // Sponsorship counts accumulate in memory across the whole day's businesses
+  // and are written once at the end — see `sponsorship/tracking.ts` for why a
+  // row per impression would be the wrong shape.
+  const sponsorLedger = await openLedger(currentDay);
+
+  for (const businessId of tradingBusinessIds) {
     try {
-      await simulateBusinessTick(business.id);
+      await simulateBusinessTick(businessId, sponsorLedger);
     } catch (err) {
-      console.error(`[GameEngine] Failed to simulate business ${business.id}:`, err);
+      console.error(`[GameEngine] Failed to simulate business ${businessId}:`, err);
     }
+  }
+
+  try {
+    await sponsorLedger.flush();
+  } catch (err) {
+    console.error('[GameEngine] Failed to write sponsorship stats:', err);
   }
 
   // 2. Process loan payments
@@ -1089,9 +1305,7 @@ export async function gameTick(): Promise<void> {
 
   // 3. Simulate AI player activity (Phase 2: Real AI decisions)
   try {
-    const gameDayState2 = await db.gameState.findUnique({ where: { key: 'gameDay' } });
-    const currentGameDay = parseInt(gameDayState2?.value || '1', 10);
-    await simulateAIPlayersTick(currentGameDay);
+    await simulateAIPlayersTick(currentDay);
   } catch (err) {
     console.error('[GameEngine] Failed to simulate AI tick:', err);
   }
@@ -1102,6 +1316,43 @@ export async function gameTick(): Promise<void> {
       await generateNews();
     } catch (err) {
       console.error('[GameEngine] Failed to generate news:', err);
+    }
+  }
+
+  // 4.5 Warn about a season that is nearly over, so a player can make a last
+  // push at the ladder rather than discovering it closed.
+  if (daysRemaining(currentDay, season.lengthDays) <= 7) {
+    try {
+      const owners = await db.player.findMany({
+        where: { seasonId: season.id, isAI: false, userId: { not: null } },
+        select: { userId: true },
+      });
+      const left = daysRemaining(currentDay, season.lengthDays);
+      for (const owner of owners) {
+        void notifySeasonEnding(owner.userId!, season.name, left).catch(() => {});
+      }
+    } catch (err) {
+      console.error('[GameEngine] Season-ending notifications failed:', err);
+    }
+  }
+
+  // 5. Close the season if it has run its course.
+  //
+  // Last, so the day that ends a season is simulated in full before the books
+  // are closed on it — a player's final day should count.
+  if (seasonFinished) {
+    try {
+      const rollover = await rollOverSeason();
+      if (rollover) {
+        console.info(
+          `[GameEngine] Season ${rollover.endedSeasonNumber} ended; ` +
+            `season ${rollover.newSeasonNumber} started. ${rollover.archived} archived.`,
+        );
+        // A new season needs its own cohort of competitors.
+        await seedAIPlayers();
+      }
+    } catch (err) {
+      console.error('[GameEngine] Season rollover failed:', err);
     }
   }
 
@@ -1171,41 +1422,54 @@ async function generateNews(): Promise<void> {
 
 // ---- Seed Data ----
 
-export async function seedInitialData(): Promise<void> {
-  // Seed products
-  const allProducts = Object.values(PRODUCTS).flat();
-  for (const product of allProducts) {
-    await db.product.upsert({
-      where: { name: product.name },
-      create: {
-        name: product.name,
-        category: product.category,
-        basePrice: product.basePrice,
-        baseDemand: product.baseDemand,
-        icon: product.icon,
-      },
-      update: {},
-    });
-  }
+/** Bumped when the seed content changes and needs to be re-applied. */
+const SEED_VERSION = '1';
 
-  // Seed initial market prices
+export async function seedInitialData(): Promise<void> {
+  // Fast path: this used to run ~175 sequential upserts on *every* page load,
+  // which took ~50s against a remote database and left the UI on a skeleton
+  // until it finished. One indexed read now short-circuits the whole thing.
+  const seeded = await db.gameState.findUnique({ where: { key: 'seedVersion' } });
+  if (seeded?.value === SEED_VERSION) return;
+
+  const allProducts = Object.values(PRODUCTS).flat();
   const cities = CITIES.map(c => c.id);
-  for (const city of cities) {
-    for (const product of allProducts) {
-      await db.marketPrice.upsert({
-        where: { productName_city: { productName: product.name, city } },
-        create: { productName: product.name, city, priceMultiplier: 1, demandMultiplier: 1 },
-        update: {},
-      });
-    }
-  }
+
+  // Bulk insert instead of per-row upserts: two round trips rather than ~170.
+  await db.product.createMany({
+    data: allProducts.map(product => ({
+      name: product.name,
+      category: product.category,
+      basePrice: product.basePrice,
+      baseDemand: product.baseDemand,
+      icon: product.icon,
+    })),
+    skipDuplicates: true,
+  });
+
+  await db.marketPrice.createMany({
+    data: cities.flatMap(city =>
+      allProducts.map(product => ({
+        productName: product.name,
+        city,
+        priceMultiplier: 1,
+        demandMultiplier: 1,
+      }))
+    ),
+    skipDuplicates: true,
+  });
 
   // Game state
-  await db.gameState.upsert({ where: { key: 'lastTick' }, create: { key: 'lastTick', value: new Date().toISOString() }, update: {} });
-  await db.gameState.upsert({ where: { key: 'tickCount' }, create: { key: 'tickCount', value: '0' }, update: {} });
-  await db.gameState.upsert({ where: { key: 'gameDay' }, create: { key: 'gameDay', value: '1' }, update: {} });
-  await db.gameState.upsert({ where: { key: 'tickInProgress' }, create: { key: 'tickInProgress', value: 'false' }, update: {} });
-  await db.gameState.upsert({ where: { key: 'tickVersion' }, create: { key: 'tickVersion', value: '0' }, update: {} });
+  await db.gameState.createMany({
+    data: [
+      { key: 'lastTick', value: new Date().toISOString() },
+      { key: 'tickCount', value: '0' },
+      { key: 'gameDay', value: '1' },
+      { key: 'tickInProgress', value: 'false' },
+      { key: 'tickVersion', value: '0' },
+    ],
+    skipDuplicates: true,
+  });
 
   // Generate initial news
   for (let i = 0; i < 5; i++) {
@@ -1214,6 +1478,13 @@ export async function seedInitialData(): Promise<void> {
 
   // Generate initial event
   await generateEvent();
+
+  // Recorded last: if anything above throws, the next call retries the seed.
+  await db.gameState.upsert({
+    where: { key: 'seedVersion' },
+    create: { key: 'seedVersion', value: SEED_VERSION },
+    update: { value: SEED_VERSION },
+  });
 }
 
 // ---- Create AI Players for Competition (Phase 2: Real Competitors) ----
@@ -1223,8 +1494,14 @@ export async function seedInitialData(): Promise<void> {
  * These are no longer decorative — they compete in the real economy.
  */
 export async function seedAIPlayers(): Promise<void> {
-  const existingAI = await db.player.count({ where: { isAI: true } });
-  if (existingAI > 0) return; // Already seeded
+  // Competitors belong to a season, like everyone else. Each new season gets a
+  // fresh cohort rather than inheriting the last one's empires — otherwise the
+  // reset would apply to the players and not to the rivals they are measured
+  // against, which is worse than not resetting at all.
+  const season = await ensureActiveSeason();
+
+  const existingAI = await db.player.count({ where: { isAI: true, seasonId: season.id } });
+  if (existingAI > 0) return; // Already seeded for this season
 
   const aiDefinitions = [
     { name: 'Rahim Enterprises', email: 'ai-rahim@game.local', personality: 'CONSERVATIVE' as const },
@@ -1246,7 +1523,10 @@ export async function seedAIPlayers(): Promise<void> {
     const player = await db.player.create({
       data: {
         name: ai.name,
-        email: ai.email,
+        // `Player.email` is unique, so a competitor's address has to carry the
+        // season it belongs to or season 2 could not seed at all.
+        email: ai.email.replace('@', `-s${season.number}@`),
+        seasonId: season.id,
         cash: baseCash,
         netWorth,
         level: 1,

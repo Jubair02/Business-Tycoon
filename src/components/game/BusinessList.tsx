@@ -1,16 +1,20 @@
 'use client';
 
 import { useGameStore } from '@/store/game-store';
+import { ROUTES, businessRoute } from '@/lib/game-routes';
+import { useRouter } from 'next/navigation';
 import { formatTakaShort, getBusinessType, getCity } from '@/lib/game-data';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { Plus, TrendingUp, TrendingDown, Building2, MapPin, Users, Star, Package, UserPlus, ArrowUpCircle, Briefcase } from 'lucide-react';
+import {
+  Plus, TrendingUp, TrendingDown, Building2, MapPin, Users, Star,
+  Package, UserPlus, ArrowUpCircle, Coins,
+} from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-// Generate a deterministic mini sparkline from a seed string
+// Deterministic mini sparkline from a seed string
 const getMiniSparkline = (seed: string): number[] => {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
@@ -18,209 +22,265 @@ const getMiniSparkline = (seed: string): number[] => {
     hash |= 0;
   }
   const bars: number[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
     hash = ((hash << 3) ^ (hash >>> 2)) & 0x7fffffff;
-    bars.push(20 + (hash % 60));
+    bars.push(25 + (hash % 60));
   }
   return bars;
 };
 
-export default function BusinessList() {
-  const { businesses, setView, selectBusiness } = useGameStore();
+function SummaryTile({
+  label, value, icon: Icon, tone,
+}: {
+  label: string;
+  value: string;
+  icon: React.ElementType;
+  tone: 'emerald' | 'gold' | 'sky' | 'crimson';
+}) {
+  return (
+    <div className="bt-surface p-3 text-center sm:p-3.5">
+      <span
+        className={cn('bt-tone mx-auto grid h-7 w-7 place-items-center rounded-lg', `bt-tone-${tone}`)}
+      >
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+      <p className="bt-label mt-2">{label}</p>
+      <p
+        className={cn(
+          'bt-figure mt-1 text-base sm:text-lg',
+          tone === 'emerald' && 'bt-text-profit',
+          tone === 'gold' && 'bt-text-gold',
+          tone === 'crimson' && 'bt-text-loss',
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
 
-  // Computed values for summary bar
+export default function BusinessList() {
+  const router = useRouter();
+  const { businesses } = useGameStore();
+
   const totalBusinesses = businesses.length;
   const totalDailyProfit = businesses.reduce((sum: number, b: any) => sum + (b.dailyProfit || 0), 0);
   const totalStaff = businesses.reduce((sum: number, b: any) => sum + (b._count?.employees || 0), 0);
 
-  // Best performer
   const bestPerformer = businesses.length > 0
-    ? businesses.reduce((best: any, b: any) => (b.dailyProfit || 0) > (best?.dailyProfit || 0) ? b : best, null)
+    ? businesses.reduce((best: any, b: any) => ((b.dailyProfit || 0) > (best?.dailyProfit || 0) ? b : best), null)
     : null;
 
-  return (
-    <div className="p-3 md:p-4 space-y-5 pb-24 md:pb-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-            <Building2 className="h-4 w-4 text-white" />
-          </div>
-          <span className="game-badge-gradient">Your Businesses</span>
-          <span className="text-xs font-bold text-muted-foreground bg-muted rounded-full px-2 py-0.5">{businesses.length}</span>
-        </h2>
-        <Button size="sm" onClick={() => setView('new-business')} className="gap-1.5 text-white text-xs rounded-lg shadow-sm hover:shadow-md transition-shadow game-btn-shimmer" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-          <Plus className="h-3.5 w-3.5" /> New
-        </Button>
-      </div>
+  // Quick actions all open the business detail; they differ only in
+  // which tab the player lands on, so they share one handler.
+  const quickActions = [
+    { label: 'Inventory', icon: Package },
+    { label: 'Hire', icon: UserPlus },
+    { label: 'Upgrade', icon: ArrowUpCircle },
+  ];
 
-      {/* Summary Bar */}
-      {businesses.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="game-stat-card rounded-lg p-2.5 text-center">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Businesses</p>
-              <p className="text-sm font-bold mt-0.5" style={{ color: '#006a4e' }}>{totalBusinesses}</p>
-            </div>
-            <div className="game-stat-card rounded-lg p-2.5 text-center">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Daily Profit</p>
-              <p className={cn('text-sm font-bold mt-0.5', totalDailyProfit >= 0 ? 'text-green-700' : 'text-red-600')}>
-                {totalDailyProfit >= 0 ? '+' : ''}{formatTakaShort(totalDailyProfit)}
-              </p>
-            </div>
-            <div className="game-stat-card rounded-lg p-2.5 text-center">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Total Staff</p>
-              <p className="text-sm font-bold mt-0.5" style={{ color: '#006a4e' }}>
-                <Users className="h-3 w-3 inline mr-0.5" />{totalStaff}
-              </p>
-            </div>
+  return (
+    <div className="bt-page bt-stack">
+      {/* ─── Header ────────────────────────────────────────────── */}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="bt-tone bt-tone-emerald grid h-10 w-10 shrink-0 place-items-center rounded-xl">
+            <Building2 className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-bold tracking-tight sm:text-xl">Your Businesses</h1>
+            <p className="bt-numeric text-xs text-muted-foreground">
+              {totalBusinesses} {totalBusinesses === 1 ? 'venture' : 'ventures'} in operation
+            </p>
           </div>
-        </motion.div>
+        </div>
+        <Button
+          onClick={() => router.push(ROUTES.newBusiness)}
+          className="bt-btn-primary bt-tap h-10 shrink-0 gap-1.5 rounded-xl px-4 font-semibold"
+        >
+          <Plus className="h-4 w-4" /> New business
+        </Button>
+      </header>
+
+      {/* ─── Summary ───────────────────────────────────────────── */}
+      {businesses.length > 0 && (
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+          aria-label="Portfolio summary"
+        >
+          <div className="grid grid-cols-3 gap-2.5">
+            <SummaryTile label="Ventures" value={String(totalBusinesses)} icon={Building2} tone="sky" />
+            <SummaryTile
+              label="Daily Profit"
+              value={`${totalDailyProfit >= 0 ? '+' : ''}${formatTakaShort(totalDailyProfit)}`}
+              icon={Coins}
+              tone={totalDailyProfit >= 0 ? 'emerald' : 'crimson'}
+            />
+            <SummaryTile label="Total Staff" value={String(totalStaff)} icon={Users} tone="gold" />
+          </div>
+        </motion.section>
       )}
 
+      {/* ─── Empty state ───────────────────────────────────────── */}
       {businesses.length === 0 ? (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="rounded-xl">
-            <CardContent className="game-empty-state">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-2" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.08), rgba(0,168,107,0.12))' }}>
-                <span className="game-empty-icon" style={{ fontSize: '2.5rem', margin: 0, opacity: 0.5, filter: 'none' }}>🏗️</span>
-              </div>
-              <p className="game-empty-title">No Businesses Yet</p>
-              <p className="game-empty-desc">Create your first business to start earning profits in Bangladesh!</p>
-              <button className="game-empty-action" onClick={() => setView('new-business')}>
-                <Plus className="h-3.5 w-3.5 inline mr-1" style={{ verticalAlign: '-1px' }} />Create Your First Business
-              </button>
-            </CardContent>
-          </Card>
+          <div className="bt-surface border-dashed p-10 text-center">
+            <span className="bt-medallion bt-medallion-lg mx-auto mb-4">
+              <Building2 className="h-7 w-7 text-[var(--bt-emerald)]" aria-hidden="true" />
+            </span>
+            <h2 className="text-base font-bold sm:text-lg">No businesses yet</h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+              Your empire starts with a single shop. Pick a venture, choose a city, and start
+              turning taka into more taka.
+            </p>
+            <Button
+              onClick={() => router.push(ROUTES.newBusiness)}
+              className="bt-btn-primary bt-tap mt-6 h-11 gap-1.5 rounded-xl px-5 font-semibold"
+            >
+              <Plus className="h-4 w-4" /> Create your first business
+            </Button>
+          </div>
         </motion.div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        /* ─── Business grid ───────────────────────────────────── */
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {businesses.map((b: any, i: number) => {
             const bt = getBusinessType(b.type);
             const city = getCity(b.city);
             const profit = b.dailyProfit || 0;
             const isPositive = profit >= 0;
-            const isBest = bestPerformer && bestPerformer.id === b.id;
+            const isBest = bestPerformer && bestPerformer.id === b.id && businesses.length > 1;
             const sparkBars = getMiniSparkline(b.id || b.name);
+
             return (
-              <motion.div
+              <motion.article
                 key={b.id}
-                initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                initial={{ opacity: 0, scale: 0.97, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                transition={{ delay: i * 0.05, duration: 0.3 }}
-                whileHover={{ y: -3, transition: { duration: 0.2 } }}
+                transition={{ delay: Math.min(i * 0.04, 0.3), duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                className={cn(
+                  'bt-surface bt-interactive bt-edge relative flex flex-col',
+                  isBest && 'bt-edge-gold',
+                  !isPositive && !isBest && 'bt-edge-loss',
+                )}
+                onClick={() => router.push(businessRoute(b.id))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    router.push(businessRoute(b.id));
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${b.name}`}
               >
-                <Card className={cn(
-                  'cursor-pointer rounded-xl transition-all duration-300 hover:shadow-lg relative overflow-hidden',
-                  isBest ? 'hover:border-green-400 border-green-300' : 'hover:border-green-200'
-                )} onClick={() => selectBusiness(b.id)}>
-                  {/* Best performer star badge */}
-                  {isBest && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <Badge className="text-[9px] font-bold px-1.5 py-0 rounded-full text-white" style={{ background: 'linear-gradient(135deg, #006a4e, #00a86b)' }}>
-                        <Star className="h-2.5 w-2.5 mr-0.5" />
-                        Best
-                      </Badge>
-                    </div>
-                  )}
-                  <div
-                    className="h-1 rounded-t-xl"
-                    style={{
-                      background: isPositive
-                        ? 'linear-gradient(90deg, #006a4e, #00a86b)'
-                        : 'linear-gradient(90deg, #f42a41, #f87171)',
-                    }}
-                  />
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className={cn('text-3xl p-2.5 rounded-xl shrink-0 shadow-sm', bt?.bgColor || 'bg-gray-50')}>
-                        {bt?.icon || '🏪'}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-bold text-sm truncate pr-12">{b.name}</div>
-                        <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground font-medium">
-                          <MapPin className="h-3 w-3" />
-                          {city?.name} <span className="text-border">·</span> {bt?.name}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5 mt-2.5">
-                          <Badge variant="secondary" className="text-[10px] px-2 py-0 rounded-full font-semibold bg-green-50 text-green-700">
-                            Lv.{b.level || 1}
-                          </Badge>
-                          <Badge variant="secondary" className="text-[10px] px-2 py-0 rounded-full font-medium">
-                            {b._count?.inventories || 0} items
-                          </Badge>
-                          <Badge variant="secondary" className="text-[10px] px-2 py-0 rounded-full font-medium">
-                            {b._count?.employees || 0} staff
-                          </Badge>
-                        </div>
+                {isBest && (
+                  <Badge
+                    className="bt-btn-gold absolute right-3 top-3 z-10 gap-0.5 rounded-full border-0 px-2 py-0.5 text-xs font-bold"
+                  >
+                    <Star className="h-3 w-3 fill-current" aria-hidden="true" />
+                    Top earner
+                  </Badge>
+                )}
+
+                <div className="flex-1 p-4">
+                  {/* Identity */}
+                  <div className="flex items-start gap-3">
+                    <span className="bt-medallion bt-medallion-lg" aria-hidden="true">
+                      {bt?.icon || '🏪'}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h2 className={cn('truncate text-sm font-bold sm:text-base', isBest && 'pr-24')}>
+                        {b.name}
+                      </h2>
+                      <p className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                        <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+                        {city?.name}
+                        <span aria-hidden="true">·</span>
+                        {bt?.name}
+                      </p>
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        <Badge variant="outline" className="bt-tone bt-tone-emerald rounded-full px-2 text-xs font-bold">
+                          Lv.{b.level || 1}
+                        </Badge>
+                        <Badge variant="secondary" className="bt-numeric rounded-full px-2 text-xs font-medium">
+                          {b._count?.inventories || 0} items
+                        </Badge>
+                        <Badge variant="secondary" className="bt-numeric rounded-full px-2 text-xs font-medium">
+                          {b._count?.employees || 0} staff
+                        </Badge>
                       </div>
                     </div>
-                    <hr className="game-divider-gradient my-3" />
-                    <div className="space-y-2.5">
-                      <div>
-                        <div className="flex justify-between text-[10px] text-muted-foreground mb-1.5 font-medium uppercase tracking-wider">
-                          <span>Reputation</span>
-                          <span className="normal-case">{b.reputation || 0}%</span>
-                        </div>
-                        <Progress value={b.reputation || 0} className="h-1.5 rounded-full" />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground font-medium">Daily Profit</span>
-                          {/* CSS-only sparkline */}
-                          <div className="flex items-end gap-[1.5px] h-4" aria-hidden="true">
-                            {sparkBars.map((h, bi) => (
-                              <div
-                                key={bi}
-                                className="rounded-sm"
-                                style={{
-                                  width: '2.5px',
-                                  height: `${h}%`,
-                                  background: isPositive
-                                    ? 'linear-gradient(180deg, rgba(0, 106, 78, 0.6), rgba(0, 106, 78, 0.2))'
-                                    : 'linear-gradient(180deg, rgba(244, 42, 65, 0.5), rgba(244, 42, 65, 0.15))',
-                                  transition: 'height 0.3s ease',
-                                }}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <span className={cn(
-                          'text-sm font-bold flex items-center gap-1 px-2 py-0.5 rounded-lg',
-                          isPositive ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
-                        )}>
-                          {isPositive ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-                          {isPositive ? '+' : ''}{formatTakaShort(profit)}
-                        </span>
-                      </div>
+                  </div>
+
+                  <hr className="my-3.5 border-[var(--bt-hairline)]" />
+
+                  {/* Reputation */}
+                  <div>
+                    <div className="mb-1.5 flex items-baseline justify-between">
+                      <span className="bt-label">Reputation</span>
+                      <span className="bt-numeric text-xs font-bold">{b.reputation || 0}%</span>
                     </div>
-                    {/* Quick-action button row */}
-                    <hr className="game-divider-gradient my-3" />
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                        onClick={(e) => { e.stopPropagation(); selectBusiness(b.id); }}
+                    <Progress
+                      value={b.reputation || 0}
+                      className="h-1.5"
+                      aria-label={`Reputation ${b.reputation || 0} percent`}
+                    />
+                  </div>
+
+                  {/* Profit + sparkline */}
+                  <div className="mt-3.5 flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="bt-label">Daily Profit</p>
+                      <p
+                        className={cn(
+                          'bt-figure mt-1 flex items-center gap-1 text-lg',
+                          isPositive ? 'bt-text-profit' : 'bt-text-loss',
+                        )}
                       >
-                        <Package className="h-3 w-3" />
-                        Inventory
-                      </button>
-                      <button
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                        onClick={(e) => { e.stopPropagation(); selectBusiness(b.id); }}
-                      >
-                        <UserPlus className="h-3 w-3" />
-                        Hire
-                      </button>
-                      <button
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                        onClick={(e) => { e.stopPropagation(); selectBusiness(b.id); }}
-                      >
-                        <ArrowUpCircle className="h-3 w-3" />
-                        Upgrade
-                      </button>
+                        {isPositive
+                          ? <TrendingUp className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          : <TrendingDown className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                        {isPositive ? '+' : ''}{formatTakaShort(profit)}
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
+                    <div className="flex h-9 shrink-0 items-end gap-[3px]" aria-hidden="true">
+                      {sparkBars.map((h, bi) => (
+                        <span
+                          key={bi}
+                          className="w-[3px] rounded-full transition-[height] duration-300"
+                          style={{
+                            height: `${h}%`,
+                            background: isPositive
+                              ? 'linear-gradient(180deg, var(--bt-emerald), color-mix(in oklch, var(--bt-emerald) 25%, transparent))'
+                              : 'linear-gradient(180deg, var(--bt-crimson), color-mix(in oklch, var(--bt-crimson) 25%, transparent))',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick actions — 44px targets on touch */}
+                <div className="grid grid-cols-3 gap-1 border-t border-[var(--bt-hairline)] p-1.5">
+                  {quickActions.map(({ label, icon: Icon }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="bt-tap gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-[var(--bt-surface-2)] hover:text-foreground"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(businessRoute(b.id));
+                      }}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </motion.article>
             );
           })}
         </div>

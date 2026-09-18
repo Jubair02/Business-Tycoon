@@ -21,6 +21,14 @@ import { BUSINESS_TYPES, CITIES, PRODUCTS } from '@/lib/game-data';
 import type { BusinessType } from '@/lib/game-data';
 import { AI_MARKETING_CONFIG } from '../marketing/marketing-config';
 import { EXPANSION_CONFIG, AI_EXPANSION_CONFIG, calculateExpansionCost } from '../expansion';
+import {
+  findRivalsInMarket,
+  rankMarketsToAttack,
+  pickPoachTarget,
+  rivalryDrive,
+  marketKey,
+  RIVALRY_CONFIG,
+} from './ai-rivalry';
 
 // ---- Action Scoring Weights ----
 // Base scores for each action type (before personality modifiers)
@@ -28,6 +36,7 @@ const BASE_ACTION_SCORES: Record<AIAction, number> = {
   BUY_INVENTORY: 50,
   CHANGE_PRICE: 30,
   HIRE_EMPLOYEE: 25,
+  POACH_EMPLOYEE: 22,
   UPGRADE_BUSINESS: 20,
   CREATE_BUSINESS: 15,
   SELL_BUSINESS: -10,
@@ -76,15 +85,67 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
   // ---- CHANGE_PRICE ----
   // Always evaluate but adjust score based on priceAdjustFrequency
   const priceFreqBonus = config.priceAdjustFrequency * 20; // Higher frequency = higher base score
+  const drive = rivalryDrive(ctx.personality);
   for (const biz of ctx.businesses) {
     // Score based on business performance - if losing money, more incentive to adjust
     const performanceScore = biz.dailyProfit < 0 ? 40 : 10;
-    const score = BASE_ACTION_SCORES.CHANGE_PRICE + performanceScore + priceFreqBonus;
+
+    // A human rival in the same city and trade is a reason to reprice that the
+    // AI previously had no way of seeing. The keener the rival is on price, the
+    // more urgent this is.
+    const rivals = findRivalsInMarket(ctx.rivals, biz.city, biz.type);
+    const cheapestRival = rivals.reduce(
+      (min, r) => Math.min(min, r.priceIndex),
+      Number.POSITIVE_INFINITY,
+    );
+    const undercutUrgency =
+      rivals.length > 0 && Number.isFinite(cheapestRival)
+        // Worth most when the rival is at or under the going rate.
+        ? Math.max(0, Math.min(35, (1.1 - cheapestRival) * 70)) * drive
+        : 0;
+
+    const score = BASE_ACTION_SCORES.CHANGE_PRICE + performanceScore + priceFreqBonus + undercutUrgency;
     actions.push({
       action: 'CHANGE_PRICE',
       score,
       target: biz.id,
+      params: { contested: rivals.length > 0 },
     });
+  }
+
+  // ---- POACH_EMPLOYEE ----
+  // Headhunt a good hand off a human rival in a market this AI trades in.
+  // Gated hard: only combative personalities, only off a rival on the same
+  // street, only with the wages covered, and only every few days.
+  const poachOffCooldown =
+    ctx.lastPoachAt === 0 || ctx.gameDay - ctx.lastPoachAt >= RIVALRY_CONFIG.poachCooldownDays;
+  if (poachOffCooldown) {
+    for (const biz of ctx.businesses) {
+      const freeSlots = 5 - biz.employeeCount;
+      if (freeSlots <= 0) continue;
+
+      const target = pickPoachTarget({
+        rivals: findRivalsInMarket(ctx.rivals, biz.city, biz.type),
+        personality: ctx.personality,
+        aiCash: ctx.cash,
+        freeSlots,
+      });
+      if (!target) continue;
+
+      // Worth more for a better hand, and more to a business doing well enough
+      // to use them.
+      const skillScore = target.skill * 3;
+      const healthScore = biz.healthScore > 50 ? 12 : -8;
+      const score =
+        (BASE_ACTION_SCORES.POACH_EMPLOYEE + skillScore + healthScore) * drive;
+
+      actions.push({
+        action: 'POACH_EMPLOYEE',
+        score,
+        target: biz.id,
+        params: { poach: target },
+      });
+    }
   }
 
   // ---- HIRE_EMPLOYEE ----
@@ -140,7 +201,20 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
 
   // Phase 5: Check minimum daily profit for expansion
   const totalDailyProfit = ctx.businesses.reduce((s, b) => s + b.dailyProfit, 0);
-  const meetsProfitThreshold = totalDailyProfit >= AI_EXPANSION_CONFIG.minDailyProfitForExpansion;
+  // The profit threshold gates *expansion*, so it cannot apply to an AI that has
+  // no businesses yet: with zero businesses total profit is 0, which is below
+  // the threshold, and the AI could never open its first business at all.
+  const meetsProfitThreshold =
+    ctx.businesses.length === 0 ||
+    totalDailyProfit >= AI_EXPANSION_CONFIG.minDailyProfitForExpansion;
+
+  // Markets a human player is profiting in, best first. Personalities with
+  // little rivalry drive get an empty list and expand on their own logic.
+  const attackTargets = rankMarketsToAttack({
+    intel: ctx.rivals,
+    personality: ctx.personality,
+    ownedMarkets: ctx.businesses.map(b => marketKey(b.city, b.type)),
+  });
 
   if (!atMaxBusinesses && !expansionOnCooldown && meetsProfitThreshold) {
     for (const bType of BUSINESS_TYPES) {
@@ -155,11 +229,25 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
       const diversificationBonus = !existingTypes.has(bType.id) ? 20 : 0;
       const cashPressure = cashAfterExpansion < ctx.netWorth * config.cashReserveRatio ? -50 : 0;
       const expansionEagerness = AI_EXPANSION_CONFIG.personalityExpansionEagerness[ctx.personality] ?? 0.5;
-      const score = BASE_ACTION_SCORES.CREATE_BUSINESS + diversificationBonus + cashPressure + expandFreqBonus * expansionEagerness;
+
+      // Open next door to the player where the player is making money. The
+      // best-scoring market of this type carries the bonus, and the city is
+      // handed to the executor so the shop actually lands there rather than in
+      // a random city.
+      const targetMarket = attackTargets.find(m => m.type === bType.id);
+      const rivalryBonus = targetMarket ? Math.min(35, targetMarket.score * 0.5) : 0;
+
+      const score = BASE_ACTION_SCORES.CREATE_BUSINESS + diversificationBonus + cashPressure
+        + expandFreqBonus * expansionEagerness + rivalryBonus;
       actions.push({
         action: 'CREATE_BUSINESS',
         score,
-        params: { businessType: bType.id },
+        params: {
+          businessType: bType.id,
+          // Null means "pick a city the usual way".
+          targetCity: targetMarket?.city ?? null,
+          rivalryMotivated: Boolean(targetMarket),
+        },
       });
     }
   }
@@ -215,7 +303,7 @@ export function evaluateActions(ctx: AIDecisionContext): ScoredAction[] {
     // Count active campaigns (from business context - approximate)
     // AI marketing is also handled separately in ai-marketing.ts
     // This evaluation decides if the AI should prioritize marketing as its strategic action
-    const activeCampaigns = (biz as Record<string, unknown>).activeCampaignCount as number || 0;
+    const activeCampaigns = (biz as unknown as Record<string, unknown>).activeCampaignCount as number || 0;
 
     if (activeCampaigns < AI_MARKETING_CONFIG.maxAICampaigns) {
       // Base marketing score

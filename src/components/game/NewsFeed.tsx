@@ -11,20 +11,24 @@ import { Newspaper, Zap, Clock, RefreshCw, TrendingUp, Cloud, Briefcase, Globe, 
 import { cn } from '@/lib/utils';
 
 const CATEGORY_CONFIG: Record<string, { bg: string; text: string; border: string; icon: React.ReactNode }> = {
-  ECONOMY: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-l-green-500', icon: <TrendingUp className="h-3 w-3" /> },
-  BUSINESS: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-l-amber-500', icon: <Briefcase className="h-3 w-3" /> },
-  WEATHER: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-l-cyan-500', icon: <Cloud className="h-3 w-3" /> },
-  EVENT: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-l-purple-500', icon: <Zap className="h-3 w-3" /> },
-  POLITICS: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-l-red-500', icon: <Landmark className="h-3 w-3" /> },
-  TRADE: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-l-orange-500', icon: <Globe className="h-3 w-3" /> },
+  ECONOMY: { bg: 'bg-green-50 dark:bg-green-950/40', text: 'text-green-700 dark:text-green-300', border: 'border-l-green-500', icon: <TrendingUp className="h-3 w-3" /> },
+  BUSINESS: { bg: 'bg-amber-50 dark:bg-amber-950/40', text: 'text-amber-700 dark:text-amber-300', border: 'border-l-amber-500', icon: <Briefcase className="h-3 w-3" /> },
+  WEATHER: { bg: 'bg-cyan-50 dark:bg-cyan-950/40', text: 'text-cyan-700 dark:text-cyan-300', border: 'border-l-cyan-500', icon: <Cloud className="h-3 w-3" /> },
+  EVENT: { bg: 'bg-purple-50 dark:bg-purple-950/40', text: 'text-purple-700 dark:text-purple-300', border: 'border-l-purple-500', icon: <Zap className="h-3 w-3" /> },
+  POLITICS: { bg: 'bg-red-50 dark:bg-red-950/40', text: 'text-red-700 dark:text-red-300', border: 'border-l-red-500', icon: <Landmark className="h-3 w-3" /> },
+  TRADE: { bg: 'bg-orange-50 dark:bg-orange-950/40', text: 'text-orange-700 dark:text-orange-300', border: 'border-l-orange-500', icon: <Globe className="h-3 w-3" /> },
 };
 
-const DEFAULT_CATEGORY = { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-l-gray-400', icon: <Newspaper className="h-3 w-3" /> };
+const DEFAULT_CATEGORY = { bg: 'bg-gray-50 dark:bg-gray-950/40', text: 'text-gray-600 dark:text-gray-400', border: 'border-l-gray-400', icon: <Newspaper className="h-3 w-3" /> };
 
 export default function NewsFeed() {
   const { news, events, setNews } = useGameStore();
-  const [loading, setLoading] = useState(false);
+  // Seeded from what the store already holds: arriving with news cached is not
+  // a loading state, and arriving without it means a fetch is about to start.
+  // Turning the flag on inside the effect is what React 19 flags.
+  const [loading, setLoading] = useState(() => news.length === 0);
 
+  /** The refresh button. An event handler may set state freely. */
   const fetchNews = async () => {
     setLoading(true);
     try {
@@ -40,7 +44,23 @@ export default function NewsFeed() {
   };
 
   useEffect(() => {
-    if (news.length === 0) fetchNews();
+    if (news.length > 0) return;
+
+    let cancelled = false;
+    fetch('/api/news?limit=30')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!cancelled && data) setNews(data);
+      })
+      .catch(() => {
+        // silent
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+    // Runs once: this is the initial load, not a subscription to `news`.
   }, []);
 
   const getCategoryConfig = (category: string) => {
@@ -81,7 +101,7 @@ export default function NewsFeed() {
     fresh: 'bg-green-500 game-pulse-soft',
     recent: 'bg-green-400',
     normal: 'bg-gray-300',
-    old: 'bg-gray-200',
+    old: 'bg-gray-200 dark:bg-gray-900/50',
   };
 
   return (
@@ -93,22 +113,22 @@ export default function NewsFeed() {
           </div>
           <span className="game-badge-gradient">News & Events</span>
         </h2>
-        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-green-50 transition-colors" onClick={fetchNews} disabled={loading}>
+        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-green-50 dark:hover:bg-green-950/40 transition-colors" onClick={fetchNews} disabled={loading}>
           <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
         </Button>
       </div>
 
       {/* Active Events */}
       {events.length > 0 && (
-        <Card className="rounded-xl border-amber-200 game-amber-pulse overflow-hidden">
+        <Card className="rounded-xl border-amber-200 dark:border-amber-900/60 game-amber-pulse overflow-hidden">
           <div className="h-1" style={{ background: 'linear-gradient(90deg, #f59e0b, #f97316, #f59e0b)' }} />
           <CardHeader className="pb-2 pt-3.5 px-4">
             <CardTitle className="text-sm flex items-center gap-2 font-bold">
-              <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
-                <Zap className="h-3.5 w-3.5 text-amber-600" />
+              <div className="w-6 h-6 rounded-md bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center">
+                <Zap className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
               </div>
               Active Events
-              <Badge className="text-[10px] font-bold bg-amber-100 text-amber-700 border-amber-200 rounded-full ml-1">{events.length}</Badge>
+              <Badge className="text-[10px] font-bold bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/60 rounded-full ml-1">{events.length}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3.5 space-y-2.5">
@@ -118,7 +138,7 @@ export default function NewsFeed() {
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="p-3 rounded-xl bg-gradient-to-r from-amber-50/80 to-orange-50/40 border border-amber-200/80 transition-all hover:shadow-md hover:shadow-amber-100/50 hover:-translate-y-0.5"
+                className="p-3 rounded-xl bg-gradient-to-r from-amber-50/80 to-orange-50/40 border border-amber-200/80 dark:border-amber-900/60 transition-all hover:shadow-md hover:shadow-amber-100/50 hover:-translate-y-0.5"
               >
                 <div className="flex items-start gap-3">
                   <span className="text-xl shrink-0 game-float mt-0.5">{event.icon || '📢'}</span>
@@ -126,7 +146,7 @@ export default function NewsFeed() {
                     <div className="text-sm font-semibold leading-snug">{event.title}</div>
                     <div className="text-xs text-muted-foreground mt-1 line-clamp-2 font-medium">{event.description}</div>
                     {event.endsAt && (
-                      <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-600 font-semibold">
+                      <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
                         <Clock className="h-3 w-3" />
                         {formatTime(event.endsAt)}
                       </div>
@@ -154,7 +174,7 @@ export default function NewsFeed() {
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="border-dashed rounded-xl">
             <CardContent className="py-12 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-3">
+              <div className="w-14 h-14 rounded-2xl bg-green-50 dark:bg-green-950/40 flex items-center justify-center mx-auto mb-3">
                 <Newspaper className="h-7 w-7" style={{ color: '#006a4e', opacity: 0.5 }} />
               </div>
               <p className="text-sm font-medium mb-1">No news yet</p>

@@ -4,6 +4,29 @@ import { handleApiError } from '@/lib/errors';
 import { calculateMarketShare } from '@/lib/game/ai/ai-engine';
 import { BUSINESS_TYPES, CITIES } from '@/lib/game-data';
 
+/** One city + business-type market row returned by `?all=true`. */
+interface CompetitionMarketRow {
+  city: string;
+  cityName: string;
+  businessType: string;
+  businessTypeName: string;
+  totalDemand: number;
+  totalBusinesses: number;
+  aiBusinesses: number;
+  playerBusinesses: number;
+  playerMarketShare: number;
+  playerRank: number;
+  averageRevenue: number;
+  topCompetitor: { name: string; share: number; isAI: boolean } | null;
+  shares: {
+    businessName: string;
+    playerName: string;
+    isAI: boolean;
+    share: number;
+    revenue: number;
+  }[];
+}
+
 /**
  * GET /api/market/competition
  *
@@ -24,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     if (getAll) {
       // Return competition data for all city+type combinations
-      const results = [];
+      const results: CompetitionMarketRow[] = [];
       for (const c of CITIES) {
         for (const bt of BUSINESS_TYPES) {
           const data = await calculateMarketShare(c.id, bt.id);

@@ -1,19 +1,28 @@
 // ============================================
 // Bangladesh Business Tycoon - Auth Helper
-// Phase 0: DRY cookie-based authentication for API routes
+// Cookie-based authentication for API routes, backed by account sessions
 // ============================================
 
-import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { resolveSession } from '@/lib/auth/user-session';
 import { unauthorized } from './AppError';
+
+/**
+ * Resolve the player id behind the current request's account session.
+ * Returns null when there is no session cookie, the session has expired, or the
+ * account has no save attached yet.
+ */
+export async function getOptionalPlayerId(): Promise<string | null> {
+  const session = await resolveSession();
+  return session?.playerId ?? null;
+}
 
 /**
  * Get the authenticated player ID from the cookie.
  * Throws AppError(UNAUTHORIZED) if no valid cookie.
  */
 export async function requirePlayerId(): Promise<string> {
-  const cookieStore = await cookies();
-  const playerId = cookieStore.get('playerId')?.value;
+  const playerId = await getOptionalPlayerId();
 
   if (!playerId) {
     throw unauthorized();
@@ -35,13 +44,4 @@ export async function requirePlayer() {
   }
 
   return player;
-}
-
-/**
- * Get the player ID from the cookie, or null if not authenticated.
- * Does NOT throw — useful for optional auth.
- */
-export async function getOptionalPlayerId(): Promise<string | null> {
-  const cookieStore = await cookies();
-  return cookieStore.get('playerId')?.value ?? null;
 }

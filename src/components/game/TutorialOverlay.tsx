@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
   HandCoins, Wallet, Store, ShoppingCart, BarChart3, Sun, ChevronRight, X,
+  Users, PackageOpen, Swords, Compass,
 } from 'lucide-react';
 
 interface TutorialStep {
@@ -37,13 +38,33 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     icon: <BarChart3 className='h-6 w-6' />,
-    title: 'Watch Market Prices',
-    description: 'Market prices fluctuate every 3 days. Events can boost or crash demand. Buy low, sell high! Check the Market tab for current prices.',
+    title: 'Price It Yourself',
+    description: 'You set every shelf price. Under the going rate wins customers from your rivals; over it earns more on each sale. Market prices move every three days, and events swing demand.',
   },
   {
     icon: <Sun className='h-6 w-6' />,
-    title: 'Advance Each Day',
-    description: 'Click "Next Day" to simulate a new day. Your businesses earn revenue, pay expenses, and the market moves. Watch your empire grow!',
+    title: 'The Day Passes on Its Own',
+    description: 'A game day passes every real minute, on the server — there is no button to press. Your shops trade, pay rent, power and wages, and the difference lands in your cash.',
+  },
+  {
+    icon: <Users className='h-6 w-6' />,
+    title: 'Hire Staff',
+    description: 'Staff bring in more customers and lift your reputation. Their wages come out of every day, good or bad — so hire when the takings can carry them.',
+  },
+  {
+    icon: <PackageOpen className='h-6 w-6' />,
+    title: 'Let the Shop Run Itself',
+    description: 'Shelves empty in about a day. Switch on the shop manager in a shop’s Inventory tab and it will restock before opening — including while you are away. Shops keep trading unattended for up to eight hours.',
+  },
+  {
+    icon: <Swords className='h-6 w-6' />,
+    title: 'You Are Not Alone',
+    description: 'Rival owners trade in the same cities, and they react to you: they will undercut your prices, open next door where you are doing well, and hire your best staff out from under you.',
+  },
+  {
+    icon: <Compass className='h-6 w-6' />,
+    title: 'Your First Week',
+    description: 'A short checklist on the Dashboard walks you through the first seven days — stock, prices, staff, automation and growth. Follow it and you will have a shop that runs without you.',
   },
 ];
 

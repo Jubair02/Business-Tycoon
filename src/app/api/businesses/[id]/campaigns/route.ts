@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getCurrentGameDay } from '@/lib/game/seasons/seasons';
 import {
   requirePlayerId,
   notFound,
@@ -45,9 +46,7 @@ export async function POST(
       throw forbidden();
     }
 
-    // Get current game day
-    const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
-    const gameDay = parseInt(gameDayState?.value || '1', 10);
+    const gameDay = await getCurrentGameDay();
 
     // Count active campaigns for this business
     const activeCampaignCount = await db.marketingCampaign.count({

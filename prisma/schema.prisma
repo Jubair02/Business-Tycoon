@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -11,68 +11,508 @@ model Player {
   id         String   @id @default(cuid())
   name       String
   email      String   @unique
+  /// Account this save belongs to. Null only for AI competitors, which are
+  /// engine-owned rows with no human behind them.
+  ///
+  /// No longer unique on its own: a save belongs to one account *per season*,
+  /// and an account that has played three seasons has three of these rows.
+  userId     String?
+  /// The season this save is played in. Null only for legacy pre-season saves,
+  /// which the season bootstrap adopts into season 1.
+  seasonId   String?
   cash       Float    @default(500000)
   netWorth   Float    @default(500000)
   level      Int      @default(1)
-  experience Int     @default(0)
+  experience Int      @default(0)
   avatar     String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   // Phase 2: AI Competitor Fields
-  isAI         Boolean  @default(false)
-  personality  String?  // CONSERVATIVE | BALANCED | AGGRESSIVE | TRADER | EXPANSIONIST
-  lastAction   String?  // Last AI action taken (e.g., BUY_INVENTORY, CHANGE_PRICE)
-  lastActionAt Int     @default(0)  // Game day when last action was taken (for cooldowns)
+  isAI         Boolean @default(false)
+  personality  String? // CONSERVATIVE | BALANCED | AGGRESSIVE | TRADER | EXPANSIONIST
+  lastAction   String? // Last AI action taken (e.g., BUY_INVENTORY, CHANGE_PRICE)
+  lastActionAt Int     @default(0) // Game day when last action was taken (for cooldowns)
+  /// Game day this AI last poached a rival's employee, for the raid cooldown.
+  lastPoachAt  Int     @default(0)
 
   // Phase 5: Expansion Fields
-  expansionCount   Int     @default(0)  // Total number of expansions performed
-  lastExpansionAt  Int     @default(0)  // Game day of last expansion (for cooldown)
+  expansionCount  Int @default(0) // Total number of expansions performed
+  lastExpansionAt Int @default(0) // Game day of last expansion (for cooldown)
 
-  businesses    Business[]
-  gameLogs      GameLog[]
-  loans         Loan[]
+  // ---- Offline progression ----
+  // The world runs on a server clock, so a player's shops keep trading while
+  // they are away — but only for a bounded stretch. Past the grace window the
+  // shops go dormant rather than trading unattended forever.
+  lastSeenAt      DateTime @default(now())
+  /// Game day the player was last present for, so a return can be summarised.
+  lastSeenGameDay Int      @default(0)
 
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season     Season?    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  businesses Business[]
+  gameLogs   GameLog[]
+  loans      Loan[]
+
+  /// One save per account per season. Postgres treats NULLs as distinct, so
+  /// this does not constrain AI rows (userId is null) at all.
+  @@unique([userId, seasonId])
   @@index([isAI])
+  @@index([seasonId])
+  @@index([seasonId, netWorth])
 }
 
-model Business {
+// ============================================
+// Accounts: Google sign-in + email/password
+// ============================================
+//
+// A `User` is the login identity; the `Player` row hanging off it is the save
+// game. Keeping them separate means a player can change how they sign in
+// (add Google to a password account, say) without touching their progress.
+model User {
   id            String   @id @default(cuid())
-  playerId      String
-  type          String
-  city          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
   name          String
-  level         Int      @default(1)
-  reputation    Float    @default(50)
-  cash          Float    @default(0)
-  dailyRevenue  Float    @default(0)
-  dailyExpense  Float    @default(0)
-  dailyProfit   Float    @default(0)
-  dailyCOGS     Float    @default(0)
-  dailyCustomers Int     @default(0)
-  totalRevenue  Float    @default(0)
-  totalProfit   Float    @default(0)
-  healthScore   Int      @default(50)
-
-  // Phase 3: Customer Experience Fields
-  satisfactionScore   Float    @default(50)   // 0-100, overall customer satisfaction
-  loyaltyScore        Float    @default(0)    // 0-100, customer loyalty index
-  repeatCustomerRate  Float    @default(0)    // 0-1, fraction of repeat customers
-  npsScore            Float    @default(0)    // -100 to 100, Net Promoter Score
-  totalReviews        Int      @default(0)    // Count of all reviews
-  avgReviewRating     Float    @default(0)    // 1-5, average review score
-
-  // Phase 4: Marketing Fields
-  brandAwareness      Float    @default(0)    // 0-100, brand awareness from marketing
-
-  // Phase 5: Expansion & Location Fields
-  location            String?  // Location ID (e.g., DHAKA_GULSHAN, CTG_AGRABAD)
-  setupDaysRemaining  Int      @default(0)    // Days remaining in setup period (0 = fully operational)
-
+  image         String?
+  /// Null for accounts that only ever sign in with Google.
+  passwordHash  String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  player      Player         @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  /// ---- The permanent record ----
+  /// Seasons wipe the empire, not the account. Prestige and badges are the
+  /// only things that cross a season boundary, and they are deliberately
+  /// status-only: they unlock cosmetics and leaderboard flair, never an
+  /// economic advantage. A returning player and a first-timer start a season
+  /// on exactly the same footing, which is the point of resetting at all.
+  prestige         Int   @default(0)
+  seasonsPlayed    Int   @default(0)
+  /// Best finishing position across every season played. Null until one ends.
+  bestRank         Int?
+  /// Sum of every season's closing net worth, for the all-time board.
+  lifetimeNetWorth Float @default(0)
+
+  /// One save per season played.
+  players           Player[]
+  archives          SeasonArchive[]
+  accounts          OAuthAccount[]
+  sessions          AuthSession[]
+  pushSubscriptions PushSubscription[]
+  entitlements      Entitlement[]
+  purchases         Purchase[]
+  seasonPasses      SeasonPass[]
+  adRewards         AdReward[]
+  cohortMemberships CohortMember[]
+}
+
+// ============================================
+// Seasons
+// ============================================
+//
+// The game used to be one endless shared world: a single `gameDay`, a single
+// event set, a single leaderboard that a player who started on day 1 would top
+// forever. That does not shard, it does not give a late joiner anything to play
+// for, and it gives a returning player no reason to return.
+//
+// A season is a fixed-length world with its own clock and its own cohort. When
+// it ends every empire is archived read-only, the account keeps its prestige
+// and badges, and everyone starts the next season level.
+model Season {
+  id         String    @id @default(cuid())
+  /// 1, 2, 3... Stable, human-facing, and what badges are keyed on.
+  number     Int       @unique
+  name       String
+  status     String    @default("UPCOMING") // UPCOMING | ACTIVE | ENDED
+  /// How many game days the season runs for.
+  lengthDays Int       @default(90)
+  /// This season's own clock. Replaces the global `GameState.gameDay`.
+  gameDay    Int       @default(0)
+  tickCount  Int       @default(0)
+  lastTickAt DateTime?
+  startedAt  DateTime?
+  endedAt    DateTime?
+  createdAt  DateTime  @default(now())
+
+  players  Player[]
+  archives SeasonArchive[]
+  passes   SeasonPass[]
+
+  @@index([status])
+}
+
+// ============================================
+// Commerce: entitlements, purchases, the season pass, rewarded video
+// ============================================
+//
+// The catalogue itself lives in code (`lib/commerce/catalogue.ts`), like
+// BUSINESS_TYPES does - a price list is content, and content in the database is
+// content nobody can review in a pull request. What lives here is only what the
+// player *has*.
+//
+// Nothing sold affects the simulation. Every SKU is cosmetic or convenience,
+// because the whole premise of resetting each season is that everyone starts
+// level; selling an economic edge would rebuild exactly the advantage seasons
+// exist to remove.
+
+/// Something an account owns, forever or for a season.
+model Entitlement {
+  id         String   @id @default(cuid())
+  userId     String
+  /// Catalogue id, e.g. "frame.gold" or "signage.neon".
+  sku        String
+  /// PURCHASE | PASS | PRESTIGE | AD_REWARD | GRANT
+  source     String
+  /// Set when the entitlement belongs to one season rather than the account.
+  seasonId   String?
+  acquiredAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sku])
+  @@index([userId])
+}
+
+/// An order. Provider-agnostic on purpose: the game does not care who took the
+/// money, only whether it arrived.
+model Purchase {
+  id             String   @id @default(cuid())
+  userId         String
+  sku            String
+  /// Minor units (poisha), so no float ever touches a price.
+  priceMinor     Int
+  currency       String   @default("BDT")
+  /// sandbox | sslcommerz | stripe
+  provider       String
+  /// The provider's own reference, for reconciliation and refunds.
+  providerRef    String?
+  /// PENDING | PAID | FAILED | REFUNDED
+  status         String   @default("PENDING")
+  /// Supplied by the client so a retried request cannot charge twice.
+  idempotencyKey String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+/// One account's progress through one season's pass.
+model SeasonPass {
+  id           String   @id @default(cuid())
+  userId       String
+  seasonId     String
+  /// False until the premium track is bought. The free track always runs.
+  premium      Boolean  @default(false)
+  /// Pass XP earned this season, which is what unlocks tiers.
+  xp           Int      @default(0)
+  /// JSON array of tier numbers already claimed, so a reward cannot be taken twice.
+  claimedTiers String   @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, seasonId])
+  @@index([seasonId])
+}
+
+/// A rewarded video that actually paid out.
+///
+/// Recorded so the daily cap is enforceable and so a network's server-side
+/// verification callback can be matched to a grant exactly once.
+model AdReward {
+  id          String   @id @default(cuid())
+  userId      String
+  /// Catalogue placement id, e.g. "restock.boost".
+  placement   String
+  /// The network's transaction id, which is what makes this replay-proof.
+  providerRef String   @unique
+  grantedAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, grantedAt])
+}
+
+// ============================================
+// Brand sponsorship
+// ============================================
+//
+// A sponsored brand appears inside the world - a branded product on a shelf, a
+// branded event, a billboard - rather than as an interstitial ad. That is the
+// only format that fits a game whose selling point is authenticity, and it is
+// the format a partner pilot needs numbers for.
+
+model Sponsor {
+  id         String    @id @default(cuid())
+  name       String
+  slug       String    @unique
+  /// Hex, used for the placement's accent so it reads as the brand.
+  brandColor String    @default("#006a4e")
+  logoUrl    String?
+  /// DRAFT | ACTIVE | ENDED
+  status     String    @default("DRAFT")
+  startsAt   DateTime?
+  endsAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  placements SponsorPlacement[]
+  stats      SponsorDailyStat[]
+
+  @@index([status])
+}
+
+model SponsorPlacement {
+  id        String   @id @default(cuid())
+  sponsorId String
+  /// PRODUCT | EVENT | BILLBOARD
+  kind      String
+  /// The branded name shown to the player.
+  label     String
+  /// What it attaches to: a product name, a business type, or a city.
+  targetRef String?
+  /// Relative share of the eligible slots, for splitting inventory between
+  /// several sponsors.
+  weight    Int      @default(1)
+  createdAt DateTime @default(now())
+
+  sponsor Sponsor            @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  stats   SponsorDailyStat[]
+
+  @@index([sponsorId])
+  @@index([kind])
+}
+
+/// Aggregated per placement per game day.
+///
+/// Deliberately not a row per impression: a minute-long game day across a few
+/// thousand players would write millions of rows a week to answer a question a
+/// daily total answers just as well, and a partner report is a daily report.
+model SponsorDailyStat {
+  id          String   @id @default(cuid())
+  sponsorId   String
+  placementId String
+  gameDay     Int
+  impressions Int      @default(0)
+  /// Clicks, or a branded product actually bought.
+  engagements Int      @default(0)
+  /// Distinct accounts that saw it, which is the number a brand actually buys.
+  uniqueUsers Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  sponsor   Sponsor          @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  placement SponsorPlacement @relation(fields: [placementId], references: [id], onDelete: Cascade)
+
+  @@unique([placementId, gameDay])
+  @@index([sponsorId, gameDay])
+}
+
+// ============================================
+// Education edition
+// ============================================
+//
+// The simulation already teaches COGS, gross and net margin, working capital,
+// loan amortisation, NPS and customer acquisition cost. A cohort is what turns
+// that into something a course can actually set: a named group, a seat limit, a
+// scenario everyone starts from, and objectives an instructor can mark against.
+
+model Cohort {
+  id               String    @id @default(cuid())
+  name             String
+  /// Short code students type to join. Uppercase, unambiguous characters only.
+  joinCode         String    @unique
+  instructorUserId String
+  /// The season the cohort plays in.
+  seasonId         String?
+  /// Scenario preset id from `lib/education/scenarios.ts`.
+  scenario         String    @default("STANDARD")
+  /// Seats licensed. Joining is refused once they are all taken.
+  seatLimit        Int       @default(30)
+  /// DRAFT | ACTIVE | ARCHIVED
+  status           String    @default("ACTIVE")
+  startsAt         DateTime?
+  endsAt           DateTime?
+  createdAt        DateTime  @default(now())
+
+  members    CohortMember[]
+  objectives CohortObjective[]
+
+  @@index([instructorUserId])
+  @@index([status])
+}
+
+model CohortMember {
+  id       String   @id @default(cuid())
+  cohortId String
+  userId   String
+  /// STUDENT | INSTRUCTOR
+  role     String   @default("STUDENT")
+  joinedAt DateTime @default(now())
+
+  cohort Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cohortId, userId])
+  @@index([userId])
+}
+
+/// One thing the cohort is being marked on.
+model CohortObjective {
+  id       String @id @default(cuid())
+  cohortId String
+  /// Metric key from `lib/education/objectives.ts`, e.g. "NET_MARGIN".
+  metric   String
+  label    String
+  /// The value that counts as meeting it.
+  target   Float
+  /// Share of the overall mark, 0-1.
+  weight   Float  @default(1)
+
+  cohort Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+
+  @@index([cohortId])
+}
+
+/// A browser or installed app that has agreed to receive push notifications.
+///
+/// Keyed on the endpoint because that is what the push service issues and what
+/// it invalidates: a 404 or 410 when sending means this row is dead and should
+/// be deleted rather than retried.
+model PushSubscription {
+  id         String   @id @default(cuid())
+  userId     String
+  endpoint   String   @unique
+  /// The subscription's public key, base64url.
+  p256dh     String
+  /// The subscription's auth secret, base64url.
+  auth       String
+  /// Language to send the notification in, captured at subscribe time.
+  locale     String   @default("en")
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  /// Notification kinds this device has switched off, as a JSON array.
+  mutedKinds String   @default("[]")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// One account's finished season, kept read-only forever.
+model SeasonArchive {
+  id             String   @id @default(cuid())
+  userId         String
+  seasonId       String
+  /// Denormalised so the hall of fame reads without touching the save rows,
+  /// which are deleted when the season's players are cleared.
+  playerName     String
+  finalNetWorth  Float
+  finalRank      Int
+  businessCount  Int
+  totalProfit    Float
+  daysPlayed     Int
+  finalLevel     Int      @default(1)
+  prestigeEarned Int      @default(0)
+  /// JSON array of badge ids earned for this season.
+  badges         String   @default("[]")
+  createdAt      DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, seasonId])
+  @@index([seasonId, finalRank])
+  @@index([userId])
+}
+
+/// One row per external identity (currently only Google) linked to a user.
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String // "google"
+  providerAccountId String // Google's stable `sub` claim
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+/// Server-side session. `id` is the SHA-256 of the token in the cookie, so a
+/// leaked database dump does not hand out usable sessions.
+model AuthSession {
+  id         String   @id
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Business {
+  id             String @id @default(cuid())
+  playerId       String
+  type           String
+  city           String
+  name           String
+  level          Int    @default(1)
+  reputation     Float  @default(50)
+  cash           Float  @default(0)
+  dailyRevenue   Float  @default(0)
+  dailyExpense   Float  @default(0)
+  dailyProfit    Float  @default(0)
+  dailyCOGS      Float  @default(0)
+  dailyCustomers Int    @default(0)
+  totalRevenue   Float  @default(0)
+  totalProfit    Float  @default(0)
+  healthScore    Int    @default(50)
+
+  // Phase 3: Customer Experience Fields
+  satisfactionScore  Float @default(50) // 0-100, overall customer satisfaction
+  loyaltyScore       Float @default(0) // 0-100, customer loyalty index
+  repeatCustomerRate Float @default(0) // 0-1, fraction of repeat customers
+  npsScore           Float @default(0) // -100 to 100, Net Promoter Score
+  totalReviews       Int   @default(0) // Count of all reviews
+  avgReviewRating    Float @default(0) // 1-5, average review score
+
+  // Phase 4: Marketing Fields
+  brandAwareness Float @default(0) // 0-100, brand awareness from marketing
+
+  // Phase 5: Expansion & Location Fields
+  location           String? // Location ID (e.g., DHAKA_GULSHAN, CTG_AGRABAD)
+  setupDaysRemaining Int     @default(0) // Days remaining in setup period (0 = fully operational)
+
+  // ---- Standing restock order (the "business manager") ----
+  // Stock empties in roughly a day, so without this the core interaction is
+  // re-buying the same six products every tick. With it on, the shop keeps its
+  // own shelves full out of the owner's cash between ticks.
+  autoRestock          Boolean @default(false)
+  /// Top a product up once it falls below this share of its shelf space.
+  autoRestockThreshold Float   @default(0.4)
+  /// Refill it to this share of its shelf space.
+  autoRestockTarget    Float   @default(0.9)
+  /// Optional ceiling on what one day's restocking may cost. Null = uncapped.
+  autoRestockBudget    Float?
+
+  /// Game day this shop went dormant because its owner had been away past the
+  /// offline grace window. Null while it is trading.
+  dormantSinceDay Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  player      Player              @relation(fields: [playerId], references: [id], onDelete: Cascade)
   inventories Inventory[]
   employees   Employee[]
   logs        GameLog[]
@@ -101,6 +541,10 @@ model Inventory {
   quantity      Int      @default(0)
   purchasePrice Float
   sellPrice     Float
+  /// True once the owner has set this shelf price themselves rather than
+  /// leaving the suggested markup. Read by the guided first week, which has no
+  /// other way to tell a deliberate price from a default one.
+  priceEdited   Boolean  @default(false)
   createdAt     DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -109,14 +553,14 @@ model Inventory {
 }
 
 model Employee {
-  id          String   @id @default(cuid())
-  businessId  String
-  role        String
-  name        String
-  salary      Float
-  skill       Float
-  efficiency  Float
-  hiredAt     DateTime @default(now())
+  id         String   @id @default(cuid())
+  businessId String
+  role       String
+  name       String
+  salary     Float
+  skill      Float
+  efficiency Float
+  hiredAt    DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -127,8 +571,8 @@ model MarketPrice {
   id               String   @id @default(cuid())
   productName      String
   city             String
-  priceMultiplier  Float   @default(1)
-  demandMultiplier Float   @default(1)
+  priceMultiplier  Float    @default(1)
+  demandMultiplier Float    @default(1)
   updatedAt        DateTime @default(now())
 
   @@unique([productName, city])
@@ -202,22 +646,22 @@ model Loan {
 // ---- Phase 1: Historical Business Metrics ----
 // Tracks daily performance for analytics, charts, and trend analysis.
 model BusinessMetric {
-  id         String   @id @default(cuid())
+  id         String @id @default(cuid())
   businessId String
   gameDay    Int
-  revenue    Float    @default(0)
-  expenses   Float    @default(0)
-  profit     Float    @default(0)
-  cogs       Float    @default(0)
-  customers  Int      @default(0)
-  reputation Float    @default(50)
+  revenue    Float  @default(0)
+  expenses   Float  @default(0)
+  profit     Float  @default(0)
+  cogs       Float  @default(0)
+  customers  Int    @default(0)
+  reputation Float  @default(50)
 
   // Phase 3: Customer Experience Metrics
-  satisfaction  Float    @default(50)
-  loyalty       Float    @default(0)
-  nps           Float    @default(0)
+  satisfaction Float @default(50)
+  loyalty      Float @default(0)
+  nps          Float @default(0)
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -228,15 +672,15 @@ model BusinessMetric {
 // ---- Phase 3: Customer Reviews ----
 // Stores generated customer reviews for CX analytics
 model CustomerReview {
-  id          String   @id @default(cuid())
-  businessId  String
-  gameDay     Int
-  rating      Int      // 1-5 star rating
-  sentiment   String   // POSITIVE | NEUTRAL | NEGATIVE
-  category    String   // PRICE | SERVICE | QUALITY | STOCKOUT | CLEANLINESS | WAIT_TIME
-  comment     String   // Generated review text
-  segment     String   // BUDGET | REGULAR | PREMIUM | TOURIST
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  businessId String
+  gameDay    Int
+  rating     Int // 1-5 star rating
+  sentiment  String // POSITIVE | NEUTRAL | NEGATIVE
+  category   String // PRICE | SERVICE | QUALITY | STOCKOUT | CLEANLINESS | WAIT_TIME
+  comment    String // Generated review text
+  segment    String // BUDGET | REGULAR | PREMIUM | TOURIST
+  createdAt  DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -246,41 +690,41 @@ model CustomerReview {
 
 // ---- Phase 4: Marketing Campaigns ----
 model MarketingCampaign {
-  id          String   @id @default(cuid())
-  businessId  String
-  playerId    String
-  
+  id         String @id @default(cuid())
+  businessId String
+  playerId   String
+
   // Campaign definition
-  name        String                    // Player-given campaign name
-  channel     String                    // SOCIAL_MEDIA | FACEBOOK_ADS | LOCAL_ADS | INFLUENCER | BILLBOARD | TV_MEDIA
-  targetSegment String?                // BUDGET | REGULAR | PREMIUM | TOURIST | null (=all segments)
-  
+  name          String // Player-given campaign name
+  channel       String // SOCIAL_MEDIA | FACEBOOK_ADS | LOCAL_ADS | INFLUENCER | BILLBOARD | TV_MEDIA
+  targetSegment String? // BUDGET | REGULAR | PREMIUM | TOURIST | null (=all segments)
+
   // Budget & Duration
-  dailyBudget  Float                   // Taka per day
-  totalBudget  Float                   // Total campaign budget
-  duration     Int                     // Campaign duration in game days
-  startDay     Int                     // Game day campaign started
-  endDay       Int                     // Game day campaign ends
-  
+  dailyBudget Float // Taka per day
+  totalBudget Float // Total campaign budget
+  duration    Int // Campaign duration in game days
+  startDay    Int // Game day campaign started
+  endDay      Int // Game day campaign ends
+
   // Status
-  status       String   @default("ACTIVE")  // ACTIVE | PAUSED | COMPLETED | CANCELLED
-  
+  status String @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED | CANCELLED
+
   // Performance Tracking (updated each tick)
-  daysRun      Int      @default(0)         // Number of days campaign has run
-  totalSpend   Float    @default(0)         // Total taka spent so far
-  totalReach   Float    @default(0)         // Total impressions/reach
-  totalConversions Int   @default(0)        // Total customers acquired
-  revenueInfluenced Float @default(0)       // Revenue attributed to this campaign
-  
+  daysRun           Int   @default(0) // Number of days campaign has run
+  totalSpend        Float @default(0) // Total taka spent so far
+  totalReach        Float @default(0) // Total impressions/reach
+  totalConversions  Int   @default(0) // Total customers acquired
+  revenueInfluenced Float @default(0) // Revenue attributed to this campaign
+
   // Effectiveness (calculated)
-  effectiveness Float  @default(0)          // 0-1 effectiveness score
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  effectiveness Float @default(0) // 0-1 effectiveness score
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   metrics  CampaignMetric[]
-  
+
   @@index([businessId])
   @@index([playerId])
   @@index([businessId, status])
@@ -288,20 +732,20 @@ model MarketingCampaign {
 
 // ---- Phase 4: Campaign Daily Metrics ----
 model CampaignMetric {
-  id          String   @id @default(cuid())
-  campaignId  String
-  gameDay     Int
-  
-  dailySpend     Float   @default(0)
-  dailyReach     Float   @default(0)
-  dailyConversions Int   @default(0)
+  id         String @id @default(cuid())
+  campaignId String
+  gameDay    Int
+
+  dailySpend        Float @default(0)
+  dailyReach        Float @default(0)
+  dailyConversions  Int   @default(0)
   revenueInfluenced Float @default(0)
-  demandModifier  Float   @default(1)   // How much demand was boosted this day
-  
-  createdAt  DateTime @default(now())
-  
+  demandModifier    Float @default(1) // How much demand was boosted this day
+
+  createdAt DateTime @default(now())
+
   campaign MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  
+
   @@unique([campaignId, gameDay])
   @@index([campaignId, gameDay])
 }

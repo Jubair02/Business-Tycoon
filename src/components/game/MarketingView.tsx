@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { apiErrorMessage } from '@/lib/api-error';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -124,17 +125,17 @@ function formatTk(n: number): string {
 
 function statusColor(status: CampaignStatus): string {
   switch (status) {
-    case 'ACTIVE': return 'bg-green-100 text-green-800 border-green-300';
-    case 'PAUSED': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-    case 'COMPLETED': return 'bg-blue-100 text-blue-800 border-blue-300';
-    case 'CANCELLED': return 'bg-gray-100 text-gray-800 border-gray-300';
+    case 'ACTIVE': return 'bg-green-100 dark:bg-green-950/50 text-green-800 dark:text-green-300 border-green-300 dark:border-green-800/70';
+    case 'PAUSED': return 'bg-yellow-100 dark:bg-yellow-950/50 text-yellow-800 dark:text-yellow-300 border-yellow-300 dark:border-yellow-800/70';
+    case 'COMPLETED': return 'bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800/70';
+    case 'CANCELLED': return 'bg-gray-100 dark:bg-gray-950/50 text-gray-800 dark:text-gray-300 border-gray-300 dark:border-gray-800/70';
   }
 }
 
 function roiColor(roi: number): string {
-  if (roi > 0) return 'text-green-600';
-  if (roi < 0) return 'text-red-600';
-  return 'text-gray-500';
+  if (roi > 0) return 'text-green-600 dark:text-green-400';
+  if (roi < 0) return 'text-red-600 dark:text-red-400';
+  return 'text-gray-500 dark:text-gray-400';
 }
 
 // ---- Component ----
@@ -147,8 +148,15 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
   // Data state
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  // Which business the data on screen belongs to, rather than a pair of
+  // booleans. "Loading" is then derived: switching business reads as loading
+  // immediately, during render, with no effect having to set a flag. The flag
+  // version needed a synchronous setState inside an effect — which React 19
+  // flags — and left the previous shop's campaigns on screen until it ran.
+  const [campaignsLoadedFor, setCampaignsLoadedFor] = useState<string | null>(null);
+  const [analyticsLoadedFor, setAnalyticsLoadedFor] = useState<string | null>(null);
+  const loading = campaignsLoadedFor !== businessId;
+  const analyticsLoading = analyticsLoadedFor !== businessId;
 
   // Create campaign dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -179,7 +187,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
     } catch {
       // silent
     } finally {
-      setLoading(false);
+      setCampaignsLoadedFor(businessId);
     }
   }, [businessId]);
 
@@ -194,15 +202,20 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
     } catch {
       // silent
     } finally {
-      setAnalyticsLoading(false);
+      setAnalyticsLoadedFor(businessId);
     }
   }, [businessId]);
 
   useEffect(() => {
-    setLoading(true);
-    setAnalyticsLoading(true);
-    fetchCampaigns();
-    fetchAnalytics();
+    // Kicked off through `Promise.resolve().then` so that nothing in either
+    // fetch can write state during the effect body itself — the effect only
+    // starts the work, and every setState lands in a promise callback.
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      return Promise.all([fetchCampaigns(), fetchAnalytics()]);
+    });
+    return () => { cancelled = true; };
   }, [fetchCampaigns, fetchAnalytics]);
 
   // ---- Campaign actions ----
@@ -220,7 +233,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
         fetchAnalytics();
       } else {
         const err = await res.json();
-        toast.error(err.error || `Failed to ${action} campaign`);
+        toast.error(apiErrorMessage(err, `Failed to ${action} campaign`));
       }
     } catch {
       toast.error('Network error');
@@ -274,7 +287,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
         fetchAnalytics();
       } else {
         const err = await res.json();
-        const msg = err.error || err.errors?.join(', ') || 'Failed to create campaign';
+        const msg = err.errors?.join(', ') || apiErrorMessage(err, 'Failed to create campaign');
         toast.error(msg);
         if (err.errors) setCreateErrors(err.errors);
       }
@@ -303,7 +316,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
-              <Eye className="h-4 w-4 text-emerald-600" />
+              <Eye className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span className="text-xs font-medium text-muted-foreground">Brand Awareness</span>
             </div>
             {analyticsLoading ? (
@@ -320,7 +333,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
-              <Megaphone className="h-4 w-4 text-emerald-600" />
+              <Megaphone className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span className="text-xs font-medium text-muted-foreground">Active Campaigns</span>
             </div>
             {loading ? (
@@ -329,7 +342,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
               <div className="text-2xl font-bold">{activeCampaigns.length}<span className="text-sm text-muted-foreground">/{MAX_ACTIVE_CAMPAIGNS}</span></div>
             )}
             {pausedCampaigns.length > 0 && (
-              <p className="text-xs text-yellow-600 mt-1">{pausedCampaigns.length} paused</p>
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">{pausedCampaigns.length} paused</p>
             )}
           </CardContent>
         </Card>
@@ -338,7 +351,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
-              <DollarSign className="h-4 w-4 text-emerald-600" />
+              <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span className="text-xs font-medium text-muted-foreground">Daily Spend</span>
             </div>
             {analyticsLoading ? (
@@ -353,7 +366,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
-              <Zap className="h-4 w-4 text-emerald-600" />
+              <Zap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span className="text-xs font-medium text-muted-foreground">Demand Boost</span>
             </div>
             {analyticsLoading ? (
@@ -418,8 +431,8 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
                       {/* Header */}
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2">
-                          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50">
-                            <IconComp className="h-4 w-4 text-emerald-600" />
+                          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40">
+                            <IconComp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                           </div>
                           <div>
                             <p className="text-sm font-semibold leading-tight">{campaign.name}</p>
@@ -477,7 +490,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
                               <Pause className="h-3 w-3" /> Pause
                             </Button>
                             <Button
-                              size="sm" variant="outline" className="text-xs gap-1 text-red-600 hover:text-red-700"
+                              size="sm" variant="outline" className="text-xs gap-1 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                               onClick={() => handleCampaignAction(campaign.id, 'cancel')}
                               disabled={actioningId === campaign.id}
                             >
@@ -488,14 +501,14 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
                         {campaign.status === 'PAUSED' && (
                           <>
                             <Button
-                              size="sm" variant="outline" className="flex-1 text-xs gap-1 text-green-600 hover:text-green-700"
+                              size="sm" variant="outline" className="flex-1 text-xs gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300"
                               onClick={() => handleCampaignAction(campaign.id, 'resume')}
                               disabled={actioningId === campaign.id}
                             >
                               <Play className="h-3 w-3" /> Resume
                             </Button>
                             <Button
-                              size="sm" variant="outline" className="text-xs gap-1 text-red-600 hover:text-red-700"
+                              size="sm" variant="outline" className="text-xs gap-1 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                               onClick={() => handleCampaignAction(campaign.id, 'cancel')}
                               disabled={actioningId === campaign.id}
                             >
@@ -691,7 +704,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Megaphone className="h-5 w-5 text-emerald-600" /> Create Marketing Campaign
+              <Megaphone className="h-5 w-5 text-emerald-600 dark:text-emerald-400" /> Create Marketing Campaign
             </DialogTitle>
             <DialogDescription>
               Launch a new campaign to boost customer demand for your business.
@@ -729,14 +742,14 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
                             disabled={locked}
                             className={`p-2.5 rounded-lg border text-left transition-all ${
                               selected
-                                ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500'
+                                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 ring-1 ring-emerald-500'
                                 : locked
-                                  ? 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
-                                  : 'border-gray-200 hover:border-emerald-300'
+                                  ? 'border-gray-200 dark:border-gray-900/60 bg-gray-50 dark:bg-gray-950/40 opacity-50 cursor-not-allowed'
+                                  : 'border-gray-200 dark:border-gray-900/60 hover:border-emerald-300 dark:hover:border-emerald-800/70'
                             }`}
                           >
                             <div className="flex items-center gap-2 mb-1">
-                              <IconComp className={`h-4 w-4 ${locked ? 'text-gray-400' : 'text-emerald-600'}`} />
+                              <IconComp className={`h-4 w-4 ${locked ? 'text-gray-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
                               <span className="text-xs font-semibold">{ch.name}</span>
                               {locked && <AlertCircle className="h-3 w-3 text-gray-400 ml-auto" />}
                             </div>
@@ -768,8 +781,8 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
                     onClick={() => setCreateForm(f => ({ ...f, targetSegment: seg.value }))}
                     className={`p-2 rounded-lg border text-center text-xs transition-all ${
                       createForm.targetSegment === seg.value
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold'
-                        : 'border-gray-200 hover:border-emerald-300'
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                        : 'border-gray-200 dark:border-gray-900/60 hover:border-emerald-300 dark:hover:border-emerald-800/70'
                     }`}
                   >
                     {seg.label}
@@ -788,8 +801,8 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
                     onClick={() => setCreateForm(f => ({ ...f, dailyBudget: tier }))}
                     className={`p-2 rounded-lg border text-center text-xs transition-all ${
                       createForm.dailyBudget === tier
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold'
-                        : 'border-gray-200 hover:border-emerald-300'
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                        : 'border-gray-200 dark:border-gray-900/60 hover:border-emerald-300 dark:hover:border-emerald-800/70'
                     }`}
                   >
                     {formatTk(tier)}
@@ -808,8 +821,8 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
                     onClick={() => setCreateForm(f => ({ ...f, duration: d }))}
                     className={`p-2 rounded-lg border text-center text-xs transition-all ${
                       createForm.duration === d
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold'
-                        : 'border-gray-200 hover:border-emerald-300'
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                        : 'border-gray-200 dark:border-gray-900/60 hover:border-emerald-300 dark:hover:border-emerald-800/70'
                     }`}
                   >
                     {d} days
@@ -819,11 +832,11 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
             </div>
 
             {/* Estimated Total */}
-            <Card className="bg-emerald-50 border-emerald-200">
+            <Card className="bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60">
               <CardContent className="p-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Estimated Total Cost</span>
-                  <span className="font-bold text-emerald-700">
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
                     {formatTk(createForm.dailyBudget * createForm.duration)}
                   </span>
                 </div>
@@ -837,7 +850,7 @@ export default function MarketingView({ businessId, businessLevel = 1 }: Marketi
             {createErrors.length > 0 && (
               <div className="space-y-1">
                 {createErrors.map((err, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs text-red-600">
+                  <div key={i} className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
                     <AlertCircle className="h-3 w-3 shrink-0" />
                     <span>{err}</span>
                   </div>

@@ -7,8 +7,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requirePlayerId, notFound, forbidden, handleApiError, successResponse } from '@/lib/errors';
-import { getBusinessType } from '@/lib/game-data';
-import { calculateBusinessHealth, calculateROI, classifyDemandLevel } from '@/lib/game/economy/formulas';
+import { getBusinessType, getCity } from '@/lib/game-data';
+import {
+  calculateBusinessHealth,
+  calculateBusinessExpenses,
+  calculateROI,
+  classifyDemandLevel,
+} from '@/lib/game/economy/formulas';
 import { getBusinessEconomyConfig } from '@/lib/game/economy/business-config';
 import { getProductDemandConfig } from '@/lib/game/economy/product-demand';
 import type { BusinessAnalytics, ProductPerformance, DemandLevel, DemandTrend } from '@/lib/game/economy/types';
@@ -106,14 +111,33 @@ export async function GET(
     });
 
     // ---- Financial Breakdown ----
+    // Rent, salaries, utilities and tax are not stored per tick, but they are a
+    // pure function of the business's type, level, city and the day's takings,
+    // so they can be recomputed here with the same formula the tick used. They
+    // previously all reported zero, which meant a player could see that a shop
+    // cost money to run but never what it was spending it on — and utilities in
+    // particular were invisible.
+    const expenseCity = getCity(business.city);
+    const expenses = calculateBusinessExpenses({
+      baseRent: businessType.rent,
+      baseUtilities: businessType.utilities,
+      level: business.level,
+      cityRentMultiplier: expenseCity?.rentMultiplier ?? 1,
+      totalMonthlySalaries: business.employees.reduce((sum, emp) => sum + emp.salary, 0),
+      businessLevel: business.level,
+      businessTypeId: business.type,
+      revenue: business.dailyRevenue,
+      grossProfit,
+    });
+
     const financialBreakdown = {
       revenue: Math.round(business.dailyRevenue),
       costOfGoodsSold: Math.round(dailyCOGS),
       grossProfit: Math.round(grossProfit),
-      rent: 0, // Would need expense breakdown stored
-      salaries: 0,
-      utilities: 0,
-      taxes: 0,
+      rent: expenses.rent,
+      salaries: expenses.salaries,
+      utilities: expenses.utilities,
+      taxes: expenses.taxes,
       netProfit: Math.round(business.dailyProfit),
       customers: business.dailyCustomers || 0,
       reputation: Math.round(business.reputation * 10) / 10,

@@ -26,7 +26,7 @@ export default function HintBar() {
 
     // No businesses
     if (businesses.length === 0) {
-      return { icon: <Lightbulb className="h-4 w-4 text-amber-500" />, text: '💡 Tip: Create your first business to start earning!', type: 'tip' as const };
+      return { icon: <Lightbulb className="h-4 w-4 text-amber-500 dark:text-amber-400" />, text: '💡 Tip: Create your first business to start earning!', type: 'tip' as const };
     }
 
     // Check for businesses with no inventory
@@ -35,7 +35,7 @@ export default function HintBar() {
     });
     if (bizNoInventory) {
       const bt = getBusinessType(bizNoInventory.type);
-      return { icon: <Lightbulb className="h-4 w-4 text-amber-500" />, text: `💡 Tip: Buy stock for "${bt?.icon || ''} ${bizNoInventory.name}" to attract customers!`, type: 'tip' as const };
+      return { icon: <Lightbulb className="h-4 w-4 text-amber-500 dark:text-amber-400" />, text: `💡 Tip: Buy stock for "${bt?.icon || ''} ${bizNoInventory.name}" to attract customers!`, type: 'tip' as const };
     }
 
     // Check for businesses with no employees
@@ -43,18 +43,18 @@ export default function HintBar() {
       return !(b._count?.employees > 0);
     });
     if (bizNoEmployees) {
-      return { icon: <Lightbulb className="h-4 w-4 text-amber-500" />, text: '💡 Tip: Hire staff to boost your reputation and sales!', type: 'tip' as const };
+      return { icon: <Lightbulb className="h-4 w-4 text-amber-500 dark:text-amber-400" />, text: '💡 Tip: Hire staff to boost your reputation and sales!', type: 'tip' as const };
     }
 
     // Low cash warning
     if (player.cash < 100000) {
-      return { icon: <AlertTriangle className="h-4 w-4 text-red-500" />, text: '⚠️ Low on cash! Consider buying cheaper inventory or wait for profits.', type: 'warning' as const };
+      return { icon: <AlertTriangle className="h-4 w-4 text-red-500 dark:text-red-400" />, text: '⚠️ Low on cash! Consider buying cheaper inventory or wait for profits.', type: 'warning' as const };
     }
 
     // Active events
     if (events.length > 0) {
       const evt = events[0];
-      return { icon: <Flame className="h-4 w-4 text-orange-500" />, text: `🔥 Event: ${evt.title}`, type: 'event' as const };
+      return { icon: <Flame className="h-4 w-4 text-orange-500 dark:text-orange-400" />, text: `🔥 Event: ${evt.title}`, type: 'event' as const };
     }
 
     // Rotating motivational tips
@@ -69,9 +69,9 @@ export default function HintBar() {
     <div className="px-3 md:px-4">
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <div className={`rounded-lg border p-2.5 flex items-center gap-2 text-sm ${
-          hint.type === 'warning' ? 'bg-red-50 border-red-200' :
-          hint.type === 'event' ? 'bg-orange-50 border-orange-200' :
-          'bg-amber-50 border-amber-200'
+          hint.type === 'warning' ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900/60' :
+          hint.type === 'event' ? 'bg-orange-50 dark:bg-orange-950/40 border-orange-200 dark:border-orange-900/60' :
+          'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60'
         }`}>
           {hint.icon}
           <span className="flex-1 text-xs font-medium">{hint.text}</span>

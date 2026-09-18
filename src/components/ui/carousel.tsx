@@ -58,14 +58,34 @@ function Carousel({
     },
     plugins
   )
-  const [canScrollPrev, setCanScrollPrev] = React.useState(false)
-  const [canScrollNext, setCanScrollNext] = React.useState(false)
+  // Read the scroll bounds straight off the embla instance instead of
+  // mirroring them into state. Mirroring needed a synchronous setState inside
+  // an effect to seed the first value, which React 19 flags and which renders
+  // the carousel twice on every mount. Subscribing reads the live value during
+  // render and re-reads it whenever embla says the selection changed.
+  const subscribeToSelection = React.useCallback(
+    (onStoreChange: () => void) => {
+      if (!api) return () => {}
+      api.on("reInit", onStoreChange)
+      api.on("select", onStoreChange)
+      return () => {
+        api.off("reInit", onStoreChange)
+        api.off("select", onStoreChange)
+      }
+    },
+    [api]
+  )
 
-  const onSelect = React.useCallback((api: CarouselApi) => {
-    if (!api) return
-    setCanScrollPrev(api.canScrollPrev())
-    setCanScrollNext(api.canScrollNext())
-  }, [])
+  // getSnapshot has to return a value that is stable between changes, so the
+  // two booleans are packed into one string rather than a fresh object.
+  const scrollBounds = React.useSyncExternalStore(
+    subscribeToSelection,
+    () => (api ? `${api.canScrollPrev()}:${api.canScrollNext()}` : "false:false"),
+    () => "false:false"
+  )
+  const [canScrollPrev, canScrollNext] = scrollBounds
+    .split(":")
+    .map((value) => value === "true")
 
   const scrollPrev = React.useCallback(() => {
     api?.scrollPrev()
@@ -93,16 +113,6 @@ function Carousel({
     setApi(api)
   }, [api, setApi])
 
-  React.useEffect(() => {
-    if (!api) return
-    onSelect(api)
-    api.on("reInit", onSelect)
-    api.on("select", onSelect)
-
-    return () => {
-      api?.off("select", onSelect)
-    }
-  }, [api, onSelect])
 
   return (
     <CarouselContext.Provider

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { BUSINESS_TYPES } from '@/lib/game-data';
 import { requirePlayerId, notFound, forbidden, insufficientFunds, validationError, handleApiError } from '@/lib/errors';
+import { awardExperience, calculateUpgradeXp } from '@/lib/game/progression';
 
 export async function POST(
   _request: NextRequest,
@@ -59,13 +60,24 @@ export async function POST(
         data: { cash: { decrement: upgradeCost } },
       });
 
-      return tx.business.update({
+      const upgraded = await tx.business.update({
         where: { id },
         data: {
           level: newLevel,
           reputation: newReputation,
         },
       });
+
+      // Phase 6: upgrades award XP scaled by the level reached.
+      await awardExperience(
+        tx,
+        playerId,
+        calculateUpgradeXp(newLevel),
+        'BUSINESS_UPGRADE',
+        id,
+      );
+
+      return upgraded;
     });
 
     return NextResponse.json(updated);

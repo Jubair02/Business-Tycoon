@@ -70,6 +70,7 @@ import type {
 } from './types';
 import { evaluateActions, selectBestAction } from './ai-evaluation';
 import { getPersonalityConfig, calculateAIPrice, selectPricingStrategy } from './ai-strategy';
+import { EMPTY_RIVAL_INTEL } from './ai-rivalry';
 import { BUSINESS_TYPES, CITIES, PRODUCTS, EMPLOYEE_ROLES } from '@/lib/game-data';
 import type { ProductDef } from '@/lib/game-data';
 import {
@@ -305,7 +306,7 @@ function calculateNetWorth(player: SimPlayer): number {
 }
 
 // ---- Simulate One Business Day (Economy) ----
-function simulateBusinessDay(biz: SimBusiness, rng: SeededRNG): void {
+function simulateBusinessDay(biz: SimBusiness, owner: SimPlayer, rng: SeededRNG): void {
   const bType = BUSINESS_TYPES.find(b => b.id === biz.type);
   const cityData = CITIES.find(c => c.id === biz.city);
   if (!bType || !cityData) return;
@@ -379,6 +380,7 @@ function simulateBusinessDay(biz: SimBusiness, rng: SeededRNG): void {
 
   const expenses = calculateBusinessExpenses({
     baseRent: bType.rent,
+    baseUtilities: bType.utilities,
     level: biz.level,
     cityRentMultiplier: cityData.rentMultiplier,
     totalMonthlySalaries,
@@ -395,13 +397,19 @@ function simulateBusinessDay(biz: SimBusiness, rng: SeededRNG): void {
   biz.dailyExpense = expenses.totalExpense;
   biz.dailyProfit = netProfit;
   biz.totalProfit += netProfit;
-  biz.cash += netProfit;
+
+  // Mirror the engine: the till is swept to the owner and the business ends
+  // the day at zero. Accumulating here *and* adding dailyProfit to player cash
+  // in the tick loop double-counted every taka into net worth, which is what
+  // this harness is used to measure.
+  owner.cash += roundTaka(biz.cash + netProfit);
+  biz.cash = 0;
 
   // Update health score
   const healthResult = calculateBusinessHealth({
     dailyProfit: netProfit,
     dailyRevenue: totalRevenue,
-    businessCash: biz.cash,
+    businessCash: owner.cash,
     totalStock: biz.inventories.reduce((sum, inv) => sum + inv.quantity, 0),
     maxStockCapacity,
     reputation: biz.reputation,
@@ -657,6 +665,10 @@ function buildDecisionContext(player: SimPlayer, gameDay: number): AIDecisionCon
     netWorth: player.netWorth,
     gameDay,
     lastActionAt: player.lastActionAt,
+    // This harness simulates AI players against each other with no human in
+    // the world, so there is nothing to be a rival to.
+    rivals: EMPTY_RIVAL_INTEL,
+    lastPoachAt: 0,
     businesses: player.businesses.map(b => ({
       id: b.id,
       type: b.type,
@@ -679,6 +691,13 @@ function buildDecisionContext(player: SimPlayer, gameDay: number): AIDecisionCon
         sellPrice: inv.sellPrice,
       })),
       employeeCount: b.employees.length,
+      // The offline simulator does not model CX or expansion state; supply the
+      // neutral defaults the snapshot type requires.
+      satisfactionScore: 50,
+      loyaltyScore: 50,
+      repeatCustomerRate: 0,
+      location: null,
+      setupDaysRemaining: 0,
     })),
     activeLoans: player.loans.map(l => ({
       id: l.id,
@@ -689,6 +708,10 @@ function buildDecisionContext(player: SimPlayer, gameDay: number): AIDecisionCon
     })),
     activeEvents: [],
     marketPrices: {},
+    // Expansion state is not modelled by the offline simulator.
+    expansionCount: player.businesses.length,
+    lastExpansionAt: 0,
+    playerLevel: 1,
   };
 }
 
@@ -775,9 +798,9 @@ function runSimulation(): void {
     for (const player of players) {
       // 1. Run economy for each business
       for (const biz of player.businesses) {
-        simulateBusinessDay(biz, rng);
-        // Distribute business profit to player cash (same as real game engine)
-        player.cash += biz.dailyProfit;
+        // simulateBusinessDay sweeps the day's result into player.cash itself,
+        // exactly as simulateBusinessTick does.
+        simulateBusinessDay(biz, player, rng);
       }
 
       // 2. Process loan payments

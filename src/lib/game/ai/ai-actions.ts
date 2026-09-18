@@ -15,7 +15,15 @@ import type { ScoredAction, AIDecisionContext, AIPersonality, AIPricingStrategy 
 import { getPersonalityConfig, calculateAIPrice, selectPricingStrategy } from './ai-strategy';
 import { roundTaka } from '@/lib/game/economy/formulas';
 import { AI_MARKETING_CONFIG, MARKETING_CHANNELS, type MarketingChannel } from '../marketing/marketing-config';
-import { calculateExpansionCost, calculateSetupDays, getRandomLocationForCity, EXPANSION_CONFIG, AI_EXPANSION_CONFIG } from '../expansion';
+import { buildStartingInventory, calculateExpansionCost, calculateSetupDays, getRandomLocationForCity, EXPANSION_CONFIG, AI_EXPANSION_CONFIG } from '../expansion';
+import { awardExperience, calculateUpgradeXp, PROGRESSION_CONFIG } from '../progression';
+import {
+  findRivalsInMarket,
+  calculateUndercutPrice,
+  RIVALRY_CONFIG,
+  type PoachTarget,
+} from './ai-rivalry';
+import { notifyStaffPoached } from '@/lib/push/notifications';
 
 /** Result of executing an AI action */
 export interface AIActionResult {
@@ -44,6 +52,8 @@ export async function executeAIAction(
       return executeChangePrice(playerId, action, ctx);
     case 'HIRE_EMPLOYEE':
       return executeHireEmployee(playerId, action, ctx);
+    case 'POACH_EMPLOYEE':
+      return executePoachEmployee(playerId, action, ctx);
     case 'UPGRADE_BUSINESS':
       return executeUpgradeBusiness(playerId, action, ctx);
     case 'CREATE_BUSINESS':
@@ -198,7 +208,14 @@ async function executeChangePrice(
       const marketPrices = await tx.marketPrice.findMany({ where: { city: business.city } });
       const marketMap = new Map(marketPrices.map(mp => [mp.productName, mp.priceMultiplier]));
 
+      // What the human competition on this street is charging, per product.
+      // This is the input the strategy layer never had: without it the AI
+      // priced against an abstract market reference and never against the
+      // player standing next to it.
+      const rivals = findRivalsInMarket(ctx.rivals, business.city, business.type);
+
       let priceChanges = 0;
+      let undercuts = 0;
 
       for (const inv of inventories) {
         const prodDef = productDefs.find(p => p.name === inv.productName);
@@ -207,7 +224,25 @@ async function executeChangePrice(
         const marketRef = prodDef.basePrice * (1 + prodDef.suggestedMarkup) * (marketMap.get(inv.productName) || 1);
         const stockRatio = inv.quantity / prodDef.maxStock;
         const strategy = selectPricingStrategy(ctx.personality, business.healthScore, stockRatio);
-        const newPrice = calculateAIPrice(marketRef, ctx.personality, strategy, business.healthScore, stockRatio);
+        let newPrice = calculateAIPrice(marketRef, ctx.personality, strategy, business.healthScore, stockRatio);
+
+        // Undercut the cheapest human rival selling the same thing here.
+        const rivalPrice = Math.min(
+          ...rivals.map(r => r.priceIndex * marketRef),
+          Number.POSITIVE_INFINITY,
+        );
+        if (Number.isFinite(rivalPrice)) {
+          const undercutPrice = calculateUndercutPrice({
+            intendedPrice: newPrice,
+            rivalPrice,
+            purchasePrice: inv.purchasePrice,
+            personality: ctx.personality,
+          });
+          if (undercutPrice !== null) {
+            newPrice = undercutPrice;
+            undercuts++;
+          }
+        }
 
         // Only update if price changed meaningfully (>5% difference)
         if (Math.abs(newPrice - inv.sellPrice) / inv.sellPrice > 0.05) {
@@ -222,7 +257,14 @@ async function executeChangePrice(
       return {
         action: 'CHANGE_PRICE',
         success: priceChanges > 0,
-        message: priceChanges > 0 ? `Adjusted ${priceChanges} prices` : 'No price changes needed',
+        message: priceChanges > 0
+          ? `Adjusted ${priceChanges} prices${undercuts > 0 ? ` (${undercuts} undercutting a rival)` : ''}`
+          : 'No price changes needed',
+        newsWorthy: undercuts >= 3,
+        newsTitle: undercuts >= 3 ? 'Price war on the high street' : undefined,
+        newsContent: undercuts >= 3
+          ? `${business.name} has cut prices across ${undercuts} lines to undercut rivals in ${business.city}. Shoppers are expected to follow the discounts.`
+          : undefined,
       };
     });
   } catch (err) {
@@ -293,6 +335,111 @@ async function executeHireEmployee(
   }
 }
 
+// ---- POACH_EMPLOYEE ----
+//
+// Headhunt a hand off a human rival trading in the same market. The employee
+// moves rather than being cloned: the player genuinely loses them, which is the
+// point — it is the one AI action the player feels immediately.
+//
+// The player is told, in their own log, who took whom and for how much, because
+// a loss the player cannot see is just an unexplained drop in service quality.
+async function executePoachEmployee(
+  playerId: string,
+  action: ScoredAction,
+  ctx: AIDecisionContext,
+): Promise<AIActionResult> {
+  const businessId = action.target;
+  const target = action.params?.poach as PoachTarget | undefined;
+  if (!businessId || !target) return { action: 'POACH_EMPLOYEE', success: false };
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const business = await tx.business.findUnique({
+        where: { id: businessId },
+        include: { employees: true },
+      });
+      if (!business || business.employees.length >= 5) {
+        return { action: 'POACH_EMPLOYEE', success: false, message: 'Max employees reached' };
+      }
+
+      // Re-read the employee inside the transaction: they may have been fired,
+      // or poached by another AI, since the context was built.
+      const employee = await tx.employee.findUnique({ where: { id: target.employeeId } });
+      if (!employee || employee.businessId !== target.fromBusinessId) {
+        return { action: 'POACH_EMPLOYEE', success: false, message: 'Target no longer available' };
+      }
+
+      const player = await tx.player.findUnique({
+        where: { id: playerId },
+        select: { cash: true, name: true },
+      });
+      if (!player) return { action: 'POACH_EMPLOYEE', success: false };
+
+      const offeredSalary = Math.round(employee.salary * (1 + RIVALRY_CONFIG.poachPremium));
+      // Same affordability bar the evaluator used, re-checked against live cash.
+      if (player.cash < (offeredSalary / 30) * RIVALRY_CONFIG.poachCashCoverDays) {
+        return { action: 'POACH_EMPLOYEE', success: false, message: 'Cannot afford the offer' };
+      }
+
+      // The move itself: one employee, one new employer, one better wage.
+      await tx.employee.update({
+        where: { id: employee.id },
+        data: { businessId, salary: offeredSalary },
+      });
+
+      await tx.player.update({
+        where: { id: playerId },
+        data: { lastPoachAt: ctx.gameDay },
+      });
+
+      // Tell the player. This is the only way they find out.
+      await tx.gameLog.create({
+        data: {
+          playerId: target.fromPlayerId,
+          businessId: target.fromBusinessId,
+          type: 'EMPLOYEE_POACHED',
+          message:
+            `${employee.name} (${employee.role.toLowerCase().replace(/_/g, ' ')}) has left ` +
+            `${target.fromBusinessName} for ${business.name}, who offered ` +
+            `৳${offeredSalary.toLocaleString()} a month — ` +
+            `৳${(offeredSalary - employee.salary).toLocaleString()} more than you were paying.`,
+        },
+      });
+
+      // The player loses a real employee here, so they are told out of band as
+      // well as in their log — a silent loss reads as an unexplained drop in
+      // service quality.
+      const victim = await tx.player.findUnique({
+        where: { id: target.fromPlayerId },
+        select: { userId: true },
+      });
+      if (victim?.userId) {
+        void notifyStaffPoached(
+          victim.userId,
+          employee.name,
+          target.fromBusinessName,
+          business.name,
+        ).catch(() => {});
+      }
+
+      return {
+        action: 'POACH_EMPLOYEE',
+        success: true,
+        message: `Poached ${employee.name} from ${target.fromBusinessName}`,
+        newsWorthy: true,
+        newsTitle: 'Staff poached in a hiring raid',
+        newsContent:
+          `${business.name} has hired ${employee.name} away from ${target.fromBusinessName} ` +
+          `with a ৳${offeredSalary.toLocaleString()} monthly offer. Wage competition in ` +
+          `${business.city} is heating up.`,
+      };
+    });
+  } catch (err) {
+    console.error('[AI] POACH_EMPLOYEE failed:', err);
+    return { action: 'POACH_EMPLOYEE', success: false };
+  }
+}
+
 // ---- UPGRADE_BUSINESS ----
 async function executeUpgradeBusiness(
   playerId: string,
@@ -328,6 +475,15 @@ async function executeUpgradeBusiness(
         where: { id: businessId },
         data: { level: { increment: 1 } },
       });
+
+      // Phase 6: same upgrade XP the player route awards.
+      await awardExperience(
+        tx,
+        playerId,
+        calculateUpgradeXp(business.level + 1),
+        'BUSINESS_UPGRADE',
+        businessId,
+      );
 
       return {
         action: 'UPGRADE_BUSINESS',
@@ -374,11 +530,17 @@ async function executeCreateBusiness(
         return { action: 'CREATE_BUSINESS', success: false, message: 'Expansion cooldown active' };
       }
 
-      // Pick a city (consider existing presence for diversification)
+      // Pick a city. If the evaluator singled out a market a human player is
+      // making money in, open there — that is the "open nearby" reaction. Left
+      // to itself the AI diversifies away from its own existing cities, which
+      // is what it always did.
+      const targetCity = action.params?.targetCity as string | null | undefined;
+      const targetedCity = targetCity ? CITIES.find(c => c.id === targetCity) : undefined;
+
       const existingCities = ctx.businesses.map(b => b.city);
       const newCities = CITIES.filter(c => !existingCities.includes(c.id));
       const cityPool = newCities.length > 0 ? newCities : CITIES;
-      const city = cityPool[Math.floor(Math.random() * cityPool.length)];
+      const city = targetedCity ?? cityPool[Math.floor(Math.random() * cityPool.length)];
 
       // Phase 5: Pick a location within the city
       const location = getRandomLocationForCity(city.id);
@@ -424,27 +586,44 @@ async function executeCreateBusiness(
         },
       });
 
-      // Create initial inventory
-      const productDefs = PRODUCTS[bType.id] || [];
+      // Opening stock. Already paid for via costInfo.totalCost, which prices
+      // it in — the AI buys its shelves on the same terms as the player.
+      // Only the shelf price differs, which personality decides.
       const config = getPersonalityConfig(ctx.personality);
+      const startingInventory = buildStartingInventory(bType.id);
 
-      for (const prod of productDefs) {
-        const initialStock = Math.floor(prod.maxStock * 0.4);
-        const marketRef = prod.basePrice * (1 + prod.suggestedMarkup);
-        const sellPrice = calculateAIPrice(marketRef, ctx.personality, config.defaultPricingStrategy, 50, 0.4);
+      for (const item of startingInventory.items) {
+        // `sellPrice` from the helper is the typical retail price
+        // (base x suggested markup) — the reference the AI prices against.
+        const sellPrice = calculateAIPrice(
+          item.sellPrice,
+          ctx.personality,
+          config.defaultPricingStrategy,
+          50,
+          EXPANSION_CONFIG.startingStockRatio,
+        );
 
         await tx.inventory.create({
           data: {
             businessId: business.id,
             productId: '',
-            productName: prod.name,
-            category: prod.category,
-            quantity: initialStock,
-            purchasePrice: prod.basePrice,
+            productName: item.productName,
+            category: item.category,
+            quantity: item.quantity,
+            purchasePrice: item.purchasePrice,
             sellPrice,
           },
         });
       }
+
+      // Phase 6: AI progresses on the same XP rules as the player.
+      await awardExperience(
+        tx,
+        playerId,
+        PROGRESSION_CONFIG.newBusinessXp,
+        'NEW_BUSINESS',
+        business.id,
+      );
 
       return {
         action: 'CREATE_BUSINESS',

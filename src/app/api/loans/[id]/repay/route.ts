@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requirePlayerId, notFound, forbidden, validationError, insufficientFunds, handleApiError, repayLoanSchema } from '@/lib/errors';
+import { awardExperience, PROGRESSION_CONFIG } from '@/lib/game/progression';
 
 export async function POST(
   request: NextRequest,
@@ -73,6 +74,17 @@ export async function POST(
           amount: -repayAmount,
         },
       });
+
+      // Phase 6: clearing a loan early earns the same milestone XP as
+      // letting the daily payments run it down.
+      if (isPaidOff) {
+        await awardExperience(
+          tx,
+          playerId,
+          PROGRESSION_CONFIG.loanClearedXp,
+          'LOAN_CLEARED',
+        );
+      }
 
       return updatedLoan;
     });

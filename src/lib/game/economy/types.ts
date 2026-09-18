@@ -34,10 +34,28 @@ export interface BusinessEconomyConfig {
   stockTargetRatio: number;
   /** Employee efficiency bonus per employee (e.g., 0.06 = 6% per employee) */
   employeeBonusPer: number;
-  /** Utility cost multiplier relative to base */
-  utilityMultiplier: number;
+  /** Rate at which the monthly utility bill grows per business level (1.10 = 10% per level) */
+  utilityScalePerLevel: number;
   /** Rent scaling factor per level (1.12 = 12% increase per level) */
   rentScalePerLevel: number;
+}
+
+// ---- Competitive Pressure ----
+
+/**
+ * One shop as its competitors see it: what it charges and how it is regarded.
+ * Deliberately minimal — stock, staff and marketing are already priced into the
+ * customer model, and counting them here too would double their effect.
+ */
+export interface RivalShopSnapshot {
+  businessId: string;
+  /** Average shelf price relative to the going retail rate. 1.0 = at market. */
+  priceIndex: number;
+  /** 0-100. */
+  reputation: number;
+  level: number;
+  /** False for a shop owned by an AI competitor. */
+  isPlayerOwned?: boolean;
 }
 
 // ---- Product Demand Configuration ----

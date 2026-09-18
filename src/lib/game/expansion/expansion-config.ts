@@ -289,6 +289,8 @@ export interface ExpansionConfig {
   suitableLocationBonus: number;
   /** Brand awareness transfer between businesses (fraction carried to new business) */
   brandAwarenessTransfer: number;
+  /** Fraction of each product's max stock a new business opens with (and pays for) */
+  startingStockRatio: number;
 }
 
 export const EXPANSION_CONFIG: ExpansionConfig = {
@@ -306,6 +308,7 @@ export const EXPANSION_CONFIG: ExpansionConfig = {
   unsuitableLocationPenalty: 0.7,
   suitableLocationBonus: 1.15,
   brandAwarenessTransfer: 0.2,
+  startingStockRatio: 0.4,
 };
 
 // ---- AI Expansion Configuration ----

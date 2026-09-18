@@ -15,7 +15,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   // ---- Tea Stall Products ----
   'Tea (Cha)': {
     productName: 'Tea (Cha)',
-    baseDemand: 1.0,
+    baseDemand: 0.823,
     priceSensitivity: 1.0,     // Moderate — tea is cheap, small price changes matter
     volatility: 0.05,          // Very stable demand
     category: 'TEA_STALL',
@@ -24,7 +24,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Biscuits': {
     productName: 'Biscuits',
-    baseDemand: 0.6,
+    baseDemand: 0.493,
     priceSensitivity: 0.8,
     volatility: 0.06,
     category: 'TEA_STALL',
@@ -33,7 +33,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Singara': {
     productName: 'Singara',
-    baseDemand: 0.7,
+    baseDemand: 0.576,
     priceSensitivity: 0.9,
     volatility: 0.08,
     category: 'TEA_STALL',
@@ -42,7 +42,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Samosa': {
     productName: 'Samosa',
-    baseDemand: 0.5,
+    baseDemand: 0.411,
     priceSensitivity: 0.9,
     volatility: 0.08,
     category: 'TEA_STALL',
@@ -51,7 +51,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Cold Drinks': {
     productName: 'Cold Drinks',
-    baseDemand: 0.8,
+    baseDemand: 0.658,
     priceSensitivity: 1.3,     // High — many alternatives, price-sensitive
     volatility: 0.15,          // Very volatile — heatwave makes or breaks this
     category: 'COLD_DRINKS',
@@ -62,7 +62,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   // ---- Grocery Products ----
   'Rice (5kg)': {
     productName: 'Rice (5kg)',
-    baseDemand: 0.9,
+    baseDemand: 0.532,
     priceSensitivity: 0.5,     // Low — rice is essential
     volatility: 0.03,          // Very stable
     category: 'GROCERY',
@@ -71,7 +71,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Cooking Oil (1L)': {
     productName: 'Cooking Oil (1L)',
-    baseDemand: 0.85,
+    baseDemand: 0.503,
     priceSensitivity: 0.5,
     volatility: 0.04,
     category: 'GROCERY',
@@ -80,7 +80,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Eggs (12pc)': {
     productName: 'Eggs (12pc)',
-    baseDemand: 0.95,
+    baseDemand: 0.562,
     priceSensitivity: 0.6,
     volatility: 0.05,
     category: 'GROCERY',
@@ -89,7 +89,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Milk (1L)': {
     productName: 'Milk (1L)',
-    baseDemand: 0.8,
+    baseDemand: 0.473,
     priceSensitivity: 0.6,
     volatility: 0.05,
     category: 'GROCERY',
@@ -98,7 +98,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Snacks': {
     productName: 'Snacks',
-    baseDemand: 0.7,
+    baseDemand: 0.414,
     priceSensitivity: 1.0,
     volatility: 0.08,
     category: 'GROCERY',
@@ -107,7 +107,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Soft Drinks': {
     productName: 'Soft Drinks',
-    baseDemand: 0.75,
+    baseDemand: 0.443,
     priceSensitivity: 1.2,
     volatility: 0.10,
     category: 'COLD_DRINKS',
@@ -118,7 +118,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   // ---- Clothing Products ----
   "Men's Shirt": {
     productName: "Men's Shirt",
-    baseDemand: 0.7,
+    baseDemand: 0.081,
     priceSensitivity: 1.0,
     volatility: 0.08,
     category: 'CLOTHING',
@@ -127,7 +127,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   "Men's Pants": {
     productName: "Men's Pants",
-    baseDemand: 0.6,
+    baseDemand: 0.069,
     priceSensitivity: 1.0,
     volatility: 0.08,
     category: 'CLOTHING',
@@ -136,7 +136,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   "Women's Saree": {
     productName: "Women's Saree",
-    baseDemand: 0.8,
+    baseDemand: 0.092,
     priceSensitivity: 0.8,     // Lower sensitivity — saree buyers are less price-sensitive
     volatility: 0.10,
     category: 'CLOTHING',
@@ -145,7 +145,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   "Women's Salwar Kameez": {
     productName: "Women's Salwar Kameez",
-    baseDemand: 0.75,
+    baseDemand: 0.086,
     priceSensitivity: 0.9,
     volatility: 0.09,
     category: 'CLOTHING',
@@ -154,7 +154,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   "Kids' Clothing Set": {
     productName: "Kids' Clothing Set",
-    baseDemand: 0.65,
+    baseDemand: 0.075,
     priceSensitivity: 1.1,     // Parents are price-conscious for kids' clothes
     volatility: 0.10,
     category: 'CLOTHING',
@@ -163,7 +163,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Winter Jacket': {
     productName: 'Winter Jacket',
-    baseDemand: 0.4,
+    baseDemand: 0.046,
     priceSensitivity: 1.0,
     volatility: 0.20,          // Very volatile — only sells in winter
     category: 'WINTER_CLOTHING',
@@ -174,7 +174,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   // ---- Mobile & Electronics Products ----
   'Budget Smartphone': {
     productName: 'Budget Smartphone',
-    baseDemand: 0.8,
+    baseDemand: 0.069,
     priceSensitivity: 1.2,     // High — many competing budget phones
     volatility: 0.10,
     category: 'MOBILE',
@@ -183,7 +183,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Mid-Range Smartphone': {
     productName: 'Mid-Range Smartphone',
-    baseDemand: 0.6,
+    baseDemand: 0.052,
     priceSensitivity: 1.3,
     volatility: 0.12,
     category: 'MOBILE',
@@ -192,7 +192,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Premium Smartphone': {
     productName: 'Premium Smartphone',
-    baseDemand: 0.3,
+    baseDemand: 0.026,
     priceSensitivity: 1.5,     // Very high — customers compare carefully at this price
     volatility: 0.20,          // Very volatile
     category: 'PREMIUM_MOBILE',
@@ -201,7 +201,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Earphones': {
     productName: 'Earphones',
-    baseDemand: 0.9,
+    baseDemand: 0.077,
     priceSensitivity: 1.0,
     volatility: 0.08,
     category: 'MOBILE',
@@ -210,7 +210,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Smart Watch': {
     productName: 'Smart Watch',
-    baseDemand: 0.5,
+    baseDemand: 0.043,
     priceSensitivity: 1.2,
     volatility: 0.15,
     category: 'MOBILE',
@@ -219,7 +219,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Phone Case': {
     productName: 'Phone Case',
-    baseDemand: 0.85,
+    baseDemand: 0.073,
     priceSensitivity: 1.4,     // Very high — cheap item, easy to comparison shop
     volatility: 0.06,
     category: 'MOBILE',
@@ -230,7 +230,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   // ---- Restaurant Products ----
   'Rice Plate (Bhat)': {
     productName: 'Rice Plate (Bhat)',
-    baseDemand: 1.0,
+    baseDemand: 0.738,
     priceSensitivity: 0.8,     // Moderate — daily meal, somewhat inelastic
     volatility: 0.05,
     category: 'RESTAURANT',
@@ -239,7 +239,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Chicken Curry': {
     productName: 'Chicken Curry',
-    baseDemand: 0.9,
+    baseDemand: 0.665,
     priceSensitivity: 0.9,
     volatility: 0.07,
     category: 'RESTAURANT',
@@ -248,7 +248,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Fish Curry': {
     productName: 'Fish Curry',
-    baseDemand: 0.7,
+    baseDemand: 0.517,
     priceSensitivity: 0.9,
     volatility: 0.10,          // Fish prices fluctuate
     category: 'RESTAURANT',
@@ -257,7 +257,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Dal (Lentil)': {
     productName: 'Dal (Lentil)',
-    baseDemand: 0.85,
+    baseDemand: 0.628,
     priceSensitivity: 0.6,     // Low — cheap staple
     volatility: 0.04,
     category: 'RESTAURANT',
@@ -266,7 +266,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Kacchi Biryani': {
     productName: 'Kacchi Biryani',
-    baseDemand: 0.95,
+    baseDemand: 0.701,
     priceSensitivity: 0.7,     // Somewhat inelastic — it's a specialty
     volatility: 0.08,
     category: 'RESTAURANT',
@@ -275,7 +275,7 @@ export const PRODUCT_DEMAND_CONFIG: Record<string, ProductDemandConfig> = {
   },
   'Roti/Naan': {
     productName: 'Roti/Naan',
-    baseDemand: 0.9,
+    baseDemand: 0.665,
     priceSensitivity: 0.7,
     volatility: 0.05,
     category: 'RESTAURANT',

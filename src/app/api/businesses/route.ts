@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { BUSINESS_TYPES, PRODUCTS } from '@/lib/game-data';
-import { requirePlayerId, notFound, insufficientFunds, handleApiError, createBusinessSchema } from '@/lib/errors';
+import { getCurrentGameDay } from '@/lib/game/seasons/seasons';
+import { BUSINESS_TYPES } from '@/lib/game-data';
+import { requirePlayerId, notFound, insufficientFunds, conflict, validationError, handleApiError, createBusinessSchema } from '@/lib/errors';
 import {
   EXPANSION_CONFIG,
+  buildStartingInventory,
   calculateExpansionCost,
   calculateSetupDays,
   checkExpansionEligibility,
 } from '@/lib/game/expansion';
+import { awardExperience, PROGRESSION_CONFIG } from '@/lib/game/progression';
 
 export async function GET() {
   try {
@@ -21,6 +24,13 @@ export async function GET() {
             inventories: true,
             employees: true,
           },
+        },
+        // Two fields per shelf, not the whole inventory: the dashboard's
+        // first-week guide needs to tell a stocked shop from an empty one, and
+        // a price the owner set from the default markup. `_count` alone cannot
+        // answer either — it counts rows, including rows holding nothing.
+        inventories: {
+          select: { quantity: true, priceEdited: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -36,15 +46,16 @@ export async function POST(request: NextRequest) {
   try {
     const playerId = await requirePlayerId();
 
-    const body = createBusinessSchema.parse(await request.json());
-    const { type, city, name } = body;
-    // Phase 5: Optional location field
-    const location = (body as Record<string, unknown>).location as string | undefined;
+    const { type, city, name, location } = createBusinessSchema.parse(await request.json());
 
     const businessType = BUSINESS_TYPES.find((b) => b.id === type);
     if (!businessType) {
       return NextResponse.json({ error: 'Invalid business type' }, { status: 400 });
     }
+
+    // Read outside the transaction: the season clock is not part of this
+    // write, and reading it inside only lengthens the transaction.
+    const currentGameDay = await getCurrentGameDay();
 
     const business = await db.$transaction(async (tx) => {
       const player = await tx.player.findUnique({ where: { id: playerId } });
@@ -57,18 +68,15 @@ export async function POST(request: NextRequest) {
 
       // Check max businesses
       if (currentBusinessCount >= EXPANSION_CONFIG.maxBusinessesPerPlayer) {
-        throw new Error(`Maximum ${EXPANSION_CONFIG.maxBusinessesPerPlayer} businesses reached`);
+        throw conflict(`Maximum ${EXPANSION_CONFIG.maxBusinessesPerPlayer} businesses reached`);
       }
 
       // Check expansion cooldown
-      const daysSinceExpansion = 0; // We'd need gameDay from GameState for exact check
       if (player.lastExpansionAt > 0) {
-        // Get current game day for cooldown check
-        const gameDayState = await tx.gameState.findUnique({ where: { key: 'gameDay' } });
-        const gameDay = parseInt(gameDayState?.value || '1', 10);
+        const gameDay = currentGameDay;
         const daysSince = gameDay - player.lastExpansionAt;
         if (daysSince < EXPANSION_CONFIG.expansionCooldownDays) {
-          throw new Error(`Expansion cooldown: ${EXPANSION_CONFIG.expansionCooldownDays - daysSince} days remaining`);
+          throw conflict(`Expansion cooldown: ${EXPANSION_CONFIG.expansionCooldownDays - daysSince} days remaining`);
         }
       }
 
@@ -79,10 +87,14 @@ export async function POST(request: NextRequest) {
           ? EXPANSION_CONFIG.minLevelForSecondBusiness
           : EXPANSION_CONFIG.minLevelForSecondBusiness + (currentBusinessCount - 1) * EXPANSION_CONFIG.minLevelPerAdditionalBusiness;
       if (player.level < requiredLevel) {
-        throw new Error(`Level ${requiredLevel} required for business #${currentBusinessCount + 1}`);
+        throw validationError(`Level ${requiredLevel} required for business #${currentBusinessCount + 1}`);
       }
 
-      // Phase 5: Calculate expansion cost with scaling
+      // Opening stock is priced into costInfo.totalCost below, so it is
+      // resolved here and written from the same numbers that were charged.
+      const startingInventory = buildStartingInventory(type);
+
+      // Phase 5: Calculate expansion cost with scaling (includes opening stock)
       const costInfo = calculateExpansionCost(
         businessType.investment,
         currentBusinessCount,
@@ -99,15 +111,11 @@ export async function POST(request: NextRequest) {
       const cashAfterExpansion = player.cash - costInfo.totalCost;
       const minReserve = player.netWorth * EXPANSION_CONFIG.minCashReserveRatio;
       if (cashAfterExpansion < minReserve) {
-        throw new Error(`Need ৳${Math.round(minReserve).toLocaleString()} cash reserve after expansion`);
+        throw validationError(`Need ৳${Math.round(minReserve).toLocaleString()} cash reserve after expansion`);
       }
 
       // Phase 5: Calculate setup days
       const setupDays = currentBusinessCount === 0 ? 0 : calculateSetupDays(businessType.investment);
-
-      // Phase 5: Get game day for lastExpansionAt
-      const gameDayState2 = await tx.gameState.findUnique({ where: { key: 'gameDay' } });
-      const currentGameDay = parseInt(gameDayState2?.value || '1', 10);
 
       await tx.player.update({
         where: { id: playerId },
@@ -118,7 +126,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      return tx.business.create({
+      const created = await tx.business.create({
         data: {
           playerId,
           type,
@@ -131,26 +139,35 @@ export async function POST(request: NextRequest) {
           setupDaysRemaining: setupDays,
         },
       });
-    });
 
-    // Phase 5: Create initial inventory for the new business (was missing before)
-    if (business) {
-      const productDefs = PRODUCTS[type] || [];
-      for (const prod of productDefs) {
-        const initialStock = Math.floor(prod.maxStock * 0.4);
-        await db.inventory.create({
-          data: {
-            businessId: business.id,
+      // Opening stock. Created inside the same transaction as the payment:
+      // it is part of what `costInfo.totalCost` charged for, so a failure here
+      // must not leave a paid-for business standing empty.
+      if (startingInventory.items.length > 0) {
+        await tx.inventory.createMany({
+          data: startingInventory.items.map((item) => ({
+            businessId: created.id,
             productId: '',
-            productName: prod.name,
-            category: prod.category,
-            quantity: initialStock,
-            purchasePrice: prod.basePrice,
-            sellPrice: Math.round(prod.basePrice * (1 + prod.suggestedMarkup)),
-          },
+            productName: item.productName,
+            category: item.category,
+            quantity: item.quantity,
+            purchasePrice: item.purchasePrice,
+            sellPrice: item.sellPrice,
+          })),
         });
       }
-    }
+
+      // Phase 6: opening a business is a progression milestone.
+      await awardExperience(
+        tx,
+        playerId,
+        PROGRESSION_CONFIG.newBusinessXp,
+        'NEW_BUSINESS',
+        created.id,
+      );
+
+      return created;
+    });
 
     return NextResponse.json(business, { status: 201 });
   } catch (error) {

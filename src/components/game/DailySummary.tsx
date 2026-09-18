@@ -271,25 +271,25 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold mb-3 text-center">Daily Overview</p>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="text-center">
-                    <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center mx-auto mb-1.5">
-                      <Wallet className="h-4 w-4 text-green-600" />
+                    <div className="w-8 h-8 rounded-lg bg-green-50 dark:bg-green-950/40 flex items-center justify-center mx-auto mb-1.5">
+                      <Wallet className="h-4 w-4 text-green-600 dark:text-green-400" />
                     </div>
                     <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Revenue</p>
-                    <p className="text-sm font-bold text-green-700 game-number-tick">{formatTakaShort(totalRevenue)}</p>
+                    <p className="text-sm font-bold text-green-700 dark:text-green-300 game-number-tick">{formatTakaShort(totalRevenue)}</p>
                   </div>
                   <div className="text-center">
-                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center mx-auto mb-1.5">
-                      <Receipt className="h-4 w-4 text-red-500" />
+                    <div className="w-8 h-8 rounded-lg bg-red-50 dark:bg-red-950/40 flex items-center justify-center mx-auto mb-1.5">
+                      <Receipt className="h-4 w-4 text-red-500 dark:text-red-400" />
                     </div>
                     <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Expenses</p>
-                    <p className="text-sm font-bold text-red-600 game-number-tick">{formatTakaShort(totalExpense)}</p>
+                    <p className="text-sm font-bold text-red-600 dark:text-red-400 game-number-tick">{formatTakaShort(totalExpense)}</p>
                   </div>
                   <div className="text-center">
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center mx-auto mb-1.5" style={{ background: totalProfit >= 0 ? 'rgba(0,106,78,0.08)' : 'rgba(244,42,65,0.08)' }}>
                       <PiggyBank className="h-4 w-4" style={{ color: totalProfit >= 0 ? '#006a4e' : '#f42a41' }} />
                     </div>
                     <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Profit</p>
-                    <p className={cn('text-sm font-bold game-number-tick', totalProfit >= 0 ? 'text-green-700' : 'text-red-600')}>
+                    <p className={cn('text-sm font-bold game-number-tick', totalProfit >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-600 dark:text-red-400')}>
                       {totalProfit >= 0 ? '+' : ''}{formatTakaShort(totalProfit)}
                     </p>
                   </div>
@@ -325,8 +325,8 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                     <div className={cn(
                       'rounded-xl border p-3 transition-all duration-200 hover:shadow-sm',
                       isProfitable
-                        ? 'bg-green-50/60 border-green-200/60 hover:border-green-300'
-                        : 'bg-red-50/40 border-red-200/60 hover:border-red-300'
+                        ? 'bg-green-50/60 dark:bg-green-950/40 border-green-200/60 dark:border-green-900/60 hover:border-green-300 dark:hover:border-green-800/70'
+                        : 'bg-red-50/40 dark:bg-red-950/40 border-red-200/60 dark:border-red-900/60 hover:border-red-300 dark:hover:border-red-800/70'
                     )}>
                       {/* Business header */}
                       <div className="flex items-center gap-2.5 mb-2">
@@ -355,7 +355,7 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                         {/* Revenue */}
                         <div className="text-center">
                           <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Revenue</div>
-                          <div className="text-xs font-semibold text-green-700 flex items-center justify-center gap-0.5 mt-0.5 game-number-tick">
+                          <div className="text-xs font-semibold text-green-700 dark:text-green-300 flex items-center justify-center gap-0.5 mt-0.5 game-number-tick">
                             <TrendingUp className="h-3 w-3" />
                             {formatTakaShort(biz.revenue)}
                           </div>
@@ -364,7 +364,7 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                         {/* Expenses */}
                         <div className="text-center">
                           <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Expenses</div>
-                          <div className="text-xs font-semibold text-red-600 flex items-center justify-center gap-0.5 mt-0.5 game-number-tick">
+                          <div className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center justify-center gap-0.5 mt-0.5 game-number-tick">
                             <TrendingDown className="h-3 w-3" />
                             {formatTakaShort(biz.expense)}
                           </div>
@@ -375,7 +375,7 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                           <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Profit</div>
                           <div className={cn(
                             'text-xs font-bold flex items-center justify-center gap-0.5 mt-0.5 game-number-tick',
-                            isProfitable ? 'text-green-700' : 'text-red-600'
+                            isProfitable ? 'text-green-700 dark:text-green-300' : 'text-red-600 dark:text-red-400'
                           )}>
                             {isProfitable ? (
                               <TrendingUp className="h-3 w-3" />
@@ -391,7 +391,7 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                       {(repUp || repDown) && (
                         <div className={cn(
                           'mt-2 pt-2 border-t flex items-center gap-1.5 text-[10px]',
-                          repUp ? 'border-green-200/60 text-green-700' : 'border-red-200/60 text-red-600'
+                          repUp ? 'border-green-200/60 dark:border-green-900/60 text-green-700 dark:text-green-300' : 'border-red-200/60 dark:border-red-900/60 text-red-600 dark:text-red-400'
                         )}>
                           {repUp ? (
                             <ArrowUp className="h-3 w-3" />
@@ -434,7 +434,7 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                 {newEvents.map((event) => (
                   <div
                     key={event.id}
-                    className="flex items-start gap-2 p-2.5 rounded-lg border border-amber-200/60 game-amber-pulse"
+                    className="flex items-start gap-2 p-2.5 rounded-lg border border-amber-200/60 dark:border-amber-900/60 game-amber-pulse"
                     style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.06), rgba(245,158,11,0.02))' }}
                   >
                     <span className="text-base shrink-0 mt-0.5">{event.icon || '\u26A0'}</span>
@@ -459,7 +459,7 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-medium">{event.title}</span>
-                        <Badge className="text-[8px] px-1.5 py-0 font-medium rounded-full bg-green-50 text-green-700 border border-green-200" variant="outline">ONGOING</Badge>
+                        <Badge className="text-[8px] px-1.5 py-0 font-medium rounded-full bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-900/60" variant="outline">ONGOING</Badge>
                       </div>
                       <div className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
                         {event.description}
@@ -505,8 +505,8 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                     className={cn(
                       'flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors',
                       item.direction === 'up'
-                        ? 'bg-green-50/60 border-green-200/40 hover:border-green-300'
-                        : 'bg-red-50/40 border-red-200/40 hover:border-red-300'
+                        ? 'bg-green-50/60 dark:bg-green-950/40 border-green-200/40 dark:border-green-900/60 hover:border-green-300 dark:hover:border-green-800/70'
+                        : 'bg-red-50/40 dark:bg-red-950/40 border-red-200/40 dark:border-red-900/60 hover:border-red-300 dark:hover:border-red-800/70'
                     )}
                   >
                     <span className="text-base shrink-0">{getProductIcon(item.name)}</span>
@@ -515,7 +515,7 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
                     </div>
                     <div className={cn(
                       'flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full',
-                      item.direction === 'up' ? 'text-green-700 bg-green-100/60' : 'text-red-600 bg-red-100/60'
+                      item.direction === 'up' ? 'text-green-700 dark:text-green-300 bg-green-100/60 dark:bg-green-950/50' : 'text-red-600 dark:text-red-400 bg-red-100/60 dark:bg-red-950/50'
                     )}>
                       {item.direction === 'up' ? (
                         <ArrowUp className="h-3 w-3" />
@@ -545,26 +545,26 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
               <div className={cn(
                 'rounded-xl border p-3 flex items-start gap-2.5',
                 tip.type === 'positive'
-                  ? 'bg-green-50/50 border-green-200/50'
+                  ? 'bg-green-50/50 dark:bg-green-950/40 border-green-200/50 dark:border-green-900/60'
                   : tip.type === 'negative'
-                  ? 'bg-red-50/40 border-red-200/50'
-                  : 'bg-amber-50/50 border-amber-200/50'
+                  ? 'bg-red-50/40 dark:bg-red-950/40 border-red-200/50 dark:border-red-900/60'
+                  : 'bg-amber-50/50 dark:bg-amber-950/40 border-amber-200/50 dark:border-amber-900/60'
               )}>
                 <div className="shrink-0 mt-0.5">
                   <div className={cn(
                     'w-7 h-7 rounded-lg flex items-center justify-center',
-                    tip.type === 'positive' ? 'bg-green-100' : tip.type === 'negative' ? 'bg-red-100' : 'bg-amber-100'
+                    tip.type === 'positive' ? 'bg-green-100 dark:bg-green-950/50' : tip.type === 'negative' ? 'bg-red-100 dark:bg-red-950/50' : 'bg-amber-100 dark:bg-amber-950/50'
                   )}>
                     <Lightbulb className={cn(
                       'h-3.5 w-3.5',
-                      tip.type === 'positive' ? 'text-green-600' : tip.type === 'negative' ? 'text-red-500' : 'text-amber-600'
+                      tip.type === 'positive' ? 'text-green-600 dark:text-green-400' : tip.type === 'negative' ? 'text-red-500 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'
                     )} />
                   </div>
                 </div>
                 <div>
                   <p className={cn(
                     'text-[10px] font-bold uppercase tracking-wider mb-0.5',
-                    tip.type === 'positive' ? 'text-green-700' : tip.type === 'negative' ? 'text-red-600' : 'text-amber-700'
+                    tip.type === 'positive' ? 'text-green-700 dark:text-green-300' : tip.type === 'negative' ? 'text-red-600 dark:text-red-400' : 'text-amber-700 dark:text-amber-300'
                   )}>Daily Tip</p>
                   <p className="text-xs text-foreground leading-relaxed">{tip.text}</p>
                 </div>
@@ -581,15 +581,15 @@ export default function DailySummary({ open, onClose, previousBusinesses }: Dail
               <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Daily Profit</div>
               <div className={cn(
                 'text-lg font-bold flex items-center gap-1 game-number-tick',
-                totalProfit >= 0 ? 'text-green-700' : 'text-red-600'
+                totalProfit >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-600 dark:text-red-400'
               )}>
                 {totalProfit >= 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
                 {totalProfit >= 0 ? '+' : ''}{formatTaka(totalProfit)}
               </div>
             </div>
             <div className="text-right space-y-0.5">
-              <div className="text-[10px] text-muted-foreground">Revenue: <span className="text-green-700 font-medium">{formatTakaShort(totalRevenue)}</span></div>
-              <div className="text-[10px] text-muted-foreground">Expenses: <span className="text-red-600 font-medium">{formatTakaShort(totalExpense)}</span></div>
+              <div className="text-[10px] text-muted-foreground">Revenue: <span className="text-green-700 dark:text-green-300 font-medium">{formatTakaShort(totalRevenue)}</span></div>
+              <div className="text-[10px] text-muted-foreground">Expenses: <span className="text-red-600 dark:text-red-400 font-medium">{formatTakaShort(totalExpense)}</span></div>
             </div>
           </div>
 

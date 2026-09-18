@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { formatTaka } from '@/lib/game-data';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   TrendingUp, TrendingDown, BarChart3, Users, Package, ArrowUp,
-  Zap, PackageOpen, Clock, BellOff, CheckCheck, Bell,
+  Zap, PackageOpen, Clock, BellOff, CheckCheck, Bell, Sparkles,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -27,18 +27,19 @@ interface NotificationCenterProps {
 }
 
 const LOG_ICON_MAP: Record<string, { icon: LucideIcon; color: string; bg: string }> = {
-  REVENUE:  { icon: TrendingUp,  color: 'text-green-600', bg: 'bg-green-100' },
-  EXPENSE:  { icon: TrendingDown, color: 'text-red-500',   bg: 'bg-red-100' },
-  PROFIT:   { icon: BarChart3,   color: 'text-emerald-600', bg: 'bg-emerald-100' },
-  HIRE:     { icon: Users,       color: 'text-blue-600',   bg: 'bg-blue-100' },
-  PURCHASE: { icon: Package,     color: 'text-amber-600',  bg: 'bg-amber-100' },
-  UPGRADE:  { icon: ArrowUp,     color: 'text-purple-600', bg: 'bg-purple-100' },
-  EVENT:    { icon: Zap,         color: 'text-orange-500', bg: 'bg-orange-100' },
-  SELL:     { icon: PackageOpen, color: 'text-amber-600',  bg: 'bg-amber-100' },
+  REVENUE:  { icon: TrendingUp,  color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-950/50' },
+  EXPENSE:  { icon: TrendingDown, color: 'text-red-500 dark:text-red-400',   bg: 'bg-red-100 dark:bg-red-950/50' },
+  PROFIT:   { icon: BarChart3,   color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-950/50' },
+  HIRE:     { icon: Users,       color: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-100 dark:bg-blue-950/50' },
+  PURCHASE: { icon: Package,     color: 'text-amber-600 dark:text-amber-400',  bg: 'bg-amber-100 dark:bg-amber-950/50' },
+  UPGRADE:  { icon: ArrowUp,     color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-950/50' },
+  EVENT:    { icon: Zap,         color: 'text-orange-500 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-950/50' },
+  SELL:     { icon: PackageOpen, color: 'text-amber-600 dark:text-amber-400',  bg: 'bg-amber-100 dark:bg-amber-950/50' },
+  LEVEL_UP: { icon: Sparkles,    color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-100 dark:bg-violet-950/50' },
 };
 
 const DEFAULT_ICON: { icon: LucideIcon; color: string; bg: string } = {
-  icon: Clock, color: 'text-muted-foreground', bg: 'bg-gray-100',
+  icon: Clock, color: 'text-muted-foreground', bg: 'bg-gray-100 dark:bg-gray-950/50',
 };
 
 function getLogConfig(type: string) {
@@ -73,12 +74,12 @@ function isNewLog(dateStr: string): boolean {
   }
 }
 
-const listItemVariants = {
+const listItemVariants: Variants = {
   hidden: { opacity: 0, x: 20 },
   visible: (i: number) => ({
     opacity: 1,
     x: 0,
-    transition: { delay: i * 0.03, duration: 0.25, ease: 'easeOut' },
+    transition: { delay: i * 0.03, duration: 0.25, ease: 'easeOut' as const },
   }),
   exit: { opacity: 0, x: 20, transition: { duration: 0.15 } },
 };
@@ -144,7 +145,7 @@ export default function NotificationCenter({ open, onOpenChange }: NotificationC
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-xs gap-1 text-green-700 hover:text-green-800 hover:bg-green-50"
+                className="text-xs gap-1 text-green-700 dark:text-green-300 hover:text-green-800 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-950/40"
                 onClick={handleMarkAllRead}
               >
                 <CheckCheck className="h-3.5 w-3.5" />
@@ -204,7 +205,7 @@ export default function NotificationCenter({ open, onOpenChange }: NotificationC
                         layout
                         className={`flex items-start gap-3 p-2.5 rounded-xl transition-colors ${
                           fresh
-                            ? 'bg-green-50/70 border border-green-200/50'
+                            ? 'bg-green-50/70 dark:bg-green-950/40 border border-green-200/50 dark:border-green-900/60'
                             : i % 2 === 0
                               ? 'bg-muted/30'
                               : ''
@@ -226,8 +227,8 @@ export default function NotificationCenter({ open, onOpenChange }: NotificationC
                               <span
                                 className={`text-[10px] font-semibold ml-1 px-1.5 py-0.5 rounded-full ${
                                   log.amount >= 0
-                                    ? 'text-green-700 bg-green-100'
-                                    : 'text-red-600 bg-red-100'
+                                    ? 'text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-950/50'
+                                    : 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/50'
                                 }`}
                               >
                                 {log.amount >= 0 ? '+' : ''}

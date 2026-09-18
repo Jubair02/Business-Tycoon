@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { handleApiError, validationError, leaderboardTypeSchema } from '@/lib/errors';
-
+import { handleApiError, validationError, leaderboardTypeSchema, getOptionalPlayerId } from '@/lib/errors';
+import { publicPlayerRef } from '@/lib/auth/session';
+import { getActiveSeason } from '@/lib/game/seasons/seasons';
 type LeaderboardType = 'networth' | 'profit' | 'revenue' | 'marketshare';
 
 /**
@@ -16,14 +17,27 @@ type LeaderboardType = 'networth' | 'profit' | 'revenue' | 'marketshare';
  */
 export async function GET(request: NextRequest) {
   try {
+    // The viewer is resolved from the signed session so rows can be marked
+    // "you" without ever publishing a real player id (which is the credential).
+    const viewerId = await getOptionalPlayerId();
     const { searchParams } = new URL(request.url);
     const rawType = searchParams.get('type') || 'networth';
     const type = (leaderboardTypeSchema.parse(rawType) === 'marketshare' ? 'marketshare' : rawType) as LeaderboardType;
     const city = searchParams.get('city') || undefined;
 
+    // Every board is scoped to the season being played. One endless board meant
+    // whoever started first stayed on top forever and a late joiner had nothing
+    // to play for — and it is why `take: 50` then sorting in memory was wrong
+    // as soon as there were more than fifty accounts. A season's cohort is
+    // bounded by design.
+    const season = await getActiveSeason();
+    if (!season) return NextResponse.json([]);
+    const seasonFilter = { seasonId: season.id };
+
     if (type === 'marketshare') {
       // Market share leaderboard: total revenue across all businesses
       const players = await db.player.findMany({
+        where: seasonFilter,
         take: 50,
         include: {
           _count: { select: { businesses: true } },
@@ -52,7 +66,8 @@ export async function GET(request: NextRequest) {
       });
 
       const formatted = filtered.slice(0, 20).map(p => ({
-        playerId: p.id,
+        playerId: publicPlayerRef(p.id),
+        isYou: p.id === viewerId,
         name: p.name,
         netWorth: p.netWorth,
         totalProfit: p.businesses.reduce((sum, b) => sum + b.totalProfit, 0),
@@ -70,6 +85,7 @@ export async function GET(request: NextRequest) {
 
     if (type === 'revenue') {
       const players = await db.player.findMany({
+        where: seasonFilter,
         take: 50,
         include: {
           _count: { select: { businesses: true } },
@@ -96,7 +112,8 @@ export async function GET(request: NextRequest) {
       });
 
       const formatted = filtered.slice(0, 20).map(p => ({
-        playerId: p.id,
+        playerId: publicPlayerRef(p.id),
+        isYou: p.id === viewerId,
         name: p.name,
         netWorth: p.netWorth,
         totalProfit: p.businesses.reduce((sum, b) => sum + b.totalProfit, 0),
@@ -115,6 +132,7 @@ export async function GET(request: NextRequest) {
     // Use DB-level ordering for networth and businesses
     if (type === 'networth') {
       const players = await db.player.findMany({
+        where: seasonFilter,
         take: 50,
         orderBy: { netWorth: 'desc' },
         include: {
@@ -137,7 +155,8 @@ export async function GET(request: NextRequest) {
         : players;
 
       const formatted = filtered.slice(0, 20).map((p) => ({
-        playerId: p.id,
+        playerId: publicPlayerRef(p.id),
+        isYou: p.id === viewerId,
         name: p.name,
         netWorth: p.netWorth,
         totalProfit: p.businesses.reduce((sum, biz) => sum + biz.totalProfit, 0),
@@ -155,6 +174,7 @@ export async function GET(request: NextRequest) {
 
     // For profit and reputation, still need in-memory sorting
     const allPlayers = await db.player.findMany({
+      where: seasonFilter,
       take: 50,
       include: {
         _count: {
@@ -184,9 +204,6 @@ export async function GET(request: NextRequest) {
         });
         break;
       }
-      case 'marketshare':
-        // handled above
-        break;
       default: {
         // reputation
         players.sort((a, b) => {
@@ -203,7 +220,8 @@ export async function GET(request: NextRequest) {
     }
 
     const formatted = players.slice(0, 20).map((p) => ({
-      playerId: p.id,
+      playerId: publicPlayerRef(p.id),
+      isYou: p.id === viewerId,
       name: p.name,
       netWorth: p.netWorth,
       totalProfit: p.businesses.reduce((sum, biz) => sum + biz.totalProfit, 0),

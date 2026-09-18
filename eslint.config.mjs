@@ -44,7 +44,19 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  // `.claude/` holds agent tooling — CommonJS helper scripts that are not part
+  // of the application and are not built by Next. Linting them with the app's
+  // TypeScript/React rules only ever produced `no-require-imports` noise.
+  ignores: [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "examples/**",
+    "skills",
+    ".claude/**",
+  ]
 }];
 
 export default eslintConfig;

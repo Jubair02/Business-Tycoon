@@ -21,13 +21,13 @@ const CATEGORIES: { id: Category; label: string; icon: React.ReactNode; color: s
 ];
 
 const CATEGORY_STYLES: Record<string, { bg: string; text: string; border: string; glow: string }> = {
-  BUSINESS: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', glow: 'rgba(5, 150, 105, 0.12)' },
-  WEALTH: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', glow: 'rgba(217, 119, 6, 0.12)' },
-  SOCIAL: { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200', glow: 'rgba(124, 58, 237, 0.12)' },
-  MILESTONE: { bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200', glow: 'rgba(219, 39, 119, 0.12)' },
+  BUSINESS: { bg: 'bg-emerald-50 dark:bg-emerald-950/40', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-200 dark:border-emerald-900/60', glow: 'rgba(5, 150, 105, 0.12)' },
+  WEALTH: { bg: 'bg-amber-50 dark:bg-amber-950/40', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-200 dark:border-amber-900/60', glow: 'rgba(217, 119, 6, 0.12)' },
+  SOCIAL: { bg: 'bg-violet-50 dark:bg-violet-950/40', text: 'text-violet-700 dark:text-violet-300', border: 'border-violet-200 dark:border-violet-900/60', glow: 'rgba(124, 58, 237, 0.12)' },
+  MILESTONE: { bg: 'bg-pink-50 dark:bg-pink-950/40', text: 'text-pink-700 dark:text-pink-300', border: 'border-pink-200 dark:border-pink-900/60', glow: 'rgba(219, 39, 119, 0.12)' },
 };
 
-const DEFAULT_STYLE = { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', glow: 'rgba(0,0,0,0.05)' };
+const DEFAULT_STYLE = { bg: 'bg-gray-50 dark:bg-gray-950/40', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-900/60', glow: 'rgba(0,0,0,0.05)' };
 
 export default function AchievementsView() {
   const { achievements } = useGameStore();
@@ -88,7 +88,7 @@ export default function AchievementsView() {
                 'flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 shrink-0 border',
                 isActive
                   ? 'text-white border-transparent shadow-md'
-                  : 'bg-white text-muted-foreground border-border hover:text-foreground hover:shadow-sm'
+                  : 'bg-[var(--bt-surface-1)] text-muted-foreground border-border hover:text-foreground hover:shadow-sm'
               )}
               style={isActive ? { background: `linear-gradient(135deg, ${cat.color}, ${cat.color}dd)` } : {}}
             >
@@ -113,7 +113,7 @@ export default function AchievementsView() {
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="border-dashed rounded-xl">
             <CardContent className="py-12 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-3">
+              <div className="w-14 h-14 rounded-2xl bg-green-50 dark:bg-green-950/40 flex items-center justify-center mx-auto mb-3">
                 <Trophy className="h-7 w-7" style={{ color: '#006a4e', opacity: 0.4 }} />
               </div>
               <p className="text-sm font-medium mb-1">No achievements here</p>
@@ -165,7 +165,7 @@ export default function AchievementsView() {
                           'w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 transition-all duration-300',
                           isUnlocked
                             ? 'bg-gradient-to-br from-green-50 to-emerald-100 shadow-sm'
-                            : 'bg-gray-100 grayscale opacity-60'
+                            : 'bg-gray-100 dark:bg-gray-950/50 grayscale opacity-60'
                         )}
                         style={isUnlocked ? { boxShadow: `0 0 16px -4px ${catStyle.glow}` } : {}}
                       >
@@ -186,7 +186,7 @@ export default function AchievementsView() {
                               <Sparkles className="h-3 w-3 text-white" />
                             </div>
                           ) : (
-                            <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                            <div className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-950/50 flex items-center justify-center shrink-0">
                               <Lock className="h-3 w-3 text-gray-400" />
                             </div>
                           )}

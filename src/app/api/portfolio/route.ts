@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getCurrentGameDay } from '@/lib/game/seasons/seasons';
 import { requirePlayerId, handleApiError } from '@/lib/errors';
 import { calculatePortfolioSummary } from '@/lib/game/expansion';
 
@@ -62,12 +63,12 @@ export async function GET() {
         satisfactionScore: b.satisfactionScore,
         loyaltyScore: b.loyaltyScore,
         employeeCount: b.employees.length,
+        inventoryValue: b.inventories.reduce((s, inv) => s + inv.quantity * inv.purchasePrice, 0),
       })),
     );
 
     // Get game day for expansion eligibility
-    const gameDayState = await db.gameState.findUnique({ where: { key: 'gameDay' } });
-    const gameDay = parseInt(gameDayState?.value || '1', 10);
+    const gameDay = await getCurrentGameDay();
 
     // Business details for UI
     const businessDetails = businesses.map(b => ({

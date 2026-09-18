@@ -29,37 +29,43 @@ const PERSONALITY_ICONS: Record<string, string> = {
 };
 
 const PERSONALITY_COLORS: Record<string, string> = {
-  CONSERVATIVE: 'bg-blue-100 text-blue-700 border-blue-200',
-  BALANCED: 'bg-gray-100 text-gray-700 border-gray-200',
-  AGGRESSIVE: 'bg-red-100 text-red-700 border-red-200',
-  TRADER: 'bg-amber-100 text-amber-700 border-amber-200',
-  EXPANSIONIST: 'bg-purple-100 text-purple-700 border-purple-200',
+  CONSERVATIVE: 'bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-900/60',
+  BALANCED: 'bg-gray-100 dark:bg-gray-950/50 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-900/60',
+  AGGRESSIVE: 'bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900/60',
+  TRADER: 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/60',
+  EXPANSIONIST: 'bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-900/60',
 };
 
 export default function LeaderboardView() {
   const { player, leaderboard, setLeaderboard, setSelectedCity, selectedCity } = useGameStore();
   const [type, setType] = useState('networth');
   const [cityFilter, setCityFilter] = useState<string>('all');
-  const [loading, setLoading] = useState(false);
-
-  const fetchLeaderboard = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ type });
-      if (cityFilter !== 'all') params.set('city', cityFilter);
-      const res = await fetch(`/api/leaderboard?${params}`);
-      if (res.ok) {
-        setLeaderboard(await res.json());
-      }
-    } catch {
-      // silent
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Seeded true because the first fetch is already on its way by first paint.
+  // Afterwards it is the filter handlers that turn it back on — the effect only
+  // ever clears it, once the response is in. Setting it inside the effect body
+  // is what React 19 flags: it forces a second render pass on every mount and
+  // every filter change.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchLeaderboard();
+    let cancelled = false;
+
+    const params = new URLSearchParams({ type });
+    if (cityFilter !== 'all') params.set('city', cityFilter);
+
+    fetch(`/api/leaderboard?${params}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!cancelled && data) setLeaderboard(data);
+      })
+      .catch(() => {
+        // silent
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [type, cityFilter, setLeaderboard]);
 
   const getMedal = (rank: number) => {
@@ -94,14 +100,14 @@ export default function LeaderboardView() {
             size="sm"
             className={`gap-1 text-xs shrink-0 transition-all duration-200 ${type === tab.id ? 'text-white game-shine' : ''}`}
             style={type === tab.id ? { background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' } : {}}
-            onClick={() => setType(tab.id)}
+            onClick={() => { setLoading(true); setType(tab.id); }}
           >
             {tab.icon} {tab.label}
           </Button>
         ))}
       </div>
 
-      <Select value={cityFilter} onValueChange={setCityFilter}>
+      <Select value={cityFilter} onValueChange={(value) => { setLoading(true); setCityFilter(value); }}>
         <SelectTrigger className="w-full"><SelectValue placeholder="All Cities" /></SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All Cities</SelectItem>
@@ -128,7 +134,9 @@ export default function LeaderboardView() {
         <div className="space-y-2">
           {leaderboard.map((entry: any, i: number) => {
             const medal = getMedal(i);
-            const isMe = player && entry.playerId === player.id;
+            // The API marks the viewer's own row; it no longer returns real
+            // player ids, since those double as the session credential.
+            const isMe = Boolean(entry.isYou);
             const isAI = entry.isAI;
             const personality = entry.personality;
 
@@ -144,7 +152,7 @@ export default function LeaderboardView() {
                   medal.bg,
                   isMe && 'ring-2 border-green-400 shadow-lg shadow-green-100',
                   medal.emoji ? 'border' : '',
-                )} style={isMe ? { borderColor: '#006a4e', ringColor: '#006a4e' } : {}}>
+                )} style={isMe ? { borderColor: '#006a4e', ['--tw-ring-color' as string]: '#006a4e' } : {}}>
                   <CardContent className="p-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 text-center shrink-0">
@@ -163,16 +171,16 @@ export default function LeaderboardView() {
                             </Badge>
                           )}
                           {isAI && personality && (
-                            <Badge className={cn('text-[9px] px-1.5 border', PERSONALITY_COLORS[personality] || 'bg-gray-100 text-gray-600')}>
+                            <Badge className={cn('text-[9px] px-1.5 border', PERSONALITY_COLORS[personality] || 'bg-gray-100 dark:bg-gray-950/50 text-gray-600 dark:text-gray-400')}>
                               {PERSONALITY_ICONS[personality] || '🤖'} AI
                             </Badge>
                           )}
                           {isAI && !personality && (
-                            <Badge className="text-[9px] px-1.5 bg-gray-100 text-gray-600 border-gray-200">
+                            <Badge className="text-[9px] px-1.5 bg-gray-100 dark:bg-gray-950/50 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-900/60">
                               🤖 AI
                             </Badge>
                           )}
-                          {i === 0 && !medal.emoji && <Crown className="h-3.5 w-3.5 text-yellow-500" />}
+                          {i === 0 && !medal.emoji && <Crown className="h-3.5 w-3.5 text-yellow-500 dark:text-yellow-400" />}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[10px] text-muted-foreground">

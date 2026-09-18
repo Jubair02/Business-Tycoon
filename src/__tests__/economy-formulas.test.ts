@@ -20,6 +20,7 @@ import {
   safeDivide,
   classifyDemandLevel,
 } from '@/lib/game/economy/formulas';
+import { BUSINESS_TYPES } from '@/lib/game-data';
 
 // ---- Price Sensitivity Tests ----
 
@@ -167,6 +168,7 @@ describe('calculateBusinessExpenses', () => {
   it('correctly converts monthly salary to daily', () => {
     const expenses = calculateBusinessExpenses({
       baseRent: 3000,
+      baseUtilities: 1200,
       level: 1,
       cityRentMultiplier: 1.0,
       totalMonthlySalaries: 30000, // 30k/month
@@ -183,6 +185,7 @@ describe('calculateBusinessExpenses', () => {
   it('correctly converts monthly rent to daily', () => {
     const expenses = calculateBusinessExpenses({
       baseRent: 30000, // 30k/month rent
+      baseUtilities: 1200,
       level: 1,
       cityRentMultiplier: 1.0,
       totalMonthlySalaries: 0,
@@ -198,6 +201,7 @@ describe('calculateBusinessExpenses', () => {
   it('rent scales with level', () => {
     const level1 = calculateBusinessExpenses({
       baseRent: 3000,
+      baseUtilities: 1200,
       level: 1,
       cityRentMultiplier: 1.0,
       totalMonthlySalaries: 0,
@@ -208,6 +212,7 @@ describe('calculateBusinessExpenses', () => {
     });
     const level5 = calculateBusinessExpenses({
       baseRent: 3000,
+      baseUtilities: 1200,
       level: 5,
       cityRentMultiplier: 1.0,
       totalMonthlySalaries: 0,
@@ -222,6 +227,7 @@ describe('calculateBusinessExpenses', () => {
   it('tax is applied on profit with revenue floor', () => {
     const profitable = calculateBusinessExpenses({
       baseRent: 0,
+      baseUtilities: 1200,
       level: 1,
       cityRentMultiplier: 1.0,
       totalMonthlySalaries: 0,
@@ -235,6 +241,7 @@ describe('calculateBusinessExpenses', () => {
 
     const loss = calculateBusinessExpenses({
       baseRent: 0,
+      baseUtilities: 1200,
       level: 1,
       cityRentMultiplier: 1.0,
       totalMonthlySalaries: 0,
@@ -247,9 +254,66 @@ describe('calculateBusinessExpenses', () => {
     expect(loss.taxes).toBeGreaterThanOrEqual(200);
   });
 
+  it('correctly converts monthly utilities to daily', () => {
+    const expenses = calculateBusinessExpenses({
+      baseRent: 0,
+      baseUtilities: 3000, // 3k/month power bill
+      level: 1,
+      cityRentMultiplier: 1.0,
+      totalMonthlySalaries: 0,
+      businessLevel: 1,
+      businessTypeId: 'TEA_STALL',
+      revenue: 0,
+      grossProfit: 0,
+    });
+    // Daily utilities = 3000 / 30 = 100. Utilities are billed monthly, exactly
+    // like rent and salaries — reading them as a per-day figure is what made
+    // the tea stall's electricity bill seven times its rent.
+    expect(expenses.utilities).toBe(100);
+  });
+
+  it('utilities ignore the city multiplier but scale with business level', () => {
+    const base = {
+      baseRent: 3000,
+      baseUtilities: 3000,
+      totalMonthlySalaries: 0,
+      businessTypeId: 'TEA_STALL',
+      revenue: 0,
+      grossProfit: 0,
+    };
+    const dhaka = calculateBusinessExpenses({ ...base, level: 1, businessLevel: 1, cityRentMultiplier: 1.5 });
+    const rajshahi = calculateBusinessExpenses({ ...base, level: 1, businessLevel: 1, cityRentMultiplier: 0.7 });
+    // Power and gas are nationally tariffed; only rent varies by city.
+    expect(dhaka.utilities).toBe(rajshahi.utilities);
+    expect(dhaka.rent).toBeGreaterThan(rajshahi.rent);
+
+    const level5 = calculateBusinessExpenses({ ...base, level: 5, businessLevel: 5, cityRentMultiplier: 1.0 });
+    expect(level5.utilities).toBeGreaterThan(dhaka.utilities);
+  });
+
+  it('a tea stall pays less for power than for rent', () => {
+    const teaStall = BUSINESS_TYPES.find(b => b.id === 'TEA_STALL')!;
+    const expenses = calculateBusinessExpenses({
+      baseRent: teaStall.rent,
+      baseUtilities: teaStall.utilities,
+      level: 1,
+      cityRentMultiplier: 1.5, // Dhaka
+      totalMonthlySalaries: 0,
+      businessLevel: 1,
+      businessTypeId: teaStall.id,
+      revenue: 0,
+      grossProfit: 0,
+    });
+    // The regression this guards: utilities once came to 750/day against
+    // 150/day of rent, i.e. 22,500 taka a month of electricity on a 50,000
+    // taka business.
+    expect(expenses.utilities).toBeLessThan(expenses.rent);
+  });
+
   it('total expense is sum of all components', () => {
     const expenses = calculateBusinessExpenses({
       baseRent: 3000,
+      baseUtilities: 1200,
       level: 1,
       cityRentMultiplier: 1.0,
       totalMonthlySalaries: 30000,

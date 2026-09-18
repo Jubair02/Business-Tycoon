@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getCurrentGameDay } from '@/lib/game/seasons/seasons';
 import { BUSINESS_TYPES } from '@/lib/game-data';
 import { requirePlayerId, handleApiError } from '@/lib/errors';
 import { EXPANSION_CONFIG, calculateExpansionCost, checkExpansionEligibility, getLocationsForCity } from '@/lib/game/expansion';
@@ -21,14 +22,14 @@ export async function GET() {
         where: { playerId },
         select: { id: true, type: true, dailyProfit: true },
       }),
-      db.gameState.findUnique({ where: { key: 'gameDay' } }),
+      getCurrentGameDay(),
     ]);
 
     if (!player) {
       return NextResponse.json({ error: 'Player not found' }, { status: 404 });
     }
 
-    const gameDay = parseInt(gameDayState?.value || '1', 10);
+    const gameDay = gameDayState;
     const currentBusinessCount = businesses.length;
 
     // Calculate eligibility for each business type

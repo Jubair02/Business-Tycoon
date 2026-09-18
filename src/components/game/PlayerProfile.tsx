@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/game-store';
 import { formatTaka, formatTakaShort } from '@/lib/game-data';
@@ -46,29 +46,19 @@ const stagger = {
 
 export default function PlayerProfile({ open, onOpenChange }: PlayerProfileProps) {
   const { player, businesses, gameDay } = useGameStore();
-  const [profileData, setProfileData] = useState<{
-    totalRevenue: number;
-    totalProfit: number;
-    totalExpenses: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (open && player) {
-      // Compute stats from businesses in the store
-      const totalRevenue = businesses.reduce(
-        (sum: number, b: any) => sum + (b.dailyRevenue || 0),
-        0
-      );
-      const totalProfit = businesses.reduce(
-        (sum: number, b: any) => sum + (b.dailyProfit || 0),
-        0
-      );
-      const totalExpenses = businesses.reduce(
-        (sum: number, b: any) => sum + (b.dailyExpenses || 0),
-        0
-      );
-      setProfileData({ totalRevenue, totalProfit, totalExpenses });
-    }
+  // These totals are a pure function of what is already in the store, so they
+  // are derived during render rather than copied into state by an effect. The
+  // effect version re-rendered the dialog a second time on every open and on
+  // every poll, and could show one tick's stale figures in the meantime.
+  const profileData = useMemo(() => {
+    if (!open || !player) return null;
+    const sum = (pick: (b: any) => number) =>
+      businesses.reduce((total: number, b: any) => total + (pick(b) || 0), 0);
+    return {
+      totalRevenue: sum(b => b.dailyRevenue),
+      totalProfit: sum(b => b.dailyProfit),
+      totalExpenses: sum(b => b.dailyExpenses),
+    };
   }, [open, player, businesses]);
 
   if (!player) return null;
@@ -102,50 +92,50 @@ export default function PlayerProfile({ open, onOpenChange }: PlayerProfileProps
   const statCards = [
     {
       icon: <Wallet className='h-4 w-4' />,
-      iconBg: 'bg-green-100',
-      iconColor: 'text-green-700',
+      iconBg: 'bg-green-100 dark:bg-green-950/50',
+      iconColor: 'text-green-700 dark:text-green-300',
       label: 'Cash',
       value: formatTaka(player.cash || 0),
     },
     {
       icon: <TrendingUp className='h-4 w-4' />,
-      iconBg: 'bg-amber-100',
-      iconColor: 'text-amber-700',
+      iconBg: 'bg-amber-100 dark:bg-amber-950/50',
+      iconColor: 'text-amber-700 dark:text-amber-300',
       label: 'Net Worth',
       value: formatTaka(player.netWorth || 0),
     },
     {
       icon: <Building2 className='h-4 w-4' />,
-      iconBg: 'bg-blue-100',
-      iconColor: 'text-blue-700',
+      iconBg: 'bg-blue-100 dark:bg-blue-950/50',
+      iconColor: 'text-blue-700 dark:text-blue-300',
       label: 'Total Businesses',
       value: String(businesses.length),
     },
     {
       icon: <Users className='h-4 w-4' />,
-      iconBg: 'bg-purple-100',
-      iconColor: 'text-purple-700',
+      iconBg: 'bg-purple-100 dark:bg-purple-950/50',
+      iconColor: 'text-purple-700 dark:text-purple-300',
       label: 'Total Staff',
       value: String(totalStaff),
     },
     {
       icon: <CalendarDays className='h-4 w-4' />,
-      iconBg: 'bg-cyan-100',
-      iconColor: 'text-cyan-700',
+      iconBg: 'bg-cyan-100 dark:bg-cyan-950/50',
+      iconColor: 'text-cyan-700 dark:text-cyan-300',
       label: 'Game Day',
       value: String(gameDay),
     },
     {
       icon: <BarChart3 className='h-4 w-4' />,
-      iconBg: 'bg-emerald-100',
-      iconColor: 'text-emerald-700',
+      iconBg: 'bg-emerald-100 dark:bg-emerald-950/50',
+      iconColor: 'text-emerald-700 dark:text-emerald-300',
       label: 'Total Revenue',
       value: profileData ? formatTaka(profileData.totalRevenue) : '---',
     },
     {
       icon: <TrendingUp className='h-4 w-4' />,
-      iconBg: 'bg-orange-100',
-      iconColor: 'text-orange-700',
+      iconBg: 'bg-orange-100 dark:bg-orange-950/50',
+      iconColor: 'text-orange-700 dark:text-orange-300',
       label: 'Total Profit',
       value: profileData
         ? formatTaka(profileData.totalProfit)
@@ -289,9 +279,9 @@ export default function PlayerProfile({ open, onOpenChange }: PlayerProfileProps
                     <div className='flex items-center justify-between'>
                       <div className='flex items-center gap-2'>
                         {cashDelta >= 0 ? (
-                          <ArrowUpRight className='h-4 w-4 text-green-600' />
+                          <ArrowUpRight className='h-4 w-4 text-green-600 dark:text-green-400' />
                         ) : (
-                          <ArrowDownRight className='h-4 w-4 text-red-500' />
+                          <ArrowDownRight className='h-4 w-4 text-red-500 dark:text-red-400' />
                         )}
                         <span className='text-sm text-muted-foreground'>
                           Cash Earned/Lost
@@ -299,7 +289,7 @@ export default function PlayerProfile({ open, onOpenChange }: PlayerProfileProps
                       </div>
                       <span
                         className={`text-sm font-bold ${
-                          cashDelta >= 0 ? 'text-green-600' : 'text-red-500'
+                          cashDelta >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'
                         }`}
                       >
                         {cashDelta >= 0 ? '+' : ''}
@@ -320,8 +310,8 @@ export default function PlayerProfile({ open, onOpenChange }: PlayerProfileProps
                       <span
                         className={`text-sm font-bold ${
                           avgDailyProfit >= 0
-                            ? 'text-green-600'
-                            : 'text-red-500'
+                            ? 'text-green-600 dark:text-green-400'
+                            : 'text-red-500 dark:text-red-400'
                         }`}
                       >
                         {avgDailyProfit >= 0 ? '+' : ''}

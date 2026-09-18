@@ -1,15 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/game-store';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -18,21 +15,27 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Landmark, Plus, Wallet, CreditCard, Clock, CheckCircle2, XCircle, AlertTriangle, ArrowDownToLine, ShieldCheck, Percent, TrendingUp, Award, Banknote } from 'lucide-react';
+import {
+  Landmark, Plus, Wallet, CreditCard, Clock, CheckCircle2, XCircle,
+  AlertTriangle, ArrowDownToLine, ShieldCheck, Percent, TrendingUp,
+  History, Gauge,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { formatTaka } from '@/lib/game-data';
 import { cn } from '@/lib/utils';
+import { apiErrorMessage } from '@/lib/api-error';
 
 const DURATION_OPTIONS = [
-  { days: 10, label: '10 Days', desc: 'Short-term' },
-  { days: 20, label: '20 Days', desc: 'Medium-term' },
-  { days: 30, label: '30 Days', desc: 'Long-term' },
+  { days: 10, label: '10 days', desc: 'Short term' },
+  { days: 20, label: '20 days', desc: 'Medium term' },
+  { days: 30, label: '30 days', desc: 'Long term' },
 ];
 
 const INTEREST_RATE = 0.05;
 const MIN_LOAN = 50000;
 const MAX_ACTIVE_LOANS = 3;
 
+const ease = [0.16, 1, 0.3, 1] as const;
 
 interface Loan {
   id: string;
@@ -44,6 +47,52 @@ interface Loan {
   totalInterest: number;
   status: string;
   takenAt: string;
+}
+
+/* Gauge geometry — a 270° arc reads as a dial rather than a pie. */
+const GAUGE_R = 34;
+const GAUGE_C = 2 * Math.PI * GAUGE_R;
+const GAUGE_ARC = GAUGE_C * 0.75;
+
+function CreditGauge({ score, tone }: { score: number; tone: string }) {
+  return (
+    <div className={cn('relative h-20 w-20 shrink-0 sm:h-24 sm:w-24', tone)}>
+      <svg viewBox="0 0 80 80" className="h-20 w-20 -rotate-[135deg] sm:h-24 sm:w-24" aria-hidden="true">
+        <circle
+          cx="40" cy="40" r={GAUGE_R}
+          fill="none"
+          stroke="color-mix(in oklch, var(--_t) 20%, var(--bt-surface-3))"
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeDasharray={`${GAUGE_ARC} ${GAUGE_C}`}
+        />
+        <circle
+          cx="40" cy="40" r={GAUGE_R}
+          fill="none"
+          stroke="var(--_t)"
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeDasharray={`${(score / 100) * GAUGE_ARC} ${GAUGE_C}`}
+          style={{ transition: 'stroke-dasharray 700ms cubic-bezier(0.16,1,0.3,1)' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="bt-figure bt-tone-text text-2xl">{score}</span>
+        <span className="bt-label mt-0.5 text-[9px]">score</span>
+      </div>
+    </div>
+  );
+}
+
+/** Pure loader — no state, so the mount effect and the post-action refresh
+ *  each own their own transition instead of sharing one setState path. */
+async function loadLoans(): Promise<Loan[] | null> {
+  try {
+    const res = await fetch('/api/loans');
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function BankView() {
@@ -63,59 +112,62 @@ export default function BankView() {
   const [repaying, setRepaying] = useState(false);
 
   const fetchLoans = useCallback(async () => {
-    try {
-      const res = await fetch('/api/loans');
-      if (res.ok) {
-        setLoans(await res.json());
-      }
-    } catch {
-      // silent
-    } finally {
-      setLoading(false);
-    }
+    const data = await loadLoans();
+    if (data) setLoans(data);
+    setLoading(false);
   }, []);
 
   const fetchPlayer = useCallback(async () => {
     try {
       const res = await fetch('/api/player');
-      if (res.ok) {
-        setPlayer(await res.json());
-      }
+      if (res.ok) setPlayer(await res.json());
     } catch {
       // silent
     }
   }, [setPlayer]);
 
   useEffect(() => {
-    fetchLoans();
-  }, [fetchLoans]);
+    let cancelled = false;
+    const init = async () => {
+      const data = await loadLoans();
+      if (cancelled) return;
+      if (data) setLoans(data);
+      setLoading(false);
+    };
+    init();
+    return () => { cancelled = true; };
+  }, []);
 
-  const activeLoans = loans.filter((l) => l.status === 'ACTIVE');
-  const historyLoans = loans.filter((l) => l.status !== 'ACTIVE');
+  const activeLoans = useMemo(() => loans.filter((l) => l.status === 'ACTIVE'), [loans]);
+  const historyLoans = useMemo(() => loans.filter((l) => l.status !== 'ACTIVE'), [loans]);
+
   const totalDebt = activeLoans.reduce((sum, l) => sum + l.remainingDebt, 0);
   const totalDailyPayment = activeLoans.reduce((sum, l) => sum + l.dailyPayment, 0);
   const maxLoan = player ? player.level * 200000 : 200000;
-
-  // Additional computed values for enhanced summary
-  const totalPaidActive = activeLoans.reduce((sum, l) => {
-    const original = l.amount + l.totalInterest;
-    return sum + (original - l.remainingDebt);
-  }, 0);
-  const totalPaidHistory = historyLoans.filter(l => l.status === 'PAID_OFF').reduce((sum, l) => sum + l.amount + l.totalInterest, 0);
-  const totalPaid = totalPaidActive + totalPaidHistory;
   const availableCredit = Math.max(0, maxLoan - totalDebt);
+  const creditUsed = maxLoan > 0 ? (totalDebt / maxLoan) * 100 : 0;
 
-  // Credit score: base 70, +10 per paid-off loan, -15 per default
-  const creditScore = Math.min(100, Math.max(0,
-    70 + (historyLoans.filter(l => l.status === 'PAID_OFF').length * 10) - (historyLoans.filter(l => l.status === 'DEFAULTED').length * 15)
-  ));
-  const creditScoreColor = creditScore >= 80 ? '#006a4e' : creditScore >= 50 ? '#d97706' : '#f42a41';
-  const creditScoreLabel = creditScore >= 80 ? 'Excellent' : creditScore >= 50 ? 'Fair' : 'Poor';
+  const totalPaidActive = activeLoans.reduce(
+    (sum, l) => sum + (l.amount + l.totalInterest - l.remainingDebt), 0,
+  );
+  const totalPaidHistory = historyLoans
+    .filter((l) => l.status === 'PAID_OFF')
+    .reduce((sum, l) => sum + l.amount + l.totalInterest, 0);
+  const totalPaid = totalPaidActive + totalPaidHistory;
 
-  // Calculated loan preview
+  // Base 70, +10 per loan cleared, -15 per default.
+  const paidOffCount = historyLoans.filter((l) => l.status === 'PAID_OFF').length;
+  const defaultedCount = historyLoans.filter((l) => l.status === 'DEFAULTED').length;
+  const creditScore = Math.min(100, Math.max(0, 70 + paidOffCount * 10 - defaultedCount * 15));
+  const creditTone = creditScore >= 80 ? 'bt-tone-emerald' : creditScore >= 50 ? 'bt-tone-amber' : 'bt-tone-crimson';
+  const creditLabel = creditScore >= 80 ? 'Excellent' : creditScore >= 50 ? 'Fair' : 'Poor';
+
   const previewInterest = loanAmount * INTEREST_RATE;
   const previewTotal = loanAmount + previewInterest;
   const previewDaily = previewTotal / loanDays;
+  const sliderMax = Math.max(availableCredit, MIN_LOAN);
+
+  const canTakeLoan = activeLoans.length < MAX_ACTIVE_LOANS && availableCredit >= MIN_LOAN;
 
   const handleTakeLoan = async () => {
     if (!showNewLoan) return;
@@ -134,7 +186,7 @@ export default function BankView() {
         await Promise.all([fetchLoans(), fetchPlayer()]);
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || 'Failed to take loan');
+        toast.error(apiErrorMessage(err, 'Failed to take loan'));
       }
     } catch {
       toast.error('Network error');
@@ -164,7 +216,7 @@ export default function BankView() {
         await Promise.all([fetchLoans(), fetchPlayer()]);
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || 'Repayment failed');
+        toast.error(apiErrorMessage(err, 'Repayment failed'));
       }
     } catch {
       toast.error('Network error');
@@ -173,587 +225,514 @@ export default function BankView() {
     }
   };
 
-  const canTakeLoan = activeLoans.length < MAX_ACTIVE_LOANS && availableCredit > 0;
-
   return (
-    <div className="p-3 md:p-4 space-y-5 pb-24 md:pb-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-            <Landmark className="h-4 w-4 text-white" />
+    <div className="bt-page bt-page-narrow bt-stack-lg">
+      {/* ── Header ───────────────────────────────────────────────── */}
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="bt-chip h-10 w-10" aria-hidden="true">
+            <Landmark className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="bt-gradient-text text-xl font-bold leading-tight">Central Bank</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Borrow against your level, repay early whenever you like
+            </p>
           </div>
-          <span className="game-badge-gradient">Bangladesh Central Bank</span>
-        </h2>
+        </div>
         {canTakeLoan && (
-          <Button
-            size="sm"
-            className="text-white text-xs rounded-lg shadow-sm hover:shadow-md transition-shadow"
-            style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}
+          <button
+            type="button"
             onClick={() => setShowNewLoan(true)}
+            className="bt-btn-primary bt-tap gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold"
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> New Loan
-          </Button>
+            <Plus className="h-4 w-4" aria-hidden="true" /> New loan
+          </button>
         )}
-      </div>
+      </header>
 
-      {/* Summary Header - Stat Cards Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-          <Card className="game-stat-card rounded-xl">
-            <CardContent className="p-3.5">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center">
-                  <Wallet className="h-3 w-3" style={{ color: '#006a4e' }} />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cash</span>
-              </div>
-              <p className="text-sm font-bold" style={{ color: '#006a4e' }}>
-                {player ? formatTaka(player.cash) : '...'}
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="game-stat-card rounded-xl" style={{ '--stat-color': '#f42a41' } as React.CSSProperties}>
-            <CardContent className="p-3.5">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center">
-                  <CreditCard className="h-3 w-3 text-red-500" />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Debt</span>
-              </div>
-              <p className="text-sm font-bold text-red-600">
-                {formatTaka(totalDebt)}
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="game-stat-card rounded-xl">
-            <CardContent className="p-3.5">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
-                  <TrendingUp className="h-3 w-3 text-amber-600" />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Total Paid</span>
-              </div>
-              <p className="text-sm font-bold text-amber-700">
-                {formatTaka(totalPaid)}
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <Card className="game-stat-card rounded-xl">
-            <CardContent className="p-3.5">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 rounded-md bg-green-50 flex items-center justify-center">
-                  <Banknote className="h-3 w-3" style={{ color: '#006a4e' }} />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Available Credit</span>
-              </div>
-              <p className="text-sm font-bold" style={{ color: '#006a4e' }}>
-                {formatTaka(availableCredit)}
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
+      {/* ── Credit standing ──────────────────────────────────────── */}
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease }}
+        className="bt-surface-raised bt-edge bt-ambient overflow-hidden p-4 sm:p-5"
+        aria-label="Credit standing"
+      >
+        <div className="flex items-center gap-4">
+          <CreditGauge score={creditScore} tone={creditTone} />
 
-      {/* Credit Score + Daily Payment Row */}
-      <div className="grid grid-cols-2 gap-3">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card className="game-card-glow-subtle rounded-xl">
-            <CardContent className="p-3.5 flex items-center gap-3">
-              {/* Credit score circular indicator */}
-              <div className="relative w-12 h-12 shrink-0">
-                <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48">
-                  <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/40" />
-                  <circle
-                    cx="24" cy="24" r="20" fill="none"
-                    stroke={creditScoreColor}
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeDasharray={`${(creditScore / 100) * 125.6} 125.6`}
-                    style={{ transition: 'stroke-dasharray 0.8s ease' }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-[10px] font-bold" style={{ color: creditScoreColor }}>{creditScore}</span>
-                </div>
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Credit Score</p>
-                <p className="text-sm font-bold flex items-center gap-1" style={{ color: creditScoreColor }}>
-                  <Award className="h-3.5 w-3.5" />
-                  {creditScoreLabel}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <Card className="game-card-glow-subtle rounded-xl">
-            <CardContent className="p-3.5 flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.08), rgba(0,168,107,0.14))' }}>
-                <Clock className="h-5 w-5" style={{ color: '#006a4e' }} />
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Daily Payment</p>
-                <p className="text-sm font-bold text-orange-600">{formatTaka(totalDailyPayment)}</p>
-                <p className="text-[10px] text-muted-foreground"><span style={{ color: '#006a4e' }}>{activeLoans.length}</span>/{MAX_ACTIVE_LOANS} loans</p>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="bt-label">Credit rating</span>
+              <Badge className={cn('bt-tone rounded-full border px-2 py-0 text-[10px] font-bold', creditTone)}>
+                {creditLabel}
+              </Badge>
+            </div>
 
-      {/* Active Loans */}
-      <div>
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2.5 game-section-header">
-          <div className="w-1.5 h-5 rounded-full" style={{ background: 'linear-gradient(180deg, #006a4e, #00a86b)' }} />
-          <span>Active Loans</span>
-          {activeLoans.length > 0 && (
-            <span className="game-pulse-soft w-2 h-2 rounded-full bg-green-500 inline-block" />
-          )}
-        </h3>
+            <p className="bt-figure bt-gradient-text mt-1.5 text-2xl sm:text-3xl">
+              {formatTaka(availableCredit)}
+            </p>
+            <p className="bt-numeric mt-0.5 text-xs text-muted-foreground">
+              available of {formatTaka(maxLoan)} limit · level {player?.level ?? 1}
+            </p>
+
+            {/* Utilisation: how much of the limit is already committed. */}
+            <div className="mt-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="bt-label">Credit used</span>
+                <span className="bt-numeric text-[11px] font-semibold text-muted-foreground">
+                  {creditUsed.toFixed(0)}%
+                </span>
+              </div>
+              <div className={cn('bt-meter', creditUsed > 75 ? 'bt-tone-crimson' : creditUsed > 40 ? 'bt-tone-amber' : 'bt-tone-emerald')}>
+                <span style={{ width: `${Math.min(100, creditUsed)}%`, background: 'var(--_t)' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.section>
+
+      {/* ── Position ─────────────────────────────────────────────── */}
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" aria-label="Debt position">
+        {[
+          { label: 'Cash', value: player ? formatTaka(player.cash) : '—', Icon: Wallet, tone: 'bt-tone-emerald' },
+          { label: 'Total debt', value: formatTaka(totalDebt), Icon: CreditCard, tone: 'bt-tone-crimson' },
+          { label: 'Per day', value: formatTaka(totalDailyPayment), Icon: Clock, tone: 'bt-tone-amber' },
+          { label: 'Repaid', value: formatTaka(totalPaid), Icon: TrendingUp, tone: 'bt-tone-gold' },
+        ].map(({ label, value, Icon, tone }, i) => (
+          <motion.div
+            key={label}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.05 + i * 0.05, ease }}
+            className={cn('bt-tile p-3.5', tone)}
+          >
+            <div className="flex items-center gap-1.5">
+              <Icon className="bt-tone-text h-3.5 w-3.5" aria-hidden="true" />
+              <span className="bt-label">{label}</span>
+            </div>
+            <p className="bt-figure bt-tone-text mt-1.5 text-base">{value}</p>
+          </motion.div>
+        ))}
+      </section>
+
+      {/* ── Active loans ─────────────────────────────────────────── */}
+      <section aria-label="Active loans">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="bt-section-title text-sm">
+            <span className="bt-gradient-text">Active loans</span>
+            <span className="bt-numeric rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+              {activeLoans.length}/{MAX_ACTIVE_LOANS}
+            </span>
+          </h3>
+        </div>
 
         {loading ? (
-          <div className="space-y-3">
+          <div className="space-y-3" aria-busy="true">
             {[1, 2].map((i) => (
-              <Card key={i} className="rounded-xl">
-                <CardContent className="p-4">
-                  <Skeleton className="h-24 w-full rounded-lg" />
-                </CardContent>
-              </Card>
+              <div key={i} className="bt-surface p-4">
+                <div className="bt-skeleton h-28 w-full" />
+              </div>
             ))}
           </div>
         ) : activeLoans.length === 0 ? (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-            <Card className="rounded-xl">
-              <CardContent className="game-empty-state">
-                <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-2">
-                  <Landmark className="h-7 w-7" style={{ color: '#006a4e', opacity: 0.6 }} />
-                </div>
-                <p className="game-empty-title">No Active Loans</p>
-                <p className="game-empty-desc">Take a loan to expand your business empire with extra capital!</p>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <div className="bt-surface bt-empty">
+            <span className="bt-chip bt-tone-emerald mb-3 h-14 w-14" aria-hidden="true">
+              <ShieldCheck className="h-6 w-6" />
+            </span>
+            <h4 className="text-sm font-semibold">Debt free</h4>
+            <p className="mx-auto mt-1 max-w-xs text-xs text-muted-foreground">
+              No active loans. Borrow when you need capital to expand faster than cash flow allows.
+            </p>
+            {canTakeLoan && (
+              <button
+                type="button"
+                onClick={() => setShowNewLoan(true)}
+                className="bt-btn-primary bt-tap mt-4 gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Take a loan
+              </button>
+            )}
+          </div>
         ) : (
           <div className="space-y-3">
             {activeLoans.map((loan, i) => {
               const originalDebt = loan.amount + loan.totalInterest;
               const paidOff = originalDebt - loan.remainingDebt;
-              const progressPercent = originalDebt > 0 ? (paidOff / originalDebt) * 100 : 0;
+              const progress = originalDebt > 0 ? (paidOff / originalDebt) * 100 : 0;
+              // Urgency drives the rail: a loan due in days should look different.
+              const tone = loan.daysRemaining <= 3
+                ? 'bt-tone-crimson'
+                : loan.daysRemaining <= 7 ? 'bt-tone-amber' : 'bt-tone-emerald';
 
               return (
-                <motion.div
+                <motion.article
                   key={loan.id}
-                  initial={{ opacity: 0, y: 12 }}
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.06 }}
+                  transition={{ duration: 0.3, delay: i * 0.06, ease }}
+                  className={cn('bt-surface bt-rail overflow-hidden p-4 pl-5', tone)}
                 >
-                  <Card className="rounded-xl overflow-hidden game-card-glow-subtle transition-all duration-300 hover:border-green-300">
-                    <div
-                      className="h-1"
-                      style={{
-                        background: 'linear-gradient(90deg, #006a4e, #00a86b, #006a4e)',
-                      }}
-                    />
-                    <CardContent className="p-4 space-y-3.5">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.08), rgba(0,168,107,0.12))' }}>
-                            <CreditCard className="h-5 w-5" style={{ color: '#006a4e' }} />
-                          </div>
-                          <div>
-                            <p className="text-base font-bold" style={{ color: '#006a4e' }}>{formatTaka(loan.amount)}</p>
-                            <p className="text-[11px] text-muted-foreground font-medium mt-0.5">
-                              Taken {new Date(loan.takenAt).toLocaleDateString('en-BD', { month: 'short', day: 'numeric' })}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-1.5">
-                          <Badge className="text-[10px] font-semibold text-white rounded-full px-2.5 py-0.5" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-300 mr-1.5 inline-block game-pulse-soft" />
-                            Active
-                          </Badge>
-                          {/* Interest rate badge */}
-                          <Badge className="text-[9px] font-semibold rounded-full px-2 py-0 bg-amber-50 text-amber-700 border border-amber-200" variant="outline">
-                            <Percent className="h-2.5 w-2.5 mr-0.5" />
-                            {(loan.interestRate * 100).toFixed(0)}% APR
-                          </Badge>
-                        </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <span className="bt-chip h-10 w-10" aria-hidden="true">
+                        <CreditCard className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="bt-figure text-lg">{formatTaka(loan.amount)}</p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          Taken{' '}
+                          {new Date(loan.takenAt).toLocaleDateString('en-BD', {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </p>
                       </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <Badge className={cn('bt-tone gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold', tone)}>
+                        <span className="game-pulse-soft inline-block h-1.5 w-1.5 rounded-full bg-current" />
+                        {loan.daysRemaining}d left
+                      </Badge>
+                      <Badge variant="outline" className="bt-numeric gap-0.5 rounded-full px-2 py-0 text-[9px] font-semibold">
+                        <Percent className="h-2.5 w-2.5" aria-hidden="true" />
+                        {(loan.interestRate * 100).toFixed(0)}% APR
+                      </Badge>
+                    </div>
+                  </div>
 
-                      {/* Enhanced Progress Bar */}
-                      <div className="rounded-lg p-3" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.03), rgba(0,168,107,0.05))' }}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[11px] text-muted-foreground font-medium">Repayment Progress</span>
-                          <span className="text-xs font-bold game-number-tick" style={{ color: '#006a4e' }}>
-                            {Math.round(progressPercent)}%
-                          </span>
-                        </div>
-                        <div className="relative">
-                          <Progress value={progressPercent} className="h-3 rounded-full" />
-                          <div className="absolute inset-0 h-3 rounded-full overflow-hidden pointer-events-none">
-                            <div className="h-full rounded-full" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, #006a4e, #00a86b)', opacity: 0.3, transition: 'width 0.6s ease' }} />
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-[10px] text-muted-foreground font-medium">
-                            Remaining: <span className="text-foreground font-semibold">{formatTaka(loan.remainingDebt)}</span>
-                          </span>
-                          <span className="text-[10px] text-muted-foreground font-medium">
-                            {loan.daysRemaining} days left
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Details row */}
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="text-center p-2 rounded-lg bg-amber-50/60">
-                          <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Daily Pay</p>
-                          <p className="text-xs font-bold text-orange-600 mt-0.5">{formatTaka(loan.dailyPayment)}</p>
-                        </div>
-                        <div className="text-center p-2 rounded-lg bg-green-50/60">
-                          <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Interest</p>
-                          <p className="text-xs font-bold mt-0.5" style={{ color: '#006a4e' }}>{(loan.interestRate * 100).toFixed(0)}%</p>
-                        </div>
-                        <div className="text-center p-2 rounded-lg bg-muted/40">
-                          <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Total Int.</p>
-                          <p className="text-xs font-bold mt-0.5">{formatTaka(loan.totalInterest)}</p>
-                        </div>
-                      </div>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full text-xs rounded-lg font-medium h-9 border-dashed transition-all hover:border-solid hover:shadow-sm"
-                        onClick={() => {
-                          setRepayLoan(loan);
-                          setRepayAmount('');
+                  {/* Repayment progress */}
+                  <div className={cn('bt-well-tone mt-3.5 p-3', tone)}>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="bt-label">Repayment progress</span>
+                      <span className="bt-figure bt-tone-text text-sm">{Math.round(progress)}%</span>
+                    </div>
+                    <div className={cn('bt-meter h-2.5', tone)}>
+                      <span
+                        style={{
+                          width: `${progress}%`,
+                          background: 'linear-gradient(90deg,color-mix(in oklch,var(--_t) 65%,transparent),var(--_t))',
                         }}
-                      >
-                        <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
-                        Repay Early
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </motion.div>
+                      />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="bt-numeric">
+                        Paid <span className="font-semibold text-foreground">{formatTaka(paidOff)}</span>
+                      </span>
+                      <span className="bt-numeric">
+                        Left <span className="font-semibold text-foreground">{formatTaka(loan.remainingDebt)}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Daily', value: formatTaka(loan.dailyPayment) },
+                      { label: 'Interest', value: `${(loan.interestRate * 100).toFixed(0)}%` },
+                      { label: 'Total int.', value: formatTaka(loan.totalInterest) },
+                    ].map((cell) => (
+                      <div key={cell.label} className="bt-well p-2 text-center">
+                        <p className="bt-label">{cell.label}</p>
+                        <p className="bt-figure mt-1 text-xs">{cell.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => { setRepayLoan(loan); setRepayAmount(''); }}
+                    className="bt-tap bt-surface bt-interactive mt-3 w-full gap-1.5 rounded-lg py-2.5 text-xs font-semibold"
+                  >
+                    <ArrowDownToLine className="h-3.5 w-3.5" aria-hidden="true" />
+                    Repay early
+                  </button>
+                </motion.article>
               );
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Loan History */}
-      {historyLoans.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2.5 game-section-header">
-            <div className="w-1.5 h-5 rounded-full bg-gray-300" />
-            Loan History
+      {/* ── How loans work ───────────────────────────────────────── */}
+      {!loading && activeLoans.length === 0 && (
+        <section className="bt-surface p-4" aria-label="Loan terms">
+          <h3 className="bt-label mb-2.5 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> Loan terms
           </h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto game-scrollbar">
-            {historyLoans.map((loan, i) => (
-              <motion.div
-                key={loan.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-              >
-                <Card className="rounded-xl opacity-75 hover:opacity-100 transition-all duration-200 hover:shadow-sm hover:border-green-200">
-                  <CardContent className="p-3.5 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={cn(
-                          'w-9 h-9 rounded-lg flex items-center justify-center',
-                          loan.status === 'PAID_OFF' ? 'bg-green-50' : 'bg-red-50'
-                        )}
-                      >
-                        {loan.status === 'PAID_OFF' ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-600" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold">{formatTaka(loan.amount)}</p>
-                        <p className="text-[10px] text-muted-foreground font-medium">
-                          {new Date(loan.takenAt).toLocaleDateString('en-BD', { month: 'short', day: 'numeric' })}
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {[
+              { Icon: Percent, text: `Flat ${(INTEREST_RATE * 100).toFixed(0)}% interest on the principal` },
+              { Icon: ShieldCheck, text: `Up to ${MAX_ACTIVE_LOANS} loans running at once` },
+              { Icon: Landmark, text: `Your limit is ${formatTaka(maxLoan)} at level ${player?.level ?? 1}` },
+              { Icon: Clock, text: 'Daily payments are deducted automatically' },
+              { Icon: CheckCircle2, text: 'Repay early any time, no penalty' },
+              { Icon: Gauge, text: 'Clearing loans raises your credit score' },
+            ].map(({ Icon, text }) => (
+              <li key={text} className="flex items-start gap-2 text-xs text-muted-foreground">
+                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--bt-emerald)]" aria-hidden="true" />
+                {text}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* ── History ──────────────────────────────────────────────── */}
+      {historyLoans.length > 0 && (
+        <section aria-label="Loan history">
+          <h3 className="bt-section-title mb-3 text-sm">
+            <History className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <span className="bt-gradient-text">History</span>
+          </h3>
+          <div className="game-scrollbar max-h-72 space-y-2 overflow-y-auto pr-1">
+            <AnimatePresence initial={false}>
+              {historyLoans.map((loan, i) => {
+                const cleared = loan.status === 'PAID_OFF';
+                return (
+                  <motion.div
+                    key={loan.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25, delay: Math.min(i, 8) * 0.03, ease }}
+                    className={cn(
+                      'bt-surface bt-rail flex items-center justify-between gap-3 p-3 pl-4',
+                      cleared ? 'bt-tone-emerald' : 'bt-tone-crimson',
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="bt-chip h-9 w-9" aria-hidden="true">
+                        {cleared ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="bt-figure text-xs">{formatTaka(loan.amount)}</p>
+                        <p className="bt-numeric mt-0.5 text-[10px] text-muted-foreground">
+                          {new Date(loan.takenAt).toLocaleDateString('en-BD', {
+                            month: 'short', day: 'numeric',
+                          })}{' '}
+                          · {(loan.interestRate * 100).toFixed(0)}%
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <Badge
-                        variant="outline"
-                        className="text-[9px] font-medium rounded-full px-1.5 py-0 bg-muted/50 text-muted-foreground border-transparent"
-                      >
-                        {(loan.interestRate * 100).toFixed(0)}%
-                      </Badge>
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          'text-[10px] font-semibold rounded-full px-2.5',
-                          loan.status === 'PAID_OFF' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                        )}
-                      >
-                        {loan.status === 'PAID_OFF' ? 'Paid Off' : 'Defaulted'}
-                      </Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+                    <Badge className={cn('bt-tone shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold', cleared ? 'bt-tone-emerald' : 'bt-tone-crimson')}>
+                      {cleared ? 'Paid off' : 'Defaulted'}
+                    </Badge>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
-        </div>
+        </section>
       )}
 
-      {/* New Loan Info Card */}
-      {!showNewLoan && activeLoans.length === 0 && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <Card className="rounded-xl border-dashed">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0 mt-0.5">
-                  <AlertTriangle className="h-5 w-5 text-amber-500" />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold">Loan Information</p>
-                  <ul className="text-xs text-muted-foreground font-medium space-y-1.5">
-                    <li className="flex items-start gap-2">
-                      <Percent className="h-3 w-3 mt-0.5 text-amber-500 shrink-0" />
-                      Flat interest rate: 5% on the loan amount
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <ShieldCheck className="h-3 w-3 mt-0.5 text-amber-500 shrink-0" />
-                      Maximum {MAX_ACTIVE_LOANS} active loans at a time
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Landmark className="h-3 w-3 mt-0.5 text-amber-500 shrink-0" />
-                      Max loan: {formatTaka(maxLoan)} (based on level {player?.level || 1})
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Clock className="h-3 w-3 mt-0.5 text-amber-500 shrink-0" />
-                      Daily payments are automatically deducted
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="h-3 w-3 mt-0.5 text-green-500 shrink-0" />
-                      You can repay early at any time!
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* New Loan Dialog */}
+      {/* ── New loan dialog ──────────────────────────────────────── */}
       <Dialog open={showNewLoan} onOpenChange={setShowNewLoan}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
+        <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-                <Landmark className="h-4 w-4 text-white" />
-              </div>
-              Take New Loan
+            <DialogTitle className="flex items-center gap-2.5">
+              <span className="bt-chip h-9 w-9" aria-hidden="true">
+                <Landmark className="h-4 w-4" />
+              </span>
+              Take a new loan
             </DialogTitle>
             <DialogDescription>
-              Borrow money to grow your business. Daily payments will be deducted automatically.
+              Daily payments are deducted automatically until the balance clears.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5 py-2">
-            {/* Loan Amount Slider */}
+            {/* Amount */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Loan Amount</label>
-                <span className="text-sm font-bold game-badge-gradient">
-                  {formatTaka(loanAmount)}
-                </span>
+                <span className="text-sm font-medium">Amount</span>
+                <span className="bt-figure bt-gradient-text text-base">{formatTaka(loanAmount)}</span>
               </div>
               <Slider
+
                 value={[loanAmount]}
                 onValueChange={(v) => setLoanAmount(v[0])}
                 min={MIN_LOAN}
-                max={Math.max(availableCredit, MIN_LOAN)}
+                max={sliderMax}
                 step={10000}
                 className="w-full"
+                aria-label="Loan amount"
               />
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground font-medium">
-                <span>{formatTaka(MIN_LOAN)}</span>
-                <span>{formatTaka(Math.max(availableCredit, MIN_LOAN))}</span>
+              <div className="flex items-center justify-between">
+                <span className="bt-numeric text-[10px] text-muted-foreground">{formatTaka(MIN_LOAN)}</span>
+                <div className="bt-seg" role="group" aria-label="Quick amounts">
+                  {[
+                    { label: '25%', value: Math.max(MIN_LOAN, Math.round(sliderMax * 0.25 / 10000) * 10000) },
+                    { label: '50%', value: Math.max(MIN_LOAN, Math.round(sliderMax * 0.5 / 10000) * 10000) },
+                    { label: 'Max', value: sliderMax },
+                  ].map((q) => (
+                    <button
+                      key={q.label}
+                      type="button"
+                      className="bt-seg-item"
+                      data-active={loanAmount === q.value}
+                      onClick={() => setLoanAmount(q.value)}
+                    >
+                      {q.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            {/* Duration Selection */}
+            {/* Duration */}
             <div className="space-y-2.5">
-              <label className="text-sm font-medium">Duration</label>
-              <div className="grid grid-cols-3 gap-2">
-                {DURATION_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.days}
-                    onClick={() => setLoanDays(opt.days)}
-                    className={cn(
-                      'p-3 rounded-xl border text-center transition-all duration-200',
-                      loanDays === opt.days
-                        ? 'text-white border-transparent shadow-md'
-                        : 'bg-white text-muted-foreground border-border hover:border-green-300 hover:shadow-sm'
-                    )}
-                    style={loanDays === opt.days ? { background: 'linear-gradient(135deg, #006a4e, #00895e)' } : {}}
-                  >
-                    <p className="text-xs font-bold">{opt.label}</p>
-                    <p className="text-[10px] opacity-80 font-medium">{opt.desc}</p>
-                  </button>
-                ))}
+              <span className="text-sm font-medium">Duration</span>
+              <div className="grid grid-cols-3 gap-2" role="group" aria-label="Loan duration">
+                {DURATION_OPTIONS.map((opt) => {
+                  const active = loanDays === opt.days;
+                  return (
+                    <button
+                      key={opt.days}
+                      type="button"
+                      onClick={() => setLoanDays(opt.days)}
+                      aria-pressed={active}
+                      className={cn(
+                        'rounded-xl p-3 text-center transition-all duration-200',
+                        active
+                          ? 'bt-btn-primary'
+                          : 'bt-surface bt-interactive text-muted-foreground',
+                      )}
+                    >
+                      <p className="text-xs font-bold">{opt.label}</p>
+                      <p className="text-[10px] font-medium opacity-80">{opt.desc}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Loan Summary */}
-            <Card className="rounded-xl" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.04), rgba(0,168,107,0.06))' }}>
-              <CardContent className="p-4 space-y-2.5">
-                <p className="text-xs font-bold text-center uppercase tracking-wider text-muted-foreground">Loan Summary</p>
-                <hr className="game-divider-gradient" />
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground font-medium">Principal</span>
-                  <span className="font-semibold">{formatTaka(loanAmount)}</span>
+            {/* Summary */}
+            <div className="bt-well-tone bt-tone-emerald space-y-2.5 p-4">
+              <p className="bt-label text-center">Loan summary</p>
+              <hr className="bt-divider" />
+              {[
+                { label: 'Principal', value: formatTaka(loanAmount) },
+                { label: `Interest (${(INTEREST_RATE * 100).toFixed(0)}%)`, value: `+${formatTaka(previewInterest)}`, tone: 'bt-text-loss' },
+              ].map((row) => (
+                <div key={row.label} className="flex justify-between text-xs">
+                  <span className="font-medium text-muted-foreground">{row.label}</span>
+                  <span className={cn('bt-numeric font-semibold', row.tone)}>{row.value}</span>
                 </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground font-medium">Interest (5%)</span>
-                  <span className="font-semibold text-orange-600">+{formatTaka(previewInterest)}</span>
-                </div>
-                <hr className="game-divider-gradient" />
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground font-medium">Total Repayment</span>
-                  <span className="font-bold">{formatTaka(previewTotal)}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground font-medium">Daily Payment</span>
-                  <span className="font-bold" style={{ color: '#006a4e' }}>{formatTaka(previewDaily)}</span>
-                </div>
-              </CardContent>
-            </Card>
+              ))}
+              <hr className="bt-divider" />
+              <div className="flex justify-between text-xs">
+                <span className="font-medium text-muted-foreground">Total repayment</span>
+                <span className="bt-figure">{formatTaka(previewTotal)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="font-medium text-muted-foreground">Daily payment</span>
+                <span className="bt-figure bt-text-profit">{formatTaka(previewDaily)}</span>
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowNewLoan(false)}
-              disabled={takingLoan}
-              className="text-xs rounded-lg"
-            >
+            <Button variant="outline" onClick={() => setShowNewLoan(false)} disabled={takingLoan} className="rounded-lg text-xs">
               Cancel
             </Button>
-            <Button
-              className="text-white text-xs rounded-lg shadow-sm hover:shadow-md transition-shadow"
-              style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}
+            <button
+              type="button"
+              className="bt-btn-primary bt-tap rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
               onClick={handleTakeLoan}
               disabled={takingLoan}
             >
-              {takingLoan ? 'Processing...' : `Take ${formatTaka(loanAmount)} Loan`}
-            </Button>
+              {takingLoan ? 'Processing…' : `Borrow ${formatTaka(loanAmount)}`}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Repay Dialog */}
+      {/* ── Repay dialog ─────────────────────────────────────────── */}
       <Dialog open={!!repayLoan} onOpenChange={(open) => { if (!open) setRepayLoan(null); }}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
+        <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-                <ArrowDownToLine className="h-4 w-4 text-white" />
-              </div>
-              Repay Loan
+            <DialogTitle className="flex items-center gap-2.5">
+              <span className="bt-chip h-9 w-9" aria-hidden="true">
+                <ArrowDownToLine className="h-4 w-4" />
+              </span>
+              Repay early
             </DialogTitle>
             <DialogDescription>
-              Make an early repayment to reduce your debt faster.
+              Pay down the balance ahead of schedule to cut the debt faster.
             </DialogDescription>
           </DialogHeader>
 
           {repayLoan && (
             <div className="space-y-4 py-2">
-              <Card className="rounded-xl" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.04), rgba(0,168,107,0.06))' }}>
-                <CardContent className="p-4 space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground font-medium">Original Loan</span>
-                    <span className="font-semibold">{formatTaka(repayLoan.amount)}</span>
-                  </div>
-                  <hr className="game-divider-gradient" />
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground font-medium">Remaining Debt</span>
-                    <span className="font-bold text-red-600">{formatTaka(repayLoan.remainingDebt)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground font-medium">Your Cash</span>
-                    <span className="font-bold" style={{ color: '#006a4e' }}>
-                      {player ? formatTaka(player.cash) : '...'}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="bt-well space-y-2 p-4">
+                <div className="flex justify-between text-xs">
+                  <span className="font-medium text-muted-foreground">Original loan</span>
+                  <span className="bt-numeric font-semibold">{formatTaka(repayLoan.amount)}</span>
+                </div>
+                <hr className="bt-divider" />
+                <div className="flex justify-between text-xs">
+                  <span className="font-medium text-muted-foreground">Remaining debt</span>
+                  <span className="bt-figure bt-text-loss">{formatTaka(repayLoan.remainingDebt)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="font-medium text-muted-foreground">Your cash</span>
+                  <span className="bt-figure bt-text-profit">
+                    {player ? formatTaka(player.cash) : '—'}
+                  </span>
+                </div>
+              </div>
 
               <div className="space-y-2.5">
-                <label className="text-sm font-medium">Repayment Amount</label>
+                <label htmlFor="repay-amount" className="text-sm font-medium">Repayment amount</label>
                 <Input
+                  id="repay-amount"
                   type="number"
-                  placeholder="Enter amount..."
+                  inputMode="numeric"
+                  placeholder="Enter amount…"
                   value={repayAmount}
                   onChange={(e) => setRepayAmount(e.target.value)}
                   min={1}
                   max={Math.min(repayLoan.remainingDebt, player?.cash || 0)}
-                  className="rounded-lg"
+                  className="bt-numeric h-11 rounded-lg"
                 />
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-[10px] rounded-lg flex-1 font-medium"
-                    onClick={() => setRepayAmount(String(Math.round(repayLoan.dailyPayment)))}
-                  >
-                    1 Day
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-[10px] rounded-lg flex-1 font-medium"
-                    onClick={() => setRepayAmount(String(Math.round(repayLoan.remainingDebt / 2)))}
-                  >
-                    Half
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-[10px] rounded-lg flex-1 font-medium"
-                    onClick={() => setRepayAmount(String(Math.round(repayLoan.remainingDebt)))}
-                  >
-                    Full
-                  </Button>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'One day', value: Math.round(repayLoan.dailyPayment) },
+                    { label: 'Half', value: Math.round(repayLoan.remainingDebt / 2) },
+                    { label: 'Full', value: Math.round(repayLoan.remainingDebt) },
+                  ].map((q) => (
+                    <button
+                      key={q.label}
+                      type="button"
+                      onClick={() => setRepayAmount(String(q.value))}
+                      className="bt-surface bt-interactive bt-tap rounded-lg py-2 text-[11px] font-semibold"
+                    >
+                      {q.label}
+                    </button>
+                  ))}
                 </div>
+                {repayAmount && parseFloat(repayAmount) > (player?.cash ?? 0) && (
+                  <p className="bt-text-loss flex items-center gap-1.5 text-[11px] font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    That is more than your available cash.
+                  </p>
+                )}
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRepayLoan(null)}
-              disabled={repaying}
-              className="text-xs rounded-lg"
-            >
+            <Button variant="outline" onClick={() => setRepayLoan(null)} disabled={repaying} className="rounded-lg text-xs">
               Cancel
             </Button>
-            <Button
-              className="text-white text-xs rounded-lg shadow-sm hover:shadow-md transition-shadow"
-              style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}
+            <button
+              type="button"
+              className="bt-btn-primary bt-tap rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-60"
               onClick={handleRepay}
               disabled={repaying || !repayAmount || parseFloat(repayAmount) <= 0}
             >
-              {repaying ? 'Processing...' : `Repay ${repayAmount ? formatTaka(parseFloat(repayAmount)) : '...'}`}
-            </Button>
+              {repaying ? 'Processing…' : `Repay ${repayAmount ? formatTaka(parseFloat(repayAmount)) : '…'}`}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

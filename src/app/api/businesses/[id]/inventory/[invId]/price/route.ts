@@ -41,7 +41,10 @@ export async function PATCH(
 
     const updated = await db.inventory.update({
       where: { id: invId },
-      data: { sellPrice },
+      // `priceEdited` records that this price was chosen rather than inherited
+      // from the suggested markup — the guided first week asks the player to
+      // price deliberately, and this is how that is recognised.
+      data: { sellPrice, priceEdited: true },
     });
 
     return NextResponse.json(updated);

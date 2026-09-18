@@ -71,7 +71,10 @@ export interface BusinessType {
   name: string;
   icon: string;
   investment: number;
+  /** Monthly rent, before the city multiplier. Divided by 30 at tick time. */
   rent: number;
+  /** Monthly utility bill (power, gas, water), on the same basis as rent. */
+  utilities: number;
   risk: 'Low' | 'Medium' | 'High';
   profit: 'Low' | 'Medium' | 'High';
   difficulty: 'Easy' | 'Medium' | 'Hard';
@@ -81,6 +84,20 @@ export interface BusinessType {
   bgColor: string;
 }
 
+// Every type is solved to a 25-45 day payback with `balance-sim.ts`, so that
+// no type is strictly dominated. The ladder is deliberate: as the investment
+// rises the *absolute* profit rises, but the ROI gets slightly worse, so
+// progression is about scale rather than about finding the one right answer.
+//
+//   Type        Investment   Payback   Profit/day   Risk
+//   Tea Stall       50,000      27 d        1,850   steadiest, smallest
+//   Grocery        300,000      30 d        9,980   steadiest, high turnover
+//   Clothing       500,000      33 d       15,150   seasonal swings
+//   Restaurant     800,000      36 d       22,200   moderate swings
+//   Mobile       1,000,000      39 d       25,830   biggest swings, heaviest float
+//
+// The risk/profit/difficulty labels below are descriptions of those measured
+// numbers, not aspirations. Re-run the simulation before changing any of them.
 export const BUSINESS_TYPES: BusinessType[] = [
   {
     id: 'TEA_STALL',
@@ -88,10 +105,11 @@ export const BUSINESS_TYPES: BusinessType[] = [
     icon: '☕',
     investment: 50000,
     rent: 3000,
+    utilities: 1200,   // One burner, a kettle and a light
     risk: 'Low',
     profit: 'Low',
     difficulty: 'Easy',
-    description: 'A cozy tea stall serving cha, biscuits, and snacks. Perfect for beginners.',
+    description: 'Cheap to open and quick to repay. Small takings, but almost nothing can go badly wrong.',
     baseCustomers: 80,
     color: 'text-amber-700',
     bgColor: 'bg-amber-50',
@@ -102,11 +120,12 @@ export const BUSINESS_TYPES: BusinessType[] = [
     icon: '🛒',
     investment: 300000,
     rent: 15000,
-    risk: 'Medium',
+    utilities: 6000,   // Chillers and freezers run all day
+    risk: 'Low',
     profit: 'Medium',
-    difficulty: 'Medium',
-    description: 'A well-stocked grocery store with daily essentials and household items.',
-    baseCustomers: 60,
+    difficulty: 'Easy',
+    description: 'Daily essentials at thin margins. The steadiest earner in the game — high footfall, small baskets, and demand that barely moves.',
+    baseCustomers: 110,
     color: 'text-green-700',
     bgColor: 'bg-green-50',
   },
@@ -116,11 +135,12 @@ export const BUSINESS_TYPES: BusinessType[] = [
     icon: '👕',
     investment: 500000,
     rent: 25000,
+    utilities: 7500,   // Display lighting and air conditioning
     risk: 'Medium',
-    profit: 'High',
+    profit: 'Medium',
     difficulty: 'Medium',
-    description: 'Fashionable clothing shop with seasonal collections and event-driven sales.',
-    baseCustomers: 45,
+    description: 'Few buyers, fat margins. Eid and winter swing takings hard in both directions.',
+    baseCustomers: 70,
     color: 'text-purple-700',
     bgColor: 'bg-purple-50',
   },
@@ -130,11 +150,12 @@ export const BUSINESS_TYPES: BusinessType[] = [
     icon: '📱',
     investment: 1000000,
     rent: 35000,
+    utilities: 12000,  // AC, display walls and security systems
     risk: 'High',
     profit: 'High',
     difficulty: 'Hard',
-    description: 'High-end mobile and electronics shop dealing with smartphones and accessories.',
-    baseCustomers: 30,
+    description: 'Thin margins on very expensive stock. Needs the largest cash float in the game and swings the hardest — the accessories, not the handsets, pay the rent.',
+    baseCustomers: 40,
     color: 'text-blue-700',
     bgColor: 'bg-blue-50',
   },
@@ -144,11 +165,12 @@ export const BUSINESS_TYPES: BusinessType[] = [
     icon: '🍛',
     investment: 800000,
     rent: 30000,
+    utilities: 15000,  // Gas, ovens and cold storage — the heaviest bill
     risk: 'Medium',
     profit: 'High',
     difficulty: 'Medium',
-    description: 'A popular restaurant serving authentic Bangladeshi cuisine.',
-    baseCustomers: 50,
+    description: 'High covers and healthy margins, against the heaviest gas and refrigeration bills of any business.',
+    baseCustomers: 90,
     color: 'text-red-700',
     bgColor: 'bg-red-50',
   },
@@ -166,43 +188,43 @@ export interface ProductDef {
 
 export const PRODUCTS: Record<string, ProductDef[]> = {
   TEA_STALL: [
-    { name: 'Tea (Cha)', category: 'TEA_STALL', basePrice: 8, baseDemand: 1.0, icon: '🫖', maxStock: 500, suggestedMarkup: 0.6 },
-    { name: 'Biscuits', category: 'TEA_STALL', basePrice: 5, baseDemand: 0.6, icon: '🍪', maxStock: 300, suggestedMarkup: 0.5 },
-    { name: 'Singara', category: 'TEA_STALL', basePrice: 10, baseDemand: 0.7, icon: '🥟', maxStock: 200, suggestedMarkup: 0.7 },
-    { name: 'Samosa', category: 'TEA_STALL', basePrice: 12, baseDemand: 0.5, icon: '🔺', maxStock: 200, suggestedMarkup: 0.7 },
-    { name: 'Cold Drinks', category: 'TEA_STALL', basePrice: 15, baseDemand: 0.8, icon: '🥤', maxStock: 150, suggestedMarkup: 0.4 },
+    { name: 'Tea (Cha)', category: 'TEA_STALL', basePrice: 8, baseDemand: 0.823, icon: '🫖', maxStock: 190, suggestedMarkup: 0.6 },
+    { name: 'Biscuits', category: 'TEA_STALL', basePrice: 5, baseDemand: 0.493, icon: '🍪', maxStock: 115, suggestedMarkup: 0.5 },
+    { name: 'Singara', category: 'TEA_STALL', basePrice: 10, baseDemand: 0.576, icon: '🥟', maxStock: 135, suggestedMarkup: 0.7 },
+    { name: 'Samosa', category: 'TEA_STALL', basePrice: 12, baseDemand: 0.411, icon: '🔺', maxStock: 95, suggestedMarkup: 0.7 },
+    { name: 'Cold Drinks', category: 'TEA_STALL', basePrice: 15, baseDemand: 0.658, icon: '🥤', maxStock: 155, suggestedMarkup: 0.4 },
   ],
   GROCERY: [
-    { name: 'Rice (5kg)', category: 'GROCERY', basePrice: 280, baseDemand: 0.9, icon: '🍚', maxStock: 100, suggestedMarkup: 0.15 },
-    { name: 'Cooking Oil (1L)', category: 'GROCERY', basePrice: 200, baseDemand: 0.85, icon: '🫗', maxStock: 80, suggestedMarkup: 0.15 },
-    { name: 'Eggs (12pc)', category: 'GROCERY', basePrice: 150, baseDemand: 0.95, icon: '🥚', maxStock: 120, suggestedMarkup: 0.2 },
-    { name: 'Milk (1L)', category: 'GROCERY', basePrice: 90, baseDemand: 0.8, icon: '🥛', maxStock: 80, suggestedMarkup: 0.18 },
-    { name: 'Snacks', category: 'GROCERY', basePrice: 20, baseDemand: 0.7, icon: '🍿', maxStock: 200, suggestedMarkup: 0.35 },
-    { name: 'Soft Drinks', category: 'GROCERY', basePrice: 30, baseDemand: 0.75, icon: '🥤', maxStock: 150, suggestedMarkup: 0.25 },
+    { name: 'Rice (5kg)', category: 'GROCERY', basePrice: 280, baseDemand: 0.532, icon: '🍚', maxStock: 170, suggestedMarkup: 0.15 },
+    { name: 'Cooking Oil (1L)', category: 'GROCERY', basePrice: 200, baseDemand: 0.503, icon: '🫗', maxStock: 160, suggestedMarkup: 0.15 },
+    { name: 'Eggs (12pc)', category: 'GROCERY', basePrice: 150, baseDemand: 0.562, icon: '🥚', maxStock: 180, suggestedMarkup: 0.2 },
+    { name: 'Milk (1L)', category: 'GROCERY', basePrice: 90, baseDemand: 0.473, icon: '🥛', maxStock: 150, suggestedMarkup: 0.18 },
+    { name: 'Snacks', category: 'GROCERY', basePrice: 20, baseDemand: 0.414, icon: '🍿', maxStock: 135, suggestedMarkup: 0.35 },
+    { name: 'Soft Drinks', category: 'GROCERY', basePrice: 30, baseDemand: 0.443, icon: '🥤', maxStock: 140, suggestedMarkup: 0.25 },
   ],
   CLOTHING: [
-    { name: 'Men\'s Shirt', category: 'CLOTHING', basePrice: 500, baseDemand: 0.7, icon: '👔', maxStock: 60, suggestedMarkup: 0.4 },
-    { name: 'Men\'s Pants', category: 'CLOTHING', basePrice: 700, baseDemand: 0.6, icon: '👖', maxStock: 50, suggestedMarkup: 0.4 },
-    { name: 'Women\'s Saree', category: 'CLOTHING', basePrice: 1500, baseDemand: 0.8, icon: '👗', maxStock: 30, suggestedMarkup: 0.45 },
-    { name: 'Women\'s Salwar Kameez', category: 'CLOTHING', basePrice: 800, baseDemand: 0.75, icon: '👗', maxStock: 40, suggestedMarkup: 0.4 },
-    { name: 'Kids\' Clothing Set', category: 'CLOTHING', basePrice: 400, baseDemand: 0.65, icon: '👶', maxStock: 50, suggestedMarkup: 0.5 },
-    { name: 'Winter Jacket', category: 'CLOTHING', basePrice: 1200, baseDemand: 0.4, icon: '🧥', maxStock: 30, suggestedMarkup: 0.45 },
+    { name: 'Men\'s Shirt', category: 'CLOTHING', basePrice: 500, baseDemand: 0.081, icon: '👔', maxStock: 17, suggestedMarkup: 0.4 },
+    { name: 'Men\'s Pants', category: 'CLOTHING', basePrice: 700, baseDemand: 0.069, icon: '👖', maxStock: 14, suggestedMarkup: 0.4 },
+    { name: 'Women\'s Saree', category: 'CLOTHING', basePrice: 1500, baseDemand: 0.092, icon: '👗', maxStock: 19, suggestedMarkup: 0.45 },
+    { name: 'Women\'s Salwar Kameez', category: 'CLOTHING', basePrice: 800, baseDemand: 0.086, icon: '👗', maxStock: 18, suggestedMarkup: 0.4 },
+    { name: 'Kids\' Clothing Set', category: 'CLOTHING', basePrice: 400, baseDemand: 0.075, icon: '👶', maxStock: 15, suggestedMarkup: 0.5 },
+    { name: 'Winter Jacket', category: 'CLOTHING', basePrice: 1200, baseDemand: 0.046, icon: '🧥', maxStock: 9, suggestedMarkup: 0.45 },
   ],
   MOBILE: [
-    { name: 'Budget Smartphone', category: 'MOBILE', basePrice: 8000, baseDemand: 0.8, icon: '📱', maxStock: 20, suggestedMarkup: 0.12 },
-    { name: 'Mid-Range Smartphone', category: 'MOBILE', basePrice: 25000, baseDemand: 0.6, icon: '📱', maxStock: 10, suggestedMarkup: 0.1 },
-    { name: 'Premium Smartphone', category: 'MOBILE', basePrice: 120000, baseDemand: 0.3, icon: '📱', maxStock: 5, suggestedMarkup: 0.08 },
-    { name: 'Earphones', category: 'MOBILE', basePrice: 500, baseDemand: 0.9, icon: '🎧', maxStock: 50, suggestedMarkup: 0.4 },
-    { name: 'Smart Watch', category: 'MOBILE', basePrice: 3000, baseDemand: 0.5, icon: '⌚', maxStock: 20, suggestedMarkup: 0.3 },
-    { name: 'Phone Case', category: 'MOBILE', basePrice: 200, baseDemand: 0.85, icon: '📦', maxStock: 80, suggestedMarkup: 0.5 },
+    { name: 'Budget Smartphone', category: 'MOBILE', basePrice: 8000, baseDemand: 0.069, icon: '📱', maxStock: 8, suggestedMarkup: 0.16 },
+    { name: 'Mid-Range Smartphone', category: 'MOBILE', basePrice: 25000, baseDemand: 0.052, icon: '📱', maxStock: 6, suggestedMarkup: 0.13 },
+    { name: 'Premium Smartphone', category: 'MOBILE', basePrice: 120000, baseDemand: 0.026, icon: '📱', maxStock: 4, suggestedMarkup: 0.1 },
+    { name: 'Earphones', category: 'MOBILE', basePrice: 500, baseDemand: 0.077, icon: '🎧', maxStock: 9, suggestedMarkup: 0.5 },
+    { name: 'Smart Watch', category: 'MOBILE', basePrice: 3000, baseDemand: 0.043, icon: '⌚', maxStock: 5, suggestedMarkup: 0.35 },
+    { name: 'Phone Case', category: 'MOBILE', basePrice: 200, baseDemand: 0.073, icon: '📦', maxStock: 9, suggestedMarkup: 0.6 },
   ],
   RESTAURANT: [
-    { name: 'Rice Plate (Bhat)', category: 'RESTAURANT', basePrice: 40, baseDemand: 1.0, icon: '🍚', maxStock: 200, suggestedMarkup: 0.6 },
-    { name: 'Chicken Curry', category: 'RESTAURANT', basePrice: 120, baseDemand: 0.9, icon: '🍗', maxStock: 100, suggestedMarkup: 0.5 },
-    { name: 'Fish Curry', category: 'RESTAURANT', basePrice: 100, baseDemand: 0.7, icon: '🐟', maxStock: 80, suggestedMarkup: 0.5 },
-    { name: 'Dal (Lentil)', category: 'RESTAURANT', basePrice: 30, baseDemand: 0.85, icon: '🥘', maxStock: 150, suggestedMarkup: 0.55 },
-    { name: 'Kacchi Biryani', category: 'RESTAURANT', basePrice: 200, baseDemand: 0.95, icon: '🍛', maxStock: 60, suggestedMarkup: 0.55 },
-    { name: 'Roti/Naan', category: 'RESTAURANT', basePrice: 15, baseDemand: 0.9, icon: '🫓', maxStock: 300, suggestedMarkup: 0.6 },
+    { name: 'Rice Plate (Bhat)', category: 'RESTAURANT', basePrice: 40, baseDemand: 0.738, icon: '🍚', maxStock: 195, suggestedMarkup: 0.6 },
+    { name: 'Chicken Curry', category: 'RESTAURANT', basePrice: 120, baseDemand: 0.665, icon: '🍗', maxStock: 175, suggestedMarkup: 0.5 },
+    { name: 'Fish Curry', category: 'RESTAURANT', basePrice: 100, baseDemand: 0.517, icon: '🐟', maxStock: 135, suggestedMarkup: 0.5 },
+    { name: 'Dal (Lentil)', category: 'RESTAURANT', basePrice: 30, baseDemand: 0.628, icon: '🥘', maxStock: 165, suggestedMarkup: 0.55 },
+    { name: 'Kacchi Biryani', category: 'RESTAURANT', basePrice: 200, baseDemand: 0.701, icon: '🍛', maxStock: 185, suggestedMarkup: 0.55 },
+    { name: 'Roti/Naan', category: 'RESTAURANT', basePrice: 15, baseDemand: 0.665, icon: '🫓', maxStock: 175, suggestedMarkup: 0.6 },
   ],
 };
 
@@ -356,7 +378,6 @@ export const GAME_CONFIG = {
   maxEmployees: 5,
   minReputation: 0,
   maxReputation: 100,
-  utilityCost: 2000,
   taxRate: 0.05,
   employeeEfficiencyPerSkill: 0.05,
   reputationCustomerMultiplier: 0.005,

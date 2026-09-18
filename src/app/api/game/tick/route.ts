@@ -1,39 +1,55 @@
-import { NextResponse } from 'next/server';
-import { gameTick, acquireTickLock, releaseTickLock } from '@/lib/game-engine';
-import { AppError, handleApiError, tickLocked } from '@/lib/errors';
+import { NextRequest, NextResponse } from 'next/server';
+import { AppError, handleApiError } from '@/lib/errors';
+import { authorizeTickRequest } from '@/lib/game/tick-auth';
+import { runScheduledTick, getTickIntervalMs, schedulerEnabled } from '@/lib/game/scheduler';
 
-export async function POST() {
-  let lockAcquired = false;
-
+/**
+ * Advance the game clock.
+ *
+ * This is a service entrypoint, not a player action: one tick moves the day
+ * for every player and every AI competitor. The server's own scheduler calls
+ * `gameTick()` in process and never comes through here — this route exists so
+ * an external cron can drive the world instead (set `GAME_TICK_SCHEDULER=off`
+ * and `CRON_SECRET`, then post here on your own schedule).
+ *
+ * It previously required only a player session, which let any signed-in player
+ * fast-forward the shared economy by looping the request.
+ */
+export async function POST(request: NextRequest) {
   try {
-    // Attempt to acquire the tick lock atomically.
-    // This prevents concurrent ticks from corrupting game state.
-    lockAcquired = await acquireTickLock();
-
-    if (!lockAcquired) {
-      throw tickLocked();
+    const auth = authorizeTickRequest(request.headers);
+    if (!auth.authorized) {
+      throw new AppError('UNAUTHORIZED', auth.reason);
     }
 
-    // Run the full game simulation
-    await gameTick();
+    const result = await runScheduledTick();
 
-    return NextResponse.json({ success: true });
+    if (result === 'locked') {
+      // Another tick is already in flight. The day still advances, so this is
+      // reported rather than treated as a failure.
+      return NextResponse.json({ success: true, ticked: false, reason: 'locked' }, { status: 200 });
+    }
+
+    if (result === 'failed') {
+      throw new AppError('INTERNAL_ERROR', 'Tick failed. See server logs.');
+    }
+
+    return NextResponse.json({ success: true, ticked: true });
   } catch (error) {
-    // If it's our AppError (e.g., tickLocked), use the structured handler
     if (error instanceof AppError) {
       return NextResponse.json(error.toResponse(), { status: error.statusCode });
     }
-
-    // Log unexpected errors with full detail
-    console.error('[API /game/tick] Unexpected error:', error);
-    return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to execute game tick' } },
-      { status: 500 }
-    );
-  } finally {
-    // ALWAYS release the lock, even on failure
-    if (lockAcquired) {
-      await releaseTickLock();
-    }
+    return handleApiError(error);
   }
+}
+
+/**
+ * Whether the in-process clock is running here, and how fast.
+ * Useful for confirming a deployment is actually advancing the world.
+ */
+export function GET() {
+  return NextResponse.json({
+    schedulerEnabled: schedulerEnabled(),
+    tickIntervalMs: getTickIntervalMs(),
+  });
 }

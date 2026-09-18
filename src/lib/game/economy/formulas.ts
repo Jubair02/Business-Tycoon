@@ -269,7 +269,12 @@ export function calculateCostOfGoodsSold(itemsSold: number, purchasePrice: numbe
  *   - CRITICAL: Salaries are MONTHLY but ticks are DAILY
  *   - Must divide by 30 to get daily salary expense
  *
- * Utilities: baseUtilityCost × level × businessUtilityMultiplier
+ * Utilities: baseUtilities × utilityScalePerLevel^(level-1) / daysPerMonth
+ *   - CRITICAL: utilities are billed MONTHLY, exactly like rent and salaries.
+ *     They used to be read as a per-day figure while rent was divided by 30,
+ *     which made the electricity bill on a tea stall seven times its rent.
+ *   - No city multiplier: power and gas are nationally tariffed, so a Dhaka
+ *     shop pays the same unit rate as a Rajshahi one. Only the rent differs.
  *
  * Taxes: max(profit × taxRateOnProfit, revenue × revenueTaxFloor)
  *   - Tax on profit, with a minimum revenue tax floor
@@ -277,6 +282,8 @@ export function calculateCostOfGoodsSold(itemsSold: number, purchasePrice: numbe
  */
 export function calculateBusinessExpenses(params: {
   baseRent: number;
+  /** Monthly utility bill for this business type, on the same basis as rent. */
+  baseUtilities: number;
   level: number;
   cityRentMultiplier: number;
   totalMonthlySalaries: number;
@@ -301,12 +308,12 @@ export function calculateBusinessExpenses(params: {
   const dailySalaries = totalMonthlySalaries / ECONOMY_CONFIG.daysPerMonth;
   const salaries = Math.round(dailySalaries);
 
-  // Utilities: base × level × business type multiplier
-  const utilities = Math.round(
-    ECONOMY_CONFIG.baseUtilityCostPerLevel *
-    params.businessLevel *
-    config.utilityMultiplier
+  // Utilities: monthly → daily conversion, same as rent above.
+  const monthlyUtilities = Math.round(
+    params.baseUtilities *
+    Math.pow(config.utilityScalePerLevel, params.businessLevel - 1)
   );
+  const utilities = Math.round(monthlyUtilities / ECONOMY_CONFIG.daysPerMonth);
 
   // Taxes: profit-based with revenue floor
   const profitTax = Math.max(0, params.grossProfit) * ECONOMY_CONFIG.taxRateOnProfit;

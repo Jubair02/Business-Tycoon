@@ -31,8 +31,10 @@ export const ECONOMY_CONFIG = {
   // ---- Expenses ----
   /** Days per month for salary conversion */
   daysPerMonth: 30,
-  /** Base utility cost per day per level */
-  baseUtilityCostPerLevel: 1500,
+  // NOTE: utilities have no economy-wide base. Each business type carries its
+  // own monthly bill in `BUSINESS_TYPES.utilities`, right next to its rent, so
+  // the two largest fixed costs are read on the same basis. See
+  // `calculateBusinessExpenses`.
   /** Tax rate on GROSS PROFIT (not revenue) — simpler for game economy */
   taxRateOnProfit: 0.10,   // 10% tax on profit (not revenue)
   /** Minimum tax even when profit is negative (revenue tax floor) */

@@ -48,7 +48,17 @@ export async function POST(
       inventoryValue += Math.round((inv.purchasePrice || 0) * (inv.quantity || 0) * 0.7);
     }
 
-    const totalReceived = sellPrice + inventoryValue;
+    // Whatever is still sitting in the till goes back to the player. The tick
+    // sweeps this to zero every day, so it is normally 0 — but a business sold
+    // before it has ever ticked (or on a save from before the sweep existed)
+    // can still be holding a balance, and deleting the row used to burn it.
+    //
+    // Floored at zero: a negative till only exists on pre-sweep saves, where
+    // the loss was already taken out of the player's own cash at the time.
+    // Charging for it again on the way out would bill them twice.
+    const remainingCash = Math.max(0, Math.round(business.cash));
+
+    const totalReceived = sellPrice + inventoryValue + remainingCash;
 
     // Execute sell in transaction
     const result = await db.$transaction(async (tx) => {
@@ -99,6 +109,7 @@ export async function POST(
       sold: true,
       sellPrice,
       inventoryValue,
+      remainingCash,
       totalReceived,
       businessName: business.name,
       player: finalPlayer,

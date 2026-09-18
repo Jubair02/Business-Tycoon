@@ -34,7 +34,7 @@ import { ECONOMY_CONFIG } from './economy-config';
 import { PRODUCTS, CITIES, BUSINESS_TYPES } from '../../game-data';
 import type { RiskLevel } from './types';
 
-interface DayResult {
+export interface DayResult {
   day: number;
   revenue: number;
   cogs: number;
@@ -44,7 +44,7 @@ interface DayResult {
   customers: number;
 }
 
-interface SimulationResult {
+export interface SimulationResult {
   businessType: string;
   city: string;
   investment: number;
@@ -66,7 +66,7 @@ interface SimulationResult {
  * Uses default settings: Level 1, Reputation 50, Dhaka city.
  * Assumes full stock at suggested markup pricing.
  */
-function simulateBusinessDays(
+export function simulateBusinessDays(
   businessTypeId: string,
   cityId: string = 'DHAKA',
   numDays: number = 100,
@@ -154,6 +154,7 @@ function simulateBusinessDays(
     // Calculate expenses
     const expenses = calculateBusinessExpenses({
       baseRent: bt.rent,
+      baseUtilities: bt.utilities,
       level,
       cityRentMultiplier: city.rentMultiplier,
       totalMonthlySalaries: 0,
@@ -215,7 +216,7 @@ function simulateBusinessDays(
 /**
  * Run balance simulation for all business types and print results.
  */
-export function runBalanceSimulation(numDays: number = 100): void {
+export function runBalanceSimulation(numDays: number = 100): SimulationResult[] {
   console.log('\n============================================');
   console.log('  BANGLADESH BUSINESS TYCOON - BALANCE SIM');
   console.log(`  Simulating ${numDays} game days per business`);
@@ -283,7 +284,18 @@ export function runBalanceSimulation(numDays: number = 100): void {
   }
 
   console.log('\nSimulation complete.');
+  return results;
 }
 
-// Run if called directly
-runBalanceSimulation(100);
+// Run if called directly (`node --experimental-strip-types`, tsx, or bun).
+// Guarded so that importing this module from a test or tool does not dump a
+// hundred simulated days to stdout as a side effect of the import.
+const invokedDirectly =
+  typeof process !== 'undefined' &&
+  Array.isArray(process.argv) &&
+  process.argv[1] !== undefined &&
+  /balance-sim\.[cm]?ts$/.test(process.argv[1]);
+
+if (invokedDirectly) {
+  runBalanceSimulation(100);
+}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { cookies } from 'next/headers';
+import { getOptionalPlayerId, notFound, handleApiError } from '@/lib/errors';
 
 // GET /api/businesses/[id]/cx — Customer Experience data for a business
 // Any player can view CX data (reviews are public), but inventory/employee
@@ -12,9 +12,9 @@ export async function GET(
   try {
     const { id } = await params;
 
-    // Get current player from cookie (for ownership check)
-    const cookieStore = await cookies();
-    const playerId = cookieStore.get('playerId')?.value;
+    // Get current player from the signed session (for ownership check).
+    // Reading the raw cookie here bypassed signature verification.
+    const playerId = await getOptionalPlayerId();
 
     const business = await db.business.findUnique({
       where: { id },
@@ -64,7 +64,7 @@ export async function GET(
     });
 
     if (!business) {
-      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
+      throw notFound('Business');
     }
 
     const isOwner = playerId === business.playerId;
@@ -178,7 +178,6 @@ export async function GET(
       isOwner,  // Frontend can use this to show/hide owner-only details
     });
   } catch (error) {
-    console.error('[CX API] Error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleApiError(error);
   }
 }

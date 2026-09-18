@@ -1,41 +1,101 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { ROUTES, businessRoute } from '@/lib/game-routes';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/game-store';
 import {
-  formatTaka, formatTakaShort, getBusinessType, getCity, GAME_CONFIG
+  formatTaka, formatTakaShort, getBusinessType, getCity
 } from '@/lib/game-data';
 import { EXPANSION_CONFIG } from '@/lib/game/expansion';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Wallet, Building2, Users, TrendingUp, TrendingDown, ArrowRight,
   Zap, Package, Plus, Flame, Newspaper, BarChart3, Clock, Shield,
-  LayoutGrid, Timer
+  LayoutGrid, Timer, Gem, ClipboardList, Sparkles,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer
 } from 'recharts';
+import { cn } from '@/lib/utils';
 
 const container = {
   hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.06 }
-  }
+  show: { opacity: 1, transition: { staggerChildren: 0.05 } },
 };
 const item = {
   hidden: { opacity: 0, y: 12 },
-  show: { opacity: 1, y: 0 }
+  show: { opacity: 1, y: 0, transition: { ease: [0.16, 1, 0.3, 1] as const, duration: 0.4 } },
 };
 
+/** Headline stats. Net worth carries the gold treatment — it's the
+ *  score that actually matters in a tycoon game, so it gets the
+ *  prestige colour and everything else stays emerald/neutral. */
+function StatTile({
+  label, value, icon: Icon, tone, emphasis,
+}: {
+  label: string;
+  value: string;
+  icon: React.ElementType;
+  tone: 'emerald' | 'gold' | 'sky' | 'violet';
+  emphasis?: boolean;
+}) {
+  return (
+    <div className={cn('bt-surface bt-sheen relative p-3.5 sm:p-4', emphasis && 'bt-edge bt-edge-gold')}>
+      <div className="flex items-center gap-2">
+        <span className={cn('bt-tone grid h-7 w-7 place-items-center rounded-lg', `bt-tone-${tone}`)}>
+          <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+        <span className="bt-label truncate">{label}</span>
+      </div>
+      <p
+        className={cn(
+          'bt-figure mt-2 text-xl sm:text-2xl',
+          emphasis ? 'bt-text-gold' : tone === 'emerald' ? 'bt-text-profit' : 'text-foreground',
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/** Revenue / profit / reputation strip. Values are abbreviated
+ *  (formatTakaShort), so three columns still read cleanly at 375px. */
+function PulseTile({
+  label, value, sub, tone, icon: Icon,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone: 'emerald' | 'crimson' | 'sky';
+  icon?: React.ElementType;
+}) {
+  return (
+    <div className="bt-surface p-3 text-center">
+      <p className="bt-label">{label}</p>
+      <p
+        className={cn(
+          'bt-figure mt-1.5 flex items-center justify-center gap-1 text-base sm:text-lg',
+          tone === 'emerald' && 'bt-text-profit',
+          tone === 'crimson' && 'bt-text-loss',
+        )}
+      >
+        {Icon && <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />}
+        {value}
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  const { player, businesses, events, news, setView, gameDay } = useGameStore();
+  const router = useRouter();
+  const { player, businesses, events, news, gameDay } = useGameStore();
   const [logs, setLogs] = useState<any[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
@@ -71,13 +131,14 @@ export default function Dashboard() {
     });
 
   const getNextLevelExp = (level: number) => level * 1000;
+  const xpCurrent = player?.experience || 0;
+  const xpTarget = getNextLevelExp(player?.level || 1);
+  const xpPercent = Math.min(100, (xpCurrent / xpTarget) * 100);
 
   const formatLogTime = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
-      const now = new Date();
-      const diffMs = now.getTime() - d.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
+      const diffMins = Math.floor((Date.now() - d.getTime()) / 60000);
       if (diffMins < 1) return 'Just now';
       if (diffMins < 60) return `${diffMins}m ago`;
       const diffHrs = Math.floor(diffMins / 60);
@@ -87,17 +148,23 @@ export default function Dashboard() {
   };
 
   const getLogIcon = (type: string) => {
-    switch (type) {
-      case 'REVENUE': return <TrendingUp className="h-3.5 w-3.5 text-green-600" />;
-      case 'EXPENSE': return <TrendingDown className="h-3.5 w-3.5 text-red-500" />;
-      case 'PROFIT': return <BarChart3 className="h-3.5 w-3.5 text-emerald-600" />;
-      case 'HIRE': return <Users className="h-3.5 w-3.5 text-blue-600" />;
-      case 'PURCHASE': return <Package className="h-3.5 w-3.5 text-amber-600" />;
-      case 'UPGRADE': return <ArrowRight className="h-3.5 w-3.5 text-purple-600" />;
-      case 'EVENT': return <Zap className="h-3.5 w-3.5 text-orange-500" />;
-      case 'REPUTATION': return <Shield className="h-3.5 w-3.5 text-cyan-600" />;
-      default: return <Clock className="h-3.5 w-3.5 text-muted-foreground" />;
-    }
+    const map: Record<string, { Icon: React.ElementType; tone: string }> = {
+      REVENUE: { Icon: TrendingUp, tone: 'bt-tone-emerald' },
+      EXPENSE: { Icon: TrendingDown, tone: 'bt-tone-crimson' },
+      PROFIT: { Icon: BarChart3, tone: 'bt-tone-emerald' },
+      HIRE: { Icon: Users, tone: 'bt-tone-sky' },
+      PURCHASE: { Icon: Package, tone: 'bt-tone-amber' },
+      UPGRADE: { Icon: ArrowRight, tone: 'bt-tone-violet' },
+      EVENT: { Icon: Zap, tone: 'bt-tone-amber' },
+      REPUTATION: { Icon: Shield, tone: 'bt-tone-sky' },
+      LEVEL_UP: { Icon: Sparkles, tone: 'bt-tone-violet' },
+    };
+    const { Icon, tone } = map[type] || { Icon: Clock, tone: 'bt-tone-sky' };
+    return (
+      <span className={cn('bt-tone grid h-7 w-7 shrink-0 place-items-center rounded-lg', tone)}>
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+    );
   };
 
   return (
@@ -105,433 +172,409 @@ export default function Dashboard() {
       variants={container}
       initial="hidden"
       animate="show"
-      className="p-3 md:p-4 space-y-4 pb-24 md:pb-4"
+      className="bt-page bt-stack"
     >
-      {/* Player Greeting */}
-      <motion.div variants={item}>
-        <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-full bd-gradient flex items-center justify-center text-white text-xl font-bold shadow-lg">
-            {player?.name?.charAt(0) || '?'}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold truncate">Welcome back, {player?.name || 'Tycoon'}!</h2>
-            <div className="flex items-center gap-2 mt-0.5">
-              <Badge className="text-[10px] px-1.5 py-0 text-white" style={{ background: '#006a4e' }}>
-                Level {player?.level || 1}
-              </Badge>
-              <span className="text-xs text-muted-foreground">Day {gameDay}</span>
-              {events.length > 0 && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-700 border-amber-300 bg-amber-50">
-                  <Flame className="h-3 w-3 mr-0.5" /> {events.length} event{events.length > 1 ? 's' : ''}
-                </Badge>
-              )}
+      {/* ─── Player header ─────────────────────────────────────── */}
+      <motion.section variants={item} className="bt-surface-raised bt-ambient overflow-hidden p-4 sm:p-5">
+        <div className="flex items-start gap-3.5 sm:items-center">
+          <div className="relative shrink-0">
+            <div
+              className="grid h-12 w-12 place-items-center rounded-2xl text-lg font-black text-white shadow-lg sm:h-14 sm:w-14 sm:text-xl"
+              style={{ background: 'linear-gradient(135deg, var(--bt-emerald-deep), var(--bt-emerald-bright))' }}
+            >
+              {player?.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
+            <span
+              className="absolute -bottom-1 -right-1 grid h-6 min-w-6 place-items-center rounded-full border-2 border-[var(--bt-surface-1)] px-1 text-[0.625rem] font-black"
+              style={{ background: 'linear-gradient(135deg, var(--bt-gold-deep), var(--bt-gold-bright))', color: 'oklch(0.2 0.02 75)' }}
+              aria-label={`Level ${player?.level || 1}`}
+            >
+              {player?.level || 1}
+            </span>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="bt-label">Day {gameDay}</p>
+            <h1 className="mt-0.5 truncate text-lg font-bold tracking-tight sm:text-xl">
+              Welcome back, {player?.name || 'Tycoon'}
+            </h1>
+            {events.length > 0 && (
+              <Badge variant="outline" className="bt-tone bt-tone-amber mt-2 gap-1 rounded-full text-xs font-semibold">
+                <Flame className="h-3 w-3" aria-hidden="true" />
+                {events.length} active event{events.length > 1 ? 's' : ''}
+              </Badge>
+            )}
           </div>
         </div>
-        {/* XP Progress */}
+
         {player && (
-          <div className="mt-3 space-y-1">
-            <div className="flex justify-between text-[10px] text-muted-foreground">
-              <span>Experience</span>
-              <span>{player.experience || 0} / {getNextLevelExp(player.level || 1)} XP</span>
+          <div className="mt-4 space-y-1.5">
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="bt-label">Experience</span>
+              <span className="bt-numeric font-semibold text-muted-foreground">
+                {xpCurrent.toLocaleString()} / {xpTarget.toLocaleString()} XP
+              </span>
             </div>
-            <Progress value={((player.experience || 0) / getNextLevelExp(player.level || 1)) * 100} className="h-1.5" />
+            <Progress
+              value={xpPercent}
+              className="h-2"
+              aria-label={`Level ${player.level || 1} progress: ${Math.round(xpPercent)} percent`}
+            />
           </div>
         )}
-      </motion.div>
+      </motion.section>
 
-      {/* Stat Cards */}
-      <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-1">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="h-7 w-7 rounded-lg bg-green-100 flex items-center justify-center">
-                <Wallet className="h-3.5 w-3.5 text-green-700" />
-              </div>
-              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cash</span>
-            </div>
-            <div className="text-base font-bold" style={{ color: '#006a4e' }}>
-              {formatTakaShort(player?.cash || 0)}
-            </div>
-          </CardContent>
-        </Card>
+      {/* ─── Headline stats ────────────────────────────────────── */}
+      <motion.section variants={item} aria-label="Key figures">
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-3">
+          <StatTile label="Cash" value={formatTakaShort(player?.cash || 0)} icon={Wallet} tone="emerald" />
+          <StatTile label="Net Worth" value={formatTakaShort(player?.netWorth || 0)} icon={Gem} tone="gold" emphasis />
+          <StatTile label="Businesses" value={String(businesses.length)} icon={Building2} tone="sky" />
+          <StatTile label="Staff" value={String(totalEmployees)} icon={Users} tone="violet" />
+        </div>
+      </motion.section>
 
-        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-2">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="h-7 w-7 rounded-lg bg-amber-100 flex items-center justify-center">
-                <TrendingUp className="h-3.5 w-3.5 text-amber-700" />
-              </div>
-              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Net Worth</span>
-            </div>
-            <div className="text-base font-bold">
-              {formatTakaShort(player?.netWorth || 0)}
-            </div>
-          </CardContent>
-        </Card>
+      {/* ─── Today's pulse ─────────────────────────────────────── */}
+      <motion.section variants={item} aria-label="Today's performance">
+        <div className="grid grid-cols-3 gap-2.5">
+          <PulseTile label="Revenue" value={formatTakaShort(totalDailyRevenue)} sub="today" tone="emerald" />
+          <PulseTile
+            label="Profit"
+            value={`${totalDailyProfit >= 0 ? '+' : ''}${formatTakaShort(totalDailyProfit)}`}
+            sub="today"
+            tone={totalDailyProfit >= 0 ? 'emerald' : 'crimson'}
+            icon={totalDailyProfit >= 0 ? TrendingUp : TrendingDown}
+          />
+          <PulseTile label="Reputation" value={`${avgReputation.toFixed(0)}%`} sub="average" tone="sky" />
+        </div>
+      </motion.section>
 
-        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-3">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="h-7 w-7 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Building2 className="h-3.5 w-3.5 text-blue-700" />
-              </div>
-              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Businesses</span>
-            </div>
-            <div className="text-base font-bold">{businesses.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="game-stat-card game-shimmer-overlay border-0 shadow-sm game-fade-up game-stagger-4">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="h-7 w-7 rounded-lg bg-purple-100 flex items-center justify-center">
-                <Users className="h-3.5 w-3.5 text-purple-700" />
-              </div>
-              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Staff</span>
-            </div>
-            <div className="text-base font-bold">{totalEmployees}</div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Daily Performance Row */}
-      <motion.div variants={item} className="grid grid-cols-3 gap-2.5">
-        <Card className="border-0 shadow-sm bg-green-50/50">
-          <CardContent className="p-3 text-center">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Revenue</div>
-            <div className="text-sm font-bold text-green-700">{formatTakaShort(totalDailyRevenue)}</div>
-            <div className="text-[9px] text-muted-foreground">today</div>
-          </CardContent>
-        </Card>
-        <Card className={`border-0 shadow-sm ${totalDailyProfit >= 0 ? 'bg-emerald-50/50' : 'bg-red-50/50'}`}>
-          <CardContent className="p-3 text-center">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Profit</div>
-            <div className={`text-sm font-bold flex items-center justify-center gap-0.5 ${totalDailyProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-              {totalDailyProfit >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-              {totalDailyProfit >= 0 ? '+' : ''}{formatTakaShort(totalDailyProfit)}
-            </div>
-            <div className="text-[9px] text-muted-foreground">today</div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm bg-cyan-50/50">
-          <CardContent className="p-3 text-center">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Reputation</div>
-            <div className="text-sm font-bold">{avgReputation.toFixed(0)}%</div>
-            <div className="text-[9px] text-muted-foreground">average</div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Profit Chart */}
+      {/* ─── Performance chart ─────────────────────────────────── */}
       {profitChartData.length > 0 && (
-        <motion.div variants={item}>
-          <Card className="shadow-sm">
-            <CardHeader className="pb-2 pt-3 px-4">
-              <CardTitle className="text-sm flex items-center gap-2 game-section-header">
-                <BarChart3 className="h-4 w-4" style={{ color: '#006a4e' }} />
-                Business Performance
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-2 pb-3">
-              <div className="h-40">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={profitChartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#006a4e" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#006a4e" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="name" tick={{ fontSize: 14 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)} />
-                    <Tooltip
-                      formatter={(value: number, name: string) => [formatTaka(value), name === 'profit' ? 'Daily Profit' : 'Daily Revenue']}
-                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e5e5', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
-                      labelFormatter={(label: string, payload: any) => payload?.[0]?.payload?.fullName || label}
-                    />
-                    <Area type="monotone" dataKey="revenue" stroke="#f59e0b" fill="url(#revenueGrad)" strokeWidth={2} />
-                    <Area type="monotone" dataKey="profit" stroke="#006a4e" fill="url(#profitGrad)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        <motion.section variants={item}>
+          <div className="bt-surface-raised overflow-hidden">
+            <header className="flex items-center gap-2.5 border-b border-[var(--bt-hairline)] px-4 py-3">
+              <span className="bt-tone bt-tone-emerald grid h-7 w-7 place-items-center rounded-lg">
+                <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+              <h2 className="text-sm font-bold tracking-tight">Business Performance</h2>
+            </header>
+            <div className="h-44 px-1 py-3 sm:h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={profitChartData} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--bt-emerald)" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="var(--bt-emerald)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--bt-gold)" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="var(--bt-gold)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="name" tick={{ fontSize: 15 }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={44}
+                    tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v))}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: 'var(--bt-hairline)', strokeWidth: 1 }}
+                    formatter={(value: number, name: string) => [
+                      formatTaka(value),
+                      name === 'profit' ? 'Daily Profit' : 'Daily Revenue',
+                    ]}
+                    contentStyle={{
+                      fontSize: 12,
+                      borderRadius: 12,
+                      border: '1px solid var(--bt-hairline)',
+                      background: 'var(--bt-surface-1)',
+                      color: 'var(--foreground)',
+                      boxShadow: 'var(--bt-shadow-lg)',
+                    }}
+                    labelFormatter={(label: string, payload: any) => payload?.[0]?.payload?.fullName || label}
+                  />
+                  <Area type="monotone" dataKey="revenue" stroke="var(--bt-gold)" fill="url(#revenueGrad)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="profit" stroke="var(--bt-emerald)" fill="url(#profitGrad)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Legend: shape + label, never colour alone */}
+            <div className="flex items-center justify-center gap-5 border-t border-[var(--bt-hairline)] px-4 py-2.5">
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="h-0.5 w-4 rounded-full" style={{ background: 'var(--bt-emerald)' }} />
+                Profit
+              </span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="h-0.5 w-4 rounded-full" style={{ background: 'var(--bt-gold)' }} />
+                Revenue
+              </span>
+            </div>
+          </div>
+        </motion.section>
       )}
 
-      {/* Active Events */}
+      {/* ─── Active events ─────────────────────────────────────── */}
       {events.length > 0 && (
-        <motion.div variants={item}>
-          <Card className="border-amber-200 shadow-sm">
-            <CardHeader className="pb-2 pt-3 px-4">
-              <CardTitle className="text-sm flex items-center gap-2 game-section-header">
-                <Zap className="h-4 w-4 text-amber-500" />
-                Active Events
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-2">
+        <motion.section variants={item}>
+          <div className="bt-surface-raised overflow-hidden">
+            <header className="flex items-center gap-2.5 border-b border-[var(--bt-hairline)] px-4 py-3">
+              <span className="bt-tone bt-tone-amber grid h-7 w-7 place-items-center rounded-lg">
+                <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+              <h2 className="text-sm font-bold tracking-tight">Active Events</h2>
+            </header>
+            <ul className="divide-y divide-[var(--bt-hairline)]">
               {events.slice(0, 3).map((event: any) => (
-                <div key={event.id} className="flex items-start gap-2 p-2 rounded-lg bg-amber-50/50">
-                  <span className="text-lg shrink-0">{event.icon || '📢'}</span>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium">{event.title}</div>
-                    <div className="text-[10px] text-muted-foreground line-clamp-1">{event.description}</div>
+                <li key={event.id} className="flex items-start gap-3 px-4 py-3">
+                  <span className="bt-medallion bt-medallion-sm !h-9 !w-9 !text-lg" aria-hidden="true">
+                    {event.icon || '📢'}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold leading-tight">{event.title}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{event.description}</p>
                   </div>
-                </div>
+                </li>
               ))}
-            </CardContent>
-          </Card>
-        </motion.div>
+            </ul>
+          </div>
+        </motion.section>
       )}
 
-      {/* Multi-Business Summary / Portfolio Link */}
+      {/* ─── Portfolio summary ─────────────────────────────────── */}
       {businesses.length > 1 && (
-        <motion.div variants={item}>
-          <Card className="shadow-sm border-green-200/50" style={{ background: 'linear-gradient(135deg, rgba(0,106,78,0.03), rgba(0,168,107,0.05))' }}>
-            <CardContent className="p-3.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="h-9 w-9 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}>
-                    <LayoutGrid className="h-4.5 w-4.5 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold">Your Portfolio</div>
-                    <div className="text-xs text-muted-foreground">
-                      {businesses.length} business{businesses.length > 1 ? 'es' : ''} · {formatTakaShort(totalDailyProfit)}/day profit
-                    </div>
-                  </div>
+        <motion.section variants={item}>
+          <div className="bt-surface-raised bt-edge p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="bt-tone bt-tone-emerald grid h-10 w-10 shrink-0 place-items-center rounded-xl">
+                  <LayoutGrid className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold">Your Portfolio</p>
+                  <p className="bt-numeric truncate text-xs text-muted-foreground">
+                    {businesses.length} businesses · {formatTakaShort(totalDailyProfit)}/day profit
+                  </p>
                 </div>
-                <Button
-                  size="sm"
-                  className="gap-1 text-xs text-white rounded-lg"
-                  style={{ background: 'linear-gradient(135deg, #006a4e, #00895e)' }}
-                  onClick={() => setView('portfolio')}
-                >
-                  View <ArrowRight className="h-3 w-3" />
-                </Button>
               </div>
-              {/* Setup period indicators */}
-              {businesses.some((b: any) => b.setupDaysRemaining > 0) && (
-                <div className="mt-2.5 pt-2.5 border-t border-green-200/30 space-y-1.5">
-                  {businesses.filter((b: any) => b.setupDaysRemaining > 0).map((b: any) => (
-                    <div key={b.id} className="flex items-center gap-1.5 text-[10px] text-blue-600 font-medium">
-                      <Timer className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{b.name}</span>
-                      <span>— {b.setupDaysRemaining}d setup remaining</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Quick Business List */}
-      <motion.div variants={item}>
-        <div className="flex items-center justify-between mb-2.5">
-          <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
-            <Building2 className="h-4 w-4" style={{ color: '#006a4e' }} />
-            Your Businesses
-          </h3>
-          {businesses.length > 0 && (
-            <div className="flex items-center gap-1.5">
               <Button
-                variant="ghost"
                 size="sm"
-                className="text-xs gap-0.5 text-green-700 hover:text-green-800"
-                onClick={() => setView('portfolio')}
+                className="bt-btn-primary bt-tap h-10 w-full gap-1.5 rounded-xl sm:w-auto"
+                onClick={() => router.push(ROUTES.portfolio)}
               >
-                Portfolio <ArrowRight className="h-3 w-3" />
+                View portfolio <ArrowRight className="h-3.5 w-3.5" />
               </Button>
             </div>
+
+            {businesses.some((b: any) => b.setupDaysRemaining > 0) && (
+              <ul className="mt-3 space-y-1.5 border-t border-[var(--bt-hairline)] pt-3">
+                {businesses.filter((b: any) => b.setupDaysRemaining > 0).map((b: any) => (
+                  <li key={b.id} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Timer className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span className="truncate font-semibold text-foreground">{b.name}</span>
+                    <span>— {b.setupDaysRemaining}d setup remaining</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </motion.section>
+      )}
+
+      {/* ─── Business list ─────────────────────────────────────── */}
+      <motion.section variants={item}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="bt-section-title flex-1 text-sm">
+            <Building2 className="h-4 w-4 text-[var(--bt-emerald)]" aria-hidden="true" />
+            Your Businesses
+          </h2>
+          {businesses.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="bt-tap h-9 shrink-0 gap-1 text-xs font-semibold text-[var(--bt-emerald)]"
+              onClick={() => router.push(ROUTES.portfolio)}
+            >
+              Portfolio <ArrowRight className="h-3.5 w-3.5" />
+            </Button>
           )}
         </div>
 
         {businesses.length === 0 ? (
-          <Card className="border-dashed shadow-sm">
-            <CardContent className="game-empty-state">
-              <div className="game-empty-icon game-float">🏗️</div>
-              <h4 className="game-empty-title">No Businesses Yet</h4>
-              <p className="game-empty-desc">
-                Create your first business to start earning taka!
-              </p>
-              <button
-                className="game-empty-action"
-                onClick={() => setView('new-business')}
-              >
-                <Plus className="h-3.5 w-3.5 inline mr-1" /> Create Business
-              </button>
-            </CardContent>
-          </Card>
+          <div className="bt-surface border-dashed p-8 text-center">
+            <span className="bt-medallion bt-medallion-lg mx-auto mb-4">
+              <Building2 className="h-7 w-7 text-[var(--bt-emerald)]" aria-hidden="true" />
+            </span>
+            <h3 className="text-base font-bold">No businesses yet</h3>
+            <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted-foreground">
+              Every empire starts somewhere. Open your first venture and start earning taka.
+            </p>
+            <Button
+              className="bt-btn-primary bt-tap mt-5 h-11 gap-1.5 rounded-xl px-5 font-semibold"
+              onClick={() => router.push(ROUTES.newBusiness)}
+            >
+              <Plus className="h-4 w-4" /> Create business
+            </Button>
+          </div>
         ) : (
-          <div className="space-y-2">
-            {businesses.slice(0, 3).map((b: any, i: number) => {
+          <div className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">
+            {businesses.slice(0, 3).map((b: any) => {
               const bt = getBusinessType(b.type);
               const city = getCity(b.city);
               const profit = b.dailyProfit || 0;
               const isSetup = b.setupDaysRemaining > 0;
+              const isProfit = profit >= 0;
               return (
-                <motion.div
+                <button
                   key={b.id}
-                  variants={item}
+                  type="button"
+                  onClick={() => router.push(businessRoute(b.id))}
+                  className="bt-surface bt-interactive bt-sheen w-full p-3.5 text-left"
+                  aria-label={`Open ${b.name}`}
                 >
-                  <Card
-                    className="game-card-interactive game-shimmer-overlay shadow-sm"
-                    onClick={() => useGameStore.getState().selectBusiness(b.id)}
-                  >
-                    <CardContent className="p-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`text-2xl p-2 rounded-xl ${bt?.bgColor || 'bg-gray-50'} shrink-0`}>
-                          {bt?.icon || '🏪'}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold truncate">{b.name}</span>
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">
-                              Lv.{b.level || 1}
-                            </Badge>
-                            {isSetup && (
-                              <Badge className="text-[9px] px-1.5 py-0 bg-blue-50 text-blue-700 border border-blue-200 shrink-0" variant="outline">
-                                <Timer className="h-2.5 w-2.5 mr-0.5" /> Setup {b.setupDaysRemaining}d
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5">
-                            {bt?.name} · {city?.name}
-                          </div>
-                          <div className="flex items-center gap-3 mt-1.5">
-                            <div className="flex-1">
-                              <div className="flex justify-between text-[9px] text-muted-foreground mb-0.5">
-                                <span>Reputation</span>
-                                <span>{(b.reputation || 0).toFixed(0)}%</span>
-                              </div>
-                              <Progress value={b.reputation || 0} className="h-1" />
-                            </div>
-                            <div className={`text-xs font-bold flex items-center gap-0.5 ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                              {profit >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                              {formatTakaShort(profit)}/day
-                            </div>
-                          </div>
-                          {isSetup && (
-                            <div className="mt-2 p-1.5 rounded-md bg-blue-50/60 border border-blue-200/40">
-                              <div className="text-[10px] text-blue-600 font-medium flex items-center gap-1">
-                                <Timer className="h-2.5 w-2.5" />
-                                Setup in progress — {b.setupDaysRemaining} day{b.setupDaysRemaining > 1 ? 's' : ''} remaining ({Math.round(EXPANSION_CONFIG.setupRevenueMultiplier * 100)}% capacity)
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                  <div className="flex items-start gap-3">
+                    <span className="bt-medallion bt-medallion-md" aria-hidden="true">
+                      {bt?.icon || '🏪'}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="truncate text-sm font-bold">{b.name}</span>
+                        <Badge variant="outline" className="shrink-0 rounded-full px-1.5 text-xs font-semibold">
+                          Lv.{b.level || 1}
+                        </Badge>
+                        {isSetup && (
+                          <Badge variant="outline" className="bt-tone bt-tone-sky shrink-0 gap-0.5 rounded-full px-1.5 text-xs font-semibold">
+                            <Timer className="h-2.5 w-2.5" aria-hidden="true" />
+                            {b.setupDaysRemaining}d
+                          </Badge>
+                        )}
                       </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {bt?.name} · {city?.name}
+                      </p>
+
+                      <div className="mt-2.5 flex items-end gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex justify-between text-xs text-muted-foreground">
+                            <span>Reputation</span>
+                            <span className="bt-numeric font-semibold">{(b.reputation || 0).toFixed(0)}%</span>
+                          </div>
+                          <Progress value={b.reputation || 0} className="h-1.5" />
+                        </div>
+                        <span
+                          className={cn(
+                            'bt-numeric flex shrink-0 items-center gap-0.5 text-sm font-bold',
+                            isProfit ? 'bt-text-profit' : 'bt-text-loss',
+                          )}
+                        >
+                          {isProfit ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                          {formatTakaShort(profit)}
+                        </span>
+                      </div>
+
+                      {isSetup && (
+                        <p className="bt-tone bt-tone-sky mt-2.5 flex items-start gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium">
+                          <Timer className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+                          Setup in progress — operating at {Math.round(EXPANSION_CONFIG.setupRevenueMultiplier * 100)}% capacity
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </button>
               );
             })}
           </div>
         )}
-      </motion.div>
+      </motion.section>
 
-      {/* Activity Feed */}
-      <motion.div variants={item}>
-        <div className="flex items-center justify-between mb-2.5">
-          <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
-            <Clock className="h-4 w-4" style={{ color: '#006a4e' }} />
-            Recent Activity
-          </h3>
-        </div>
+      {/* ─── Activity feed ─────────────────────────────────────── */}
+      <motion.section variants={item}>
+        <h2 className="bt-section-title mb-3 text-sm">
+          <Clock className="h-4 w-4 text-[var(--bt-emerald)]" aria-hidden="true" />
+          Recent Activity
+        </h2>
 
         {loadingLogs ? (
-          <div className="space-y-2">
-            {[...Array(3)].map((_, i) => (
-              <Card key={i}><CardContent className="p-3"><Skeleton className="h-10 w-full" /></CardContent></Card>
+          <div className="bt-surface divide-y divide-[var(--bt-hairline)]">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex items-center gap-3 p-3">
+                <Skeleton className="h-7 w-7 shrink-0 rounded-lg" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3 w-3/4" />
+                  <Skeleton className="h-2.5 w-1/3" />
+                </div>
+              </div>
             ))}
           </div>
         ) : logs.length === 0 ? (
-          <Card className="border-dashed shadow-sm">
-            <CardContent className="py-6 text-center">
-              <div className="text-3xl mb-1.5">📋</div>
-              <p className="text-xs text-muted-foreground">No activity yet. Start playing to see your business log!</p>
-            </CardContent>
-          </Card>
+          <div className="bt-surface border-dashed p-7 text-center">
+            <span className="bt-medallion bt-medallion-md mx-auto mb-3">
+              <ClipboardList className="h-5 w-5 text-[var(--bt-emerald)]" aria-hidden="true" />
+            </span>
+            <p className="text-sm text-muted-foreground">
+              No activity yet. Start playing to build your business log.
+            </p>
+          </div>
         ) : (
-          <Card className="shadow-sm">
-            <CardContent className="p-2">
-              <div className="space-y-0.5">
-                {logs.slice(0, 8).map((log: any, i: number) => (
-                  <div
-                    key={log.id}
-                    className={`flex items-start gap-2 p-2 rounded-lg game-activity-item ${i % 2 === 0 ? 'bg-muted/30' : ''}`}
-                  >
-                    <div className="mt-0.5 shrink-0">{getLogIcon(log.type)}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs leading-snug">{log.message}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                        <Clock className="h-2.5 w-2.5" />
-                        {formatLogTime(log.createdAt)}
-                        {log.amount !== null && log.amount !== undefined && (
-                          <span className={`ml-1 font-medium ${log.amount >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                            {log.amount >= 0 ? '+' : ''}{formatTaka(log.amount)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <ul className="bt-surface divide-y divide-[var(--bt-hairline)] overflow-hidden">
+            {logs.slice(0, 8).map((log: any) => (
+              <li key={log.id} className="flex items-start gap-3 p-3 transition-colors hover:bg-[var(--bt-surface-2)]">
+                {getLogIcon(log.type)}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[0.8125rem] leading-snug">{log.message}</p>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                    <span className="bt-numeric">{formatLogTime(log.createdAt)}</span>
+                    {log.amount !== null && log.amount !== undefined && (
+                      <span className={cn('bt-numeric font-semibold', log.amount >= 0 ? 'bt-text-profit' : 'bt-text-loss')}>
+                        {log.amount >= 0 ? '+' : ''}{formatTaka(log.amount)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
-      </motion.div>
+      </motion.section>
 
-      {/* Recent News */}
+      {/* ─── News ──────────────────────────────────────────────── */}
       {news.length > 0 && (
-        <motion.div variants={item}>
-          <div className="flex items-center justify-between mb-2.5">
-            <h3 className="text-sm font-bold flex items-center gap-1.5 game-section-header">
-              <Newspaper className="h-4 w-4" style={{ color: '#006a4e' }} />
+        <motion.section variants={item}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="bt-section-title flex-1 text-sm">
+              <Newspaper className="h-4 w-4 text-[var(--bt-emerald)]" aria-hidden="true" />
               Latest News
-            </h3>
+            </h2>
             <Button
               variant="ghost"
               size="sm"
-              className="text-xs gap-0.5 text-green-700 hover:text-green-800"
-              onClick={() => setView('news')}
+              className="bt-tap h-9 shrink-0 gap-1 text-xs font-semibold text-[var(--bt-emerald)]"
+              onClick={() => router.push(ROUTES.news)}
             >
-              More <ArrowRight className="h-3 w-3" />
+              More <ArrowRight className="h-3.5 w-3.5" />
             </Button>
           </div>
-          <div className="space-y-1.5">
-            {news.slice(0, 3).map((article: any) => (
-              <Card key={article.id} className="game-card-hover shadow-sm">
-                <CardContent className="p-3">
-                  <div className="flex items-start gap-2">
-                    <Badge
-                      className={`text-[9px] border shrink-0 mt-0.5 ${
-                        article.category?.toUpperCase() === 'ECONOMY' ? 'bg-green-100 text-green-700 border-green-200' :
-                        article.category?.toUpperCase() === 'WEATHER' ? 'bg-cyan-100 text-cyan-700 border-cyan-200' :
-                        article.category?.toUpperCase() === 'EVENT' ? 'bg-purple-100 text-purple-700 border-purple-200' :
-                        'bg-gray-100 text-gray-700 border-gray-200'
-                      }`}
-                      variant="outline"
-                    >
-                      {article.category}
-                    </Badge>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium leading-snug">{article.title}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{article.content}</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {news.slice(0, 3).map((article: any) => {
+              const category = article.category?.toUpperCase();
+              const tone =
+                category === 'ECONOMY' ? 'bt-tone-emerald' :
+                category === 'WEATHER' ? 'bt-tone-sky' :
+                category === 'EVENT' ? 'bt-tone-violet' : 'bt-tone-amber';
+              return (
+                <article key={article.id} className="bt-surface bt-interactive p-3.5">
+                  <Badge variant="outline" className={cn('bt-tone rounded-full text-xs font-semibold', tone)}>
+                    {article.category}
+                  </Badge>
+                  <h3 className="mt-2 text-[0.8125rem] font-semibold leading-snug">{article.title}</h3>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{article.content}</p>
+                </article>
+              );
+            })}
           </div>
-        </motion.div>
+        </motion.section>
       )}
     </motion.div>
   );
@@ -539,23 +582,34 @@ export default function Dashboard() {
 
 export function DashboardSkeleton() {
   return (
-    <div className="p-3 md:p-4 space-y-4">
-      <div className="flex items-center gap-3">
-        <Skeleton className="h-12 w-12 rounded-full" />
-        <div className="flex-1 space-y-2">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-3 w-24" />
+    <div className="bt-page bt-stack">
+      <div className="bt-surface-raised p-4 sm:p-5">
+        <div className="flex items-center gap-3.5">
+          <Skeleton className="h-12 w-12 rounded-2xl sm:h-14 sm:w-14" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-5 w-48" />
+          </div>
         </div>
+        <Skeleton className="mt-4 h-2 w-full" />
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-3">
         {[...Array(4)].map((_, i) => (
-          <Card key={i}><CardContent className="p-3"><Skeleton className="h-14 w-full" /></CardContent></Card>
+          <div key={i} className="bt-surface p-3.5 sm:p-4">
+            <Skeleton className="h-7 w-7 rounded-lg" />
+            <Skeleton className="mt-2 h-7 w-20" />
+          </div>
         ))}
       </div>
-      <Card><CardContent className="p-4"><Skeleton className="h-40 w-full" /></CardContent></Card>
-      <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2.5">
         {[...Array(3)].map((_, i) => (
-          <Card key={i}><CardContent className="p-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+          <div key={i} className="bt-surface p-3"><Skeleton className="h-12 w-full" /></div>
+        ))}
+      </div>
+      <div className="bt-surface-raised p-4"><Skeleton className="h-44 w-full sm:h-56" /></div>
+      <div className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="bt-surface p-3.5"><Skeleton className="h-16 w-full" /></div>
         ))}
       </div>
     </div>

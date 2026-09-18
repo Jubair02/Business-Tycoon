@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getCurrentGameDay } from '@/lib/game/seasons/seasons';
 import { requirePlayerId, notFound, handleApiError } from '@/lib/errors';
 
 type AchievementCategory = 'BUSINESS' | 'WEALTH' | 'SOCIAL' | 'MILESTONE';
@@ -48,11 +49,8 @@ export async function GET() {
       throw notFound('Player');
     }
 
-    // Fetch game state for current game day
-    const gameState = await db.gameState.findUnique({
-      where: { key: 'gameDay' },
-    });
-    const gameDay = gameState ? parseInt(gameState.value, 10) : 1;
+    // The day belongs to the active season now, not to the world.
+    const gameDay = await getCurrentGameDay();
 
     const businesses = player.businesses;
     const businessCount = businesses.length;

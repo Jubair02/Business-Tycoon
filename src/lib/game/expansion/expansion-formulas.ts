@@ -5,6 +5,7 @@
 
 import { EXPANSION_CONFIG, getLocation, isBusinessTypeSuitable } from './expansion-config';
 import type { Location } from './expansion-config';
+import { calculateStartingInventoryCost } from './starting-inventory';
 
 // ---- Expansion Cost Calculations ----
 
@@ -14,6 +15,7 @@ import type { Location } from './expansion-config';
  * - Expansion cost scaling (more businesses = higher cost)
  * - Location modifier
  * - Setup cost
+ * - Opening stock (charged at wholesale, not gifted)
  */
 export function calculateExpansionCost(
   baseInvestment: number,
@@ -25,6 +27,8 @@ export function calculateExpansionCost(
   expansionPremium: number;
   locationModifier: number;
   setupCost: number;
+  /** Wholesale cost of the opening stock — charged, not gifted. */
+  startingInventoryCost: number;
   totalCost: number;
 } {
   // Base cost scales with number of businesses already owned
@@ -43,13 +47,22 @@ export function calculateExpansionCost(
   const suitability = isBusinessTypeSuitable(locationId, businessTypeId);
   const suitabilityMultiplier = suitability === 'unsuitable' ? 1.5 : 1.0;
 
-  const totalCost = Math.round((scaledBaseCost * locationModifier + setupCost * suitabilityMultiplier));
+  // Opening stock is part of the price of opening. Folding it in here rather
+  // than at each call site keeps the affordability check, the cash-reserve
+  // check, the eligibility endpoint and the wizard's cost breakdown in
+  // agreement with what is actually debited.
+  const startingInventoryCost = calculateStartingInventoryCost(businessTypeId);
+
+  const totalCost = Math.round(
+    scaledBaseCost * locationModifier + setupCost * suitabilityMultiplier + startingInventoryCost,
+  );
 
   return {
     baseCost: Math.round(scaledBaseCost),
     expansionPremium: Math.round(baseInvestment * expansionPremium),
     locationModifier,
     setupCost: Math.round(setupCost * suitabilityMultiplier),
+    startingInventoryCost,
     totalCost,
   };
 }
@@ -226,7 +239,12 @@ export interface PortfolioSummary {
   totalDailyProfit: number;
   totalRevenue: number;
   totalProfit: number;
+  /** Sum of business tills. Always 0 once a business has ticked — the engine
+   *  sweeps each day's result to the player — but kept so a legacy save's
+   *  stranded balance still shows until its next tick drains it. */
   totalCash: number;
+  /** Wholesale value of stock on the shelves, at cost. */
+  totalInventoryValue: number;
   totalEmployees: number;
   totalBusinesses: number;
   avgHealthScore: number;
@@ -256,6 +274,8 @@ export function calculatePortfolioSummary(businesses: {
   satisfactionScore: number;
   loyaltyScore: number;
   employeeCount: number;
+  /** Stock at cost. Optional so older callers keep compiling. */
+  inventoryValue?: number;
 }[]): PortfolioSummary {
   if (businesses.length === 0) {
     return {
@@ -265,6 +285,7 @@ export function calculatePortfolioSummary(businesses: {
       totalRevenue: 0,
       totalProfit: 0,
       totalCash: 0,
+      totalInventoryValue: 0,
       totalEmployees: 0,
       totalBusinesses: 0,
       avgHealthScore: 0,
@@ -283,6 +304,7 @@ export function calculatePortfolioSummary(businesses: {
   const totalRevenue = businesses.reduce((s, b) => s + b.totalRevenue, 0);
   const totalProfit = businesses.reduce((s, b) => s + b.totalProfit, 0);
   const totalCash = businesses.reduce((s, b) => s + b.cash, 0);
+  const totalInventoryValue = businesses.reduce((s, b) => s + (b.inventoryValue ?? 0), 0);
   const totalEmployees = businesses.reduce((s, b) => s + b.employeeCount, 0);
   const avgHealthScore = businesses.reduce((s, b) => s + b.healthScore, 0) / businesses.length;
   const avgSatisfaction = businesses.reduce((s, b) => s + b.satisfactionScore, 0) / businesses.length;
@@ -308,6 +330,7 @@ export function calculatePortfolioSummary(businesses: {
     totalRevenue,
     totalProfit,
     totalCash,
+    totalInventoryValue,
     totalEmployees,
     totalBusinesses: businesses.length,
     avgHealthScore,

@@ -1,7 +1,5 @@
 import { create } from 'zustand';
 
-type GameView = 'welcome' | 'dashboard' | 'businesses' | 'business-detail' | 'new-business' | 'market' | 'competition' | 'bank' | 'leaderboard' | 'news' | 'achievements' | 'settings' | 'portfolio';
-
 interface Employee {
   id: string;
   role: string;
@@ -16,6 +14,8 @@ interface Inventory {
   quantity: number;
   purchasePrice: number;
   sellPrice: number;
+  /** True once the owner has set this shelf price rather than taking the default. */
+  priceEdited?: boolean;
 }
 
 interface Business {
@@ -37,6 +37,11 @@ interface Business {
   brandAwareness: number;
   location: string | null;
   setupDaysRemaining: number;
+  /** Standing restock order — the tick tops the shelves up on the owner's behalf. */
+  autoRestock?: boolean;
+  autoRestockThreshold?: number;
+  autoRestockTarget?: number;
+  autoRestockBudget?: number | null;
   inventories?: Inventory[];
   employees?: Employee[];
 }
@@ -44,6 +49,7 @@ interface Business {
 interface Player {
   id: string;
   name: string;
+  createdAt?: string;
   cash: number;
   netWorth: number;
   level: number;
@@ -77,7 +83,10 @@ interface Achievement {
 }
 
 interface LeaderboardEntry {
+  /** Opaque public reference, not the player's real id. */
   playerId: string;
+  /** True for the viewing player's own row. */
+  isYou?: boolean;
   name: string;
   netWorth: number;
   totalProfit: number;
@@ -135,7 +144,6 @@ interface PortfolioData {
 }
 
 interface GameState {
-  view: GameView;
   selectedBusinessId: string | null;
   selectedCity: string;
   player: Player | null;
@@ -150,7 +158,6 @@ interface GameState {
   competition: CompetitionMarket[];
   // Phase 5: Portfolio
   portfolio: PortfolioData | null;
-  setView: (view: GameView) => void;
   selectBusiness: (id: string) => void;
   setSelectedCity: (city: string) => void;
   setPlayer: (player: Player | null) => void;
@@ -167,7 +174,6 @@ interface GameState {
 }
 
 export const useGameStore = create<GameState>((set) => ({
-  view: 'welcome',
   selectedBusinessId: null,
   selectedCity: 'DHAKA',
   player: null,
@@ -181,8 +187,7 @@ export const useGameStore = create<GameState>((set) => ({
   isLoading: false,
   competition: [],
   portfolio: null,
-  setView: (view) => set({ view }),
-  selectBusiness: (id) => set({ selectedBusinessId: id, view: 'business-detail' }),
+  selectBusiness: (id) => set({ selectedBusinessId: id }),
   setSelectedCity: (city) => set({ selectedCity: city }),
   setPlayer: (player) => set({ player }),
   setBusinesses: (businesses) => set({ businesses }),
