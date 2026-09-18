@@ -144,10 +144,25 @@ export async function POST(request: NextRequest) {
       // it is part of what `costInfo.totalCost` charged for, so a failure here
       // must not leave a paid-for business standing empty.
       if (startingInventory.items.length > 0) {
+        // The real Product id, not an empty string.
+        //
+        // `productId` was hardcoded to '' here, and `POST /inventory/buy`
+        // matches an existing shelf on exactly that column. So the first time a
+        // player restocked anything they opened with, the lookup missed and a
+        // SECOND row was created for the same product — which the tick then
+        // treats as a second shelf, drawing its own demand and holding its own
+        // price. Found by the end-to-end journey test; no unit test could see
+        // it, because the bug lives in the seam between two routes.
+        const productRows = await tx.product.findMany({
+          where: { name: { in: startingInventory.items.map(item => item.productName) } },
+          select: { id: true, name: true },
+        });
+        const productIdByName = new Map(productRows.map(row => [row.name, row.id]));
+
         await tx.inventory.createMany({
           data: startingInventory.items.map((item) => ({
             businessId: created.id,
-            productId: '',
+            productId: productIdByName.get(item.productName) ?? '',
             productName: item.productName,
             category: item.category,
             quantity: item.quantity,

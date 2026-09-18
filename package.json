@@ -12,6 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:all": "vitest run && vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -75,6 +77,8 @@
     "zustand": "^5.0.6"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
     "@tailwindcss/postcss": "^4",
     "@types/react": "^19",
     "@types/react-dom": "^19",

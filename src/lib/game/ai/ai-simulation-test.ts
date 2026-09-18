@@ -48,8 +48,18 @@
 // 8. AI ACTIONS: In-memory execution is simplified. Real engine uses
 //    executeAIAction() with database transactions and full validation.
 //
-// 9. DETERMINISM: Uses SeededRNG (Mulberry32) for reproducibility.
-//    Real engine uses Math.random() — results vary per run.
+// 9. DETERMINISM: PARTIAL, despite the SeededRNG below. The seed governs the
+//    AI's own choices — which business to open, which product to reprice — but
+//    the economy formulas this harness calls (`calculatePotentialCustomers`,
+//    `calculateProductDemand`) use `Math.random()` internally for their
+//    volatility layers, and are shared with the real engine. So runs are
+//    reproducible in structure and NOT in exact figures.
+//
+//    Measured over 12 runs: the bankruptcy count was identical every time (3),
+//    while the net-worth coefficient of variation moved between 1.12 and 1.35.
+//    Assert accordingly — structure hard, magnitudes with headroom. This
+//    comment previously claimed plain "reproducibility", which was wrong and
+//    would have produced a flaky test for whoever trusted it.
 //
 // 10. NO HUMAN PLAYERS: Only AI players are simulated. Real engine
 //     includes human player businesses in the same economy.
@@ -138,7 +148,7 @@ interface SimEmployee {
   efficiency: number;
 }
 
-interface SimBusiness {
+export interface SimBusiness {
   id: string;
   type: string;
   city: string;
@@ -164,7 +174,7 @@ interface SimLoan {
   interestRate: number;
 }
 
-interface SimPlayer {
+export interface SimPlayer {
   id: string;
   name: string;
   personality: AIPersonality;
@@ -176,7 +186,7 @@ interface SimPlayer {
 }
 
 // ---- Metrics Tracking ----
-interface DayMetrics {
+export interface DayMetrics {
   day: number;
   playerNetWorth: Record<string, number>;
   playerCash: Record<string, number>;
@@ -778,20 +788,74 @@ function performSimMandatoryRestock(player: SimPlayer): void {
 }
 
 // ---- Run Full Simulation ----
-function runSimulation(): void {
-  const rng = new SeededRNG(42); // Deterministic seed
+/** A problem the balance check found, as data rather than as a console line. */
+export interface BalanceIssue {
+  /** `error` fails the build; `warning` is reported but tolerated. */
+  severity: 'error' | 'warning';
+  code:
+    | 'BANKRUPT'
+    | 'NEAR_BANKRUPTCY'
+    | 'DOMINATION'
+    | 'SLIGHT_DOMINATION'
+    | 'EXPLOSIVE_GROWTH'
+    | 'SEVERE_DECLINE'
+    | 'HIGH_DIVERGENCE'
+    | 'MODERATE_DIVERGENCE'
+    | 'EXTREME_DIVERGENCE'
+    | 'FIELD_COLLAPSE'
+    | 'NON_FINITE';
+  message: string;
+  playerId?: string;
+  personality?: AIPersonality;
+}
+
+export interface SimulationResult {
+  days: number;
+  players: SimPlayer[];
+  metrics: DayMetrics[];
+  /** Everything the balance check found. */
+  issues: BalanceIssue[];
+  /** Mean final net worth per personality. */
+  personalityAvgNetWorth: Record<string, number>;
+  /** Spread of final net worth across players, as a coefficient of variation. */
+  coefficientOfVariation: number;
+  /** How many strategic actions each player took, by action name. */
+  actionsTaken: Record<string, number>;
+  /** Players that never took a single action — the "stuck on HOLD" regression. */
+  inertPlayers: string[];
+}
+
+export interface SimulationOptions {
+  /** Days to simulate. */
+  days?: number;
+  /** Seed. Fixed by default, which is what makes this usable as a test. */
+  seed?: number;
+  /** Print the full human-readable report. Off by default so tests stay quiet. */
+  verbose?: boolean;
+}
+
+export function runSimulation(options: SimulationOptions = {}): SimulationResult {
+  const { days: TOTAL_DAYS = 100, seed = 42, verbose = false } = options;
+
+  const rng = new SeededRNG(seed);
   const players = createAIPlayers(rng);
 
-  console.log('='.repeat(80));
-  console.log('🤖 AI SIMULATION TEST — 100 Game Days');
-  console.log('='.repeat(80));
-  console.log(`\n📊 Initial State:`);
-  for (const p of players) {
-    console.log(`  ${p.name} (${p.personality}): ৳${Math.round(p.netWorth).toLocaleString()} cash, ${p.businesses.length} businesses`);
+  if (verbose) {
+    console.log('='.repeat(80));
+    console.log(`🤖 AI SIMULATION TEST — ${TOTAL_DAYS} Game Days`);
+    console.log('='.repeat(80));
+    console.log(`\n📊 Initial State:`);
+    for (const p of players) {
+      console.log(`  ${p.name} (${p.personality}): ৳${Math.round(p.netWorth).toLocaleString()} cash, ${p.businesses.length} businesses`);
+    }
   }
 
   const metrics: DayMetrics[] = [];
-  const TOTAL_DAYS = 100;
+  // Instrumented so a test can assert the AI is actually deciding rather than
+  // silently holding every day — a failure mode that leaves every other number
+  // looking perfectly reasonable.
+  const actionsTaken: Record<string, number> = {};
+  const actedAtLeastOnce = new Set<string>();
 
   for (let day = 1; day <= TOTAL_DAYS; day++) {
     // Process each player
@@ -816,6 +880,8 @@ function runSimulation(): void {
       if (bestAction.action !== 'HOLD') {
         executeSimAction(player, bestAction, rng);
         player.lastActionAt = day;
+        actionsTaken[bestAction.action] = (actionsTaken[bestAction.action] ?? 0) + 1;
+        actedAtLeastOnce.add(player.id);
       }
 
       // 5. Recalculate net worth
@@ -850,10 +916,22 @@ function runSimulation(): void {
     metrics.push(dayMetrics);
   }
 
-  // ---- Print Results ----
-  printSummary('30-DAY SUMMARY', players, metrics, 30);
-  printSummary('100-DAY SUMMARY', players, metrics, 100);
-  checkBalance(players, metrics);
+  const analysis = analyseBalance(players, metrics);
+
+  if (verbose) {
+    printSummary('30-DAY SUMMARY', players, metrics, Math.min(30, TOTAL_DAYS));
+    printSummary(`${TOTAL_DAYS}-DAY SUMMARY`, players, metrics, TOTAL_DAYS);
+    printBalanceReport(analysis);
+  }
+
+  return {
+    days: TOTAL_DAYS,
+    players,
+    metrics,
+    actionsTaken,
+    inertPlayers: players.filter(p => !actedAtLeastOnce.has(p.id)).map(p => p.name),
+    ...analysis,
+  };
 }
 
 // ---- Print Per-Personality Summary ----
@@ -918,137 +996,242 @@ function printSummary(
 }
 
 // ---- Check Balance Issues ----
-function checkBalance(players: SimPlayer[], metrics: DayMetrics[]): void {
+export interface BalanceAnalysis {
+  issues: BalanceIssue[];
+  personalityAvgNetWorth: Record<string, number>;
+  coefficientOfVariation: number;
+}
+
+/**
+ * Judge a finished simulation.
+ *
+ * Pure: takes the simulated state, returns a verdict. It used to print the
+ * verdict and throw it away, which is how an 8x payback spread and five
+ * bankrupt AI competitors sat in the game for months while a 1,000-line harness
+ * that detected both ran green in somebody's terminal.
+ *
+ * Severity is the contract with the test suite, and the split is deliberate:
+ *
+ *   `error`   — something this model CAN measure reliably. A non-finite value,
+ *               an AI that never acts, the whole field collapsing. These fail
+ *               the build.
+ *
+ *   `warning` — something this model can only *indicate*. Exact bankruptcy
+ *               counts and divergence are the obvious cases: `BALANCE-RISKS.md`
+ *               records that this simulation omits events, market price
+ *               variation, employee skill bonuses and human competition — all
+ *               of which are positive factors — so it reliably reports MORE
+ *               bankruptcies than the real engine produces.
+ *
+ * Warnings are not ignored. The test suite ratchets them: the current counts
+ * are pinned, so they can get better and never worse. Tightening them into
+ * errors requires validating against the real engine first, which is what that
+ * document asks for.
+ */
+export function analyseBalance(players: SimPlayer[], metrics: DayMetrics[]): BalanceAnalysis {
+  const issues: BalanceIssue[] = [];
+  const finalSnapshot = metrics[metrics.length - 1];
+  const personalities: AIPersonality[] = ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'TRADER', 'EXPANSIONIST'];
+
+  // ---- Per-personality final net worths ----
+  const personalityAvgNetWorth: Record<string, number> = {};
+  for (const personality of personalities) {
+    const matching = players.filter(p => p.personality === personality);
+    const nws = matching.map(p => finalSnapshot.playerNetWorth[p.id]);
+    personalityAvgNetWorth[personality] = nws.length > 0
+      ? nws.reduce((s, v) => s + v, 0) / nws.length
+      : 0;
+  }
+
+  // ---- 0. Nothing non-finite escaped the model ----
+  // A NaN propagating through net worth makes every check below meaningless
+  // while still looking like a number, so it is tested before anything else.
+  for (const p of players) {
+    const nw = finalSnapshot.playerNetWorth[p.id];
+    if (!Number.isFinite(nw)) {
+      issues.push({
+        severity: 'error',
+        code: 'NON_FINITE',
+        message: `${p.name} (${p.personality}) has a non-finite net worth: ${nw}`,
+        playerId: p.id,
+        personality: p.personality,
+      });
+    }
+  }
+
+  // ---- 1. Personality domination ----
+  const allAvgs = Object.values(personalityAvgNetWorth);
+  const maxAvg = Math.max(...allAvgs);
+  const minAvg = Math.min(...allAvgs);
+  const dominating = Object.entries(personalityAvgNetWorth).find(([, v]) => v === maxAvg)?.[0];
+
+  if (minAvg <= 0 && maxAvg > 0) {
+    // The original check guarded on `minAvg > 0`, which meant the worst case of
+    // all — a personality averaging a net loss while another thrives — was the
+    // one case it never reported.
+    issues.push({
+      severity: 'warning',
+      code: 'DOMINATION',
+      message: `${dominating} averages ৳${Math.round(maxAvg).toLocaleString()} while the weakest personality averages a loss of ৳${Math.round(Math.abs(minAvg)).toLocaleString()}`,
+    });
+  } else if (minAvg > 0 && maxAvg > minAvg * 3) {
+    issues.push({
+      severity: 'warning',
+      code: 'DOMINATION',
+      message: `${dominating} dominates: best average (৳${Math.round(maxAvg).toLocaleString()}) is more than 3x the worst (৳${Math.round(minAvg).toLocaleString()})`,
+    });
+  } else if (minAvg > 0 && maxAvg > minAvg * 2) {
+    issues.push({
+      severity: 'warning',
+      code: 'SLIGHT_DOMINATION',
+      message: `${dominating} is slightly dominant: best average is more than 2x the worst`,
+    });
+  }
+
+  // ---- 2. Bankruptcy ----
+  // The regression this harness was built for: an inventory death spiral that
+  // emptied every AI's shelves and bankrupted the field.
+  for (const p of players) {
+    const nw = finalSnapshot.playerNetWorth[p.id];
+    if (!Number.isFinite(nw)) continue;
+
+    if (nw < 0) {
+      issues.push({
+        severity: 'warning',
+        code: 'BANKRUPT',
+        message: `${p.name} (${p.personality}) is bankrupt: net worth ৳${Math.round(nw).toLocaleString()}`,
+        playerId: p.id,
+        personality: p.personality,
+      });
+    } else if (nw < 100_000) {
+      issues.push({
+        severity: 'warning',
+        code: 'NEAR_BANKRUPTCY',
+        message: `${p.name} (${p.personality}) is near bankruptcy: net worth ৳${Math.round(nw).toLocaleString()}`,
+        playerId: p.id,
+        personality: p.personality,
+      });
+    }
+  }
+
+  // A single bankruptcy in a pessimistic model is noise. Most of the field
+  // going under is not — no omitted positive factor rescues half a market.
+  const bankruptCount = players.filter(p => {
+    const nw = finalSnapshot.playerNetWorth[p.id];
+    return Number.isFinite(nw) && nw < 0;
+  }).length;
+
+  if (players.length > 0 && bankruptCount > players.length / 2) {
+    issues.push({
+      severity: 'error',
+      code: 'FIELD_COLLAPSE',
+      message: `${bankruptCount} of ${players.length} competitors are bankrupt — the market has collapsed, not merely thinned`,
+    });
+  }
+
+  // ---- 3. Growth patterns ----
+  const at = (day: number) => metrics[Math.min(day, metrics.length) - 1];
+  const early = at(30);
+  const late = metrics[metrics.length - 1];
+
+  if (early && late && early !== late) {
+    for (const p of players) {
+      const nwEarly = early.playerNetWorth[p.id];
+      const nwLate = late.playerNetWorth[p.id];
+      if (!Number.isFinite(nwEarly) || !Number.isFinite(nwLate) || nwEarly <= 0) continue;
+
+      if (nwLate > nwEarly * 4) {
+        issues.push({
+          severity: 'warning',
+          code: 'EXPLOSIVE_GROWTH',
+          message: `${p.name} quadrupled: ৳${Math.round(nwEarly).toLocaleString()} → ৳${Math.round(nwLate).toLocaleString()}`,
+          playerId: p.id,
+          personality: p.personality,
+        });
+      }
+      if (nwLate < nwEarly * 0.3) {
+        issues.push({
+          severity: 'warning',
+          code: 'SEVERE_DECLINE',
+          message: `${p.name} declined severely: ৳${Math.round(nwEarly).toLocaleString()} → ৳${Math.round(nwLate).toLocaleString()}`,
+          playerId: p.id,
+          personality: p.personality,
+        });
+      }
+    }
+  }
+
+  // ---- 4. Divergence across the field ----
+  const finalNWs = players
+    .map(p => finalSnapshot.playerNetWorth[p.id])
+    .filter(nw => Number.isFinite(nw));
+  const avgNW = finalNWs.length > 0
+    ? finalNWs.reduce((s, v) => s + v, 0) / finalNWs.length
+    : 0;
+  const stdDev = finalNWs.length > 0
+    ? Math.sqrt(finalNWs.reduce((s, v) => s + (v - avgNW) ** 2, 0) / finalNWs.length)
+    : 0;
+  const coefficientOfVariation = avgNW !== 0 ? stdDev / Math.abs(avgNW) : 0;
+
+  if (coefficientOfVariation > 2.0) {
+    issues.push({
+      severity: 'error',
+      code: 'EXTREME_DIVERGENCE',
+      message: `Net worth has shattered: coefficient of variation ${coefficientOfVariation.toFixed(2)}`,
+    });
+  } else if (coefficientOfVariation > 1.0) {
+    issues.push({
+      severity: 'warning',
+      code: 'HIGH_DIVERGENCE',
+      message: `Net worth has diverged: coefficient of variation ${coefficientOfVariation.toFixed(2)} (should be under 1.0)`,
+    });
+  } else if (coefficientOfVariation > 0.7) {
+    issues.push({
+      severity: 'warning',
+      code: 'MODERATE_DIVERGENCE',
+      message: `Net worth is spreading: coefficient of variation ${coefficientOfVariation.toFixed(2)}`,
+    });
+  }
+
+  return { issues, personalityAvgNetWorth, coefficientOfVariation };
+}
+
+/** Human-readable version of the analysis, for a direct run. */
+function printBalanceReport(analysis: BalanceAnalysis): void {
   console.log('\n' + '='.repeat(80));
   console.log('⚖️  BALANCE CHECK');
   console.log('='.repeat(80));
 
-  const issues: string[] = [];
-  const finalSnapshot = metrics[metrics.length - 1];
-  const personalities: AIPersonality[] = ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'TRADER', 'EXPANSIONIST'];
+  const overallAvg =
+    Object.values(analysis.personalityAvgNetWorth).reduce((s, v) => s + v, 0) /
+    Math.max(1, Object.keys(analysis.personalityAvgNetWorth).length);
 
-  // Per-personality final net worths
-  const personalityNetWorths: Record<string, number[]> = {};
-  for (const personality of personalities) {
-    personalityNetWorths[personality] = [];
-    const matching = players.filter(p => p.personality === personality);
-    for (const p of matching) {
-      personalityNetWorths[personality].push(finalSnapshot.playerNetWorth[p.id]);
-    }
-  }
-
-  // 1. Check for personality domination
-  const personalityAvgs: Record<string, number> = {};
-  for (const [personality, nws] of Object.entries(personalityNetWorths)) {
-    personalityAvgs[personality] = nws.reduce((s, v) => s + v, 0) / nws.length;
-  }
-  const allAvgs = Object.values(personalityAvgs);
-  const maxAvg = Math.max(...allAvgs);
-  const minAvg = Math.min(...allAvgs);
-  const overallAvg = allAvgs.reduce((s, v) => s + v, 0) / allAvgs.length;
-
-  console.log(`\n  📊 Personality Net Worth Comparison:`);
-  for (const [personality, avg] of Object.entries(personalityAvgs)) {
+  console.log('\n  📊 Personality Net Worth Comparison:');
+  for (const [personality, avg] of Object.entries(analysis.personalityAvgNetWorth)) {
     const ratio = overallAvg > 0 ? avg / overallAvg : 0;
     const bar = '█'.repeat(Math.max(0, Math.round(ratio * 20)));
     console.log(`    ${personality.padEnd(15)}: ৳${Math.round(avg).toLocaleString().padStart(12)} (${ratio.toFixed(2)}x) ${bar}`);
   }
 
-  if (maxAvg > minAvg * 3 && minAvg > 0) {
-    const dominating = Object.entries(personalityAvgs).find(([, v]) => v === maxAvg)?.[0];
-    issues.push(`❌ ${dominating} dominates: best avg (৳${Math.round(maxAvg).toLocaleString()}) is >3x worst avg (৳${Math.round(minAvg).toLocaleString()})`);
-  } else if (maxAvg > minAvg * 2 && minAvg > 0) {
-    const dominating = Object.entries(personalityAvgs).find(([, v]) => v === maxAvg)?.[0];
-    issues.push(`⚠️  ${dominating} slightly dominant: best avg is >2x worst avg`);
-  } else {
-    console.log(`  ✅ No personality dominates (max/min ratio: ${minAvg > 0 ? (maxAvg / minAvg).toFixed(2) : 'N/A'})`);
-  }
+  console.log(`\n  📉 Net worth divergence (CoV): ${analysis.coefficientOfVariation.toFixed(2)}`);
 
-  // 2. Check for bankruptcy
-  console.log(`\n  💰 Bankruptcy Check:`);
-  for (const p of players) {
-    const nw = finalSnapshot.playerNetWorth[p.id];
-    if (nw < 0) {
-      issues.push(`❌ ${p.name} (${p.personality}) is BANKRUPT: net worth = ৳${Math.round(nw).toLocaleString()}`);
-      console.log(`    ❌ ${p.name} is BANKRUPT: ৳${Math.round(nw).toLocaleString()}`);
-    } else if (nw < 100000) {
-      issues.push(`⚠️  ${p.name} (${p.personality}) near bankruptcy: net worth = ৳${Math.round(nw).toLocaleString()}`);
-      console.log(`    ⚠️  ${p.name} near bankruptcy: ৳${Math.round(nw).toLocaleString()}`);
-    }
-  }
-  if (!issues.some(i => i.includes('BANKRUPT') || i.includes('near bankruptcy'))) {
-    console.log(`    ✅ No bankruptcies detected`);
-  }
+  const errors = analysis.issues.filter(i => i.severity === 'error');
+  const warnings = analysis.issues.filter(i => i.severity === 'warning');
 
-  // 3. Check for infinite growth
-  console.log(`\n  📈 Growth Pattern Check:`);
-  const day30 = metrics[29];
-  const day60 = metrics[59];
-  const day100 = metrics[99];
-
-  for (const p of players) {
-    const nw30 = day30.playerNetWorth[p.id];
-    const nw60 = day60.playerNetWorth[p.id];
-    const nw100 = day100.playerNetWorth[p.id];
-
-    // Check exponential growth (quadrupling from day 30 to day 100)
-    if (nw30 > 0 && nw100 > nw30 * 4) {
-      issues.push(`⚠️  ${p.name} shows explosive growth: ৳${Math.round(nw30).toLocaleString()} → ৳${Math.round(nw100).toLocaleString()}`);
-      console.log(`    ⚠️  ${p.name}: explosive growth (4x+)`);
-    }
-    // Check steady decline
-    if (nw30 > 0 && nw100 < nw30 * 0.3) {
-      issues.push(`⚠️  ${p.name} shows severe decline: ৳${Math.round(nw30).toLocaleString()} → ৳${Math.round(nw100).toLocaleString()}`);
-      console.log(`    ⚠️  ${p.name}: severe decline`);
-    }
-  }
-
-  // 4. Check net worth divergence
-  console.log(`\n  📉 Net Worth Divergence Check:`);
-  const finalNWs = players.map(p => finalSnapshot.playerNetWorth[p.id]);
-  const avgNW = finalNWs.reduce((s, v) => s + v, 0) / finalNWs.length;
-  const stdDev = Math.sqrt(finalNWs.reduce((s, v) => s + (v - avgNW) ** 2, 0) / finalNWs.length);
-  const coefficientOfVariation = avgNW !== 0 ? stdDev / Math.abs(avgNW) : Infinity;
-
-  console.log(`    Mean: ৳${Math.round(avgNW).toLocaleString()}`);
-  console.log(`    Std Dev: ৳${Math.round(stdDev).toLocaleString()}`);
-  console.log(`    CoV: ${coefficientOfVariation.toFixed(2)}`);
-
-  if (coefficientOfVariation > 1.0) {
-    issues.push(`❌ High net worth divergence: CoV = ${coefficientOfVariation.toFixed(2)} (should be <1.0)`);
-  } else if (coefficientOfVariation > 0.7) {
-    issues.push(`⚠️  Moderate net worth divergence: CoV = ${coefficientOfVariation.toFixed(2)}`);
-  } else {
-    console.log(`    ✅ Net worth divergence is acceptable`);
-  }
-
-  // 5. Growth trajectory analysis
-  console.log(`\n  📊 Growth Trajectory (Avg Net Worth by Period):`);
-  const periods = [
-    { label: 'Day 10', day: 10 },
-    { label: 'Day 30', day: 30 },
-    { label: 'Day 50', day: 50 },
-    { label: 'Day 70', day: 70 },
-    { label: 'Day 100', day: 100 },
-  ];
-  for (const period of periods) {
-    const snap = metrics[period.day - 1];
-    if (!snap) continue;
-    const avg = players.reduce((s, p) => s + snap.playerNetWorth[p.id], 0) / players.length;
-    console.log(`    ${period.label}: ৳${Math.round(avg).toLocaleString()}`);
-  }
-
-  // ---- Summary ----
   console.log('\n' + '='.repeat(80));
-  console.log('📋 BALANCE ISSUES SUMMARY');
+  console.log('📋 BALANCE ISSUES');
   console.log('='.repeat(80));
 
-  if (issues.length === 0) {
-    console.log('\n  ✅ No balance issues detected! All personalities are well-balanced.');
+  if (analysis.issues.length === 0) {
+    console.log('\n  ✅ No balance issues detected.');
   } else {
-    console.log(`\n  Found ${issues.length} issue(s):`);
-    for (const issue of issues) {
-      console.log(`    ${issue}`);
+    if (errors.length > 0) {
+      console.log(`\n  ❌ ${errors.length} error(s):`);
+      for (const issue of errors) console.log(`    [${issue.code}] ${issue.message}`);
+    }
+    if (warnings.length > 0) {
+      console.log(`\n  ⚠️  ${warnings.length} warning(s):`);
+      for (const issue of warnings) console.log(`    [${issue.code}] ${issue.message}`);
     }
   }
 
@@ -1058,4 +1241,16 @@ function checkBalance(players: SimPlayer[], metrics: DayMetrics[]): void {
 }
 
 // ---- Run ----
-runSimulation();
+//
+// Guarded, so importing this module from a test does not silently simulate a
+// hundred days and print two hundred lines as a side effect of the import.
+// Run it directly for the full human-readable report.
+const invokedDirectly =
+  typeof process !== 'undefined' &&
+  Array.isArray(process.argv) &&
+  process.argv[1] !== undefined &&
+  /ai-simulation-test\.[cm]?ts$/.test(process.argv[1]);
+
+if (invokedDirectly) {
+  runSimulation({ verbose: true });
+}
