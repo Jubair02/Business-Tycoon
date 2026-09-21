@@ -6,8 +6,30 @@
 // Node or Prisma imports so they can be unit tested, and so the middleware and
 // the Edge runtime can read the same numbers if they ever need to.
 
-/** How often the world advances when nothing overrides it. */
-export const DEFAULT_TICK_INTERVAL_MS = 60_000;
+/**
+ * How often the world advances when nothing overrides it.
+ *
+ * Four hours a game day, which with a 90-day season makes a season **two
+ * weeks** — the cadence every other system in the game already assumes. Push
+ * notifications, the offline grace window, the "while you were away" report and
+ * the PWA install prompt are all built for a game you check in on, not one you
+ * sit and watch.
+ *
+ * It was 60 seconds, which is the right number for developing against and the
+ * wrong one to ship: a season completed in **ninety minutes**, prestige capped
+ * within a day of real time, the leaderboard reset before lunch, and eight
+ * hours away meant 480 game days — more than five whole seasons — passed
+ * without you. D1/D7/D30 retention cannot mean anything measured against a
+ * content cycle that short.
+ *
+ * Override with `GAME_TICK_INTERVAL_MS` for local work; 60_000 is still the
+ * comfortable number to develop against.
+ *
+ * Changing this changes more than the clock — see `season-coherence.test.ts`,
+ * which checks that the offline grace, the season length and the payback band
+ * still make sense together afterwards.
+ */
+export const DEFAULT_TICK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 /**
  * Floor on the configured interval. A tick walks every business in the game,
@@ -16,8 +38,14 @@ export const DEFAULT_TICK_INTERVAL_MS = 60_000;
  */
 export const MIN_TICK_INTERVAL_MS = 5_000;
 
-/** Ceiling, mostly to catch a value pasted in seconds instead of milliseconds. */
-export const MAX_TICK_INTERVAL_MS = 60 * 60 * 1000;
+/**
+ * Ceiling. A game day should never be longer than a real one.
+ *
+ * Was an hour, which silently clamped anything slower — and the default is now
+ * four hours, so that ceiling would have capped the game at a quarter of its
+ * intended pace without saying so.
+ */
+export const MAX_TICK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Resolve the tick interval from its environment value.

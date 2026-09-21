@@ -32,7 +32,7 @@ export default function CxTab() {
           <div className="h-32 flex items-center justify-center">
             <div className="text-center">
               <Heart className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
-              <p className="text-xs text-muted-foreground">No customer data yet. Advance days to generate data.</p>
+              <p className="text-xs text-muted-foreground">No customer data yet. It builds up as the days pass.</p>
             </div>
           </div>
         ) : (
@@ -196,7 +196,7 @@ export default function CxTab() {
                     </div>
                   </>
                 ) : (
-                  <p className="text-xs text-muted-foreground">No reviews yet. Advance days to generate reviews.</p>
+                  <p className="text-xs text-muted-foreground">No reviews yet. Customers leave them as the days pass.</p>
                 )}
               </CardContent>
             </Card>

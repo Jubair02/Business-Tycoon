@@ -184,47 +184,59 @@ export interface ProductDef {
   icon: string;
   maxStock: number;
   suggestedMarkup: number;
+  /**
+   * Game days this product keeps before it starts going off in earnest.
+   *
+   * `0` means it does not perish: a shirt or a phone case keeps indefinitely,
+   * so a warehouse full of them is pure upside. Fish keeps a day. That split is
+   * what gives each trade its own relationship with storage — a clothing shop
+   * can stockpile for Eid, a restaurant cannot stockpile at all — and it is why
+   * clothing is the Eid trade rather than an arbitrary choice.
+   *
+   * See `game/supply/spoilage.ts`.
+   */
+  shelfLifeDays: number;
 }
 
 export const PRODUCTS: Record<string, ProductDef[]> = {
   TEA_STALL: [
-    { name: 'Tea (Cha)', category: 'TEA_STALL', basePrice: 8, baseDemand: 0.823, icon: '🫖', maxStock: 190, suggestedMarkup: 0.6 },
-    { name: 'Biscuits', category: 'TEA_STALL', basePrice: 5, baseDemand: 0.493, icon: '🍪', maxStock: 115, suggestedMarkup: 0.5 },
-    { name: 'Singara', category: 'TEA_STALL', basePrice: 10, baseDemand: 0.576, icon: '🥟', maxStock: 135, suggestedMarkup: 0.7 },
-    { name: 'Samosa', category: 'TEA_STALL', basePrice: 12, baseDemand: 0.411, icon: '🔺', maxStock: 95, suggestedMarkup: 0.7 },
-    { name: 'Cold Drinks', category: 'TEA_STALL', basePrice: 15, baseDemand: 0.658, icon: '🥤', maxStock: 155, suggestedMarkup: 0.4 },
+    { name: 'Tea (Cha)', category: 'TEA_STALL', basePrice: 8, baseDemand: 0.823, icon: '🫖', maxStock: 190, shelfLifeDays: 3, suggestedMarkup: 0.6 },
+    { name: 'Biscuits', category: 'TEA_STALL', basePrice: 5, baseDemand: 0.493, icon: '🍪', maxStock: 115, shelfLifeDays: 0, suggestedMarkup: 0.5 },
+    { name: 'Singara', category: 'TEA_STALL', basePrice: 10, baseDemand: 0.576, icon: '🥟', maxStock: 135, shelfLifeDays: 2, suggestedMarkup: 0.7 },
+    { name: 'Samosa', category: 'TEA_STALL', basePrice: 12, baseDemand: 0.411, icon: '🔺', maxStock: 95, shelfLifeDays: 2, suggestedMarkup: 0.7 },
+    { name: 'Cold Drinks', category: 'TEA_STALL', basePrice: 15, baseDemand: 0.658, icon: '🥤', maxStock: 155, shelfLifeDays: 0, suggestedMarkup: 0.4 },
   ],
   GROCERY: [
-    { name: 'Rice (5kg)', category: 'GROCERY', basePrice: 280, baseDemand: 0.532, icon: '🍚', maxStock: 170, suggestedMarkup: 0.15 },
-    { name: 'Cooking Oil (1L)', category: 'GROCERY', basePrice: 200, baseDemand: 0.503, icon: '🫗', maxStock: 160, suggestedMarkup: 0.15 },
-    { name: 'Eggs (12pc)', category: 'GROCERY', basePrice: 150, baseDemand: 0.562, icon: '🥚', maxStock: 180, suggestedMarkup: 0.2 },
-    { name: 'Milk (1L)', category: 'GROCERY', basePrice: 90, baseDemand: 0.473, icon: '🥛', maxStock: 150, suggestedMarkup: 0.18 },
-    { name: 'Snacks', category: 'GROCERY', basePrice: 20, baseDemand: 0.414, icon: '🍿', maxStock: 135, suggestedMarkup: 0.35 },
-    { name: 'Soft Drinks', category: 'GROCERY', basePrice: 30, baseDemand: 0.443, icon: '🥤', maxStock: 140, suggestedMarkup: 0.25 },
+    { name: 'Rice (5kg)', category: 'GROCERY', basePrice: 280, baseDemand: 0.532, icon: '🍚', maxStock: 170, shelfLifeDays: 0, suggestedMarkup: 0.15 },
+    { name: 'Cooking Oil (1L)', category: 'GROCERY', basePrice: 200, baseDemand: 0.503, icon: '🫗', maxStock: 160, shelfLifeDays: 0, suggestedMarkup: 0.15 },
+    { name: 'Eggs (12pc)', category: 'GROCERY', basePrice: 150, baseDemand: 0.562, icon: '🥚', maxStock: 180, shelfLifeDays: 7, suggestedMarkup: 0.2 },
+    { name: 'Milk (1L)', category: 'GROCERY', basePrice: 90, baseDemand: 0.473, icon: '🥛', maxStock: 150, shelfLifeDays: 3, suggestedMarkup: 0.18 },
+    { name: 'Snacks', category: 'GROCERY', basePrice: 20, baseDemand: 0.414, icon: '🍿', maxStock: 135, shelfLifeDays: 0, suggestedMarkup: 0.35 },
+    { name: 'Soft Drinks', category: 'GROCERY', basePrice: 30, baseDemand: 0.443, icon: '🥤', maxStock: 140, shelfLifeDays: 0, suggestedMarkup: 0.25 },
   ],
   CLOTHING: [
-    { name: 'Men\'s Shirt', category: 'CLOTHING', basePrice: 500, baseDemand: 0.081, icon: '👔', maxStock: 17, suggestedMarkup: 0.4 },
-    { name: 'Men\'s Pants', category: 'CLOTHING', basePrice: 700, baseDemand: 0.069, icon: '👖', maxStock: 14, suggestedMarkup: 0.4 },
-    { name: 'Women\'s Saree', category: 'CLOTHING', basePrice: 1500, baseDemand: 0.092, icon: '👗', maxStock: 19, suggestedMarkup: 0.45 },
-    { name: 'Women\'s Salwar Kameez', category: 'CLOTHING', basePrice: 800, baseDemand: 0.086, icon: '👗', maxStock: 18, suggestedMarkup: 0.4 },
-    { name: 'Kids\' Clothing Set', category: 'CLOTHING', basePrice: 400, baseDemand: 0.075, icon: '👶', maxStock: 15, suggestedMarkup: 0.5 },
-    { name: 'Winter Jacket', category: 'CLOTHING', basePrice: 1200, baseDemand: 0.046, icon: '🧥', maxStock: 9, suggestedMarkup: 0.45 },
+    { name: 'Men\'s Shirt', category: 'CLOTHING', basePrice: 500, baseDemand: 0.081, icon: '👔', maxStock: 17, shelfLifeDays: 0, suggestedMarkup: 0.4 },
+    { name: 'Men\'s Pants', category: 'CLOTHING', basePrice: 700, baseDemand: 0.069, icon: '👖', maxStock: 14, shelfLifeDays: 0, suggestedMarkup: 0.4 },
+    { name: 'Women\'s Saree', category: 'CLOTHING', basePrice: 1500, baseDemand: 0.092, icon: '👗', maxStock: 19, shelfLifeDays: 0, suggestedMarkup: 0.45 },
+    { name: 'Women\'s Salwar Kameez', category: 'CLOTHING', basePrice: 800, baseDemand: 0.086, icon: '👗', maxStock: 18, shelfLifeDays: 0, suggestedMarkup: 0.4 },
+    { name: 'Kids\' Clothing Set', category: 'CLOTHING', basePrice: 400, baseDemand: 0.075, icon: '👶', maxStock: 15, shelfLifeDays: 0, suggestedMarkup: 0.5 },
+    { name: 'Winter Jacket', category: 'CLOTHING', basePrice: 1200, baseDemand: 0.046, icon: '🧥', maxStock: 9, shelfLifeDays: 0, suggestedMarkup: 0.45 },
   ],
   MOBILE: [
-    { name: 'Budget Smartphone', category: 'MOBILE', basePrice: 8000, baseDemand: 0.069, icon: '📱', maxStock: 8, suggestedMarkup: 0.16 },
-    { name: 'Mid-Range Smartphone', category: 'MOBILE', basePrice: 25000, baseDemand: 0.052, icon: '📱', maxStock: 6, suggestedMarkup: 0.13 },
-    { name: 'Premium Smartphone', category: 'MOBILE', basePrice: 120000, baseDemand: 0.026, icon: '📱', maxStock: 4, suggestedMarkup: 0.1 },
-    { name: 'Earphones', category: 'MOBILE', basePrice: 500, baseDemand: 0.077, icon: '🎧', maxStock: 9, suggestedMarkup: 0.5 },
-    { name: 'Smart Watch', category: 'MOBILE', basePrice: 3000, baseDemand: 0.043, icon: '⌚', maxStock: 5, suggestedMarkup: 0.35 },
-    { name: 'Phone Case', category: 'MOBILE', basePrice: 200, baseDemand: 0.073, icon: '📦', maxStock: 9, suggestedMarkup: 0.6 },
+    { name: 'Budget Smartphone', category: 'MOBILE', basePrice: 8000, baseDemand: 0.069, icon: '📱', maxStock: 8, shelfLifeDays: 0, suggestedMarkup: 0.16 },
+    { name: 'Mid-Range Smartphone', category: 'MOBILE', basePrice: 25000, baseDemand: 0.052, icon: '📱', maxStock: 6, shelfLifeDays: 0, suggestedMarkup: 0.13 },
+    { name: 'Premium Smartphone', category: 'MOBILE', basePrice: 120000, baseDemand: 0.026, icon: '📱', maxStock: 4, shelfLifeDays: 0, suggestedMarkup: 0.1 },
+    { name: 'Earphones', category: 'MOBILE', basePrice: 500, baseDemand: 0.077, icon: '🎧', maxStock: 9, shelfLifeDays: 0, suggestedMarkup: 0.5 },
+    { name: 'Smart Watch', category: 'MOBILE', basePrice: 3000, baseDemand: 0.043, icon: '⌚', maxStock: 5, shelfLifeDays: 0, suggestedMarkup: 0.35 },
+    { name: 'Phone Case', category: 'MOBILE', basePrice: 200, baseDemand: 0.073, icon: '📦', maxStock: 9, shelfLifeDays: 0, suggestedMarkup: 0.6 },
   ],
   RESTAURANT: [
-    { name: 'Rice Plate (Bhat)', category: 'RESTAURANT', basePrice: 40, baseDemand: 0.738, icon: '🍚', maxStock: 195, suggestedMarkup: 0.6 },
-    { name: 'Chicken Curry', category: 'RESTAURANT', basePrice: 120, baseDemand: 0.665, icon: '🍗', maxStock: 175, suggestedMarkup: 0.5 },
-    { name: 'Fish Curry', category: 'RESTAURANT', basePrice: 100, baseDemand: 0.517, icon: '🐟', maxStock: 135, suggestedMarkup: 0.5 },
-    { name: 'Dal (Lentil)', category: 'RESTAURANT', basePrice: 30, baseDemand: 0.628, icon: '🥘', maxStock: 165, suggestedMarkup: 0.55 },
-    { name: 'Kacchi Biryani', category: 'RESTAURANT', basePrice: 200, baseDemand: 0.701, icon: '🍛', maxStock: 185, suggestedMarkup: 0.55 },
-    { name: 'Roti/Naan', category: 'RESTAURANT', basePrice: 15, baseDemand: 0.665, icon: '🫓', maxStock: 175, suggestedMarkup: 0.6 },
+    { name: 'Rice Plate (Bhat)', category: 'RESTAURANT', basePrice: 40, baseDemand: 0.738, icon: '🍚', maxStock: 195, shelfLifeDays: 2, suggestedMarkup: 0.6 },
+    { name: 'Chicken Curry', category: 'RESTAURANT', basePrice: 120, baseDemand: 0.665, icon: '🍗', maxStock: 175, shelfLifeDays: 2, suggestedMarkup: 0.5 },
+    { name: 'Fish Curry', category: 'RESTAURANT', basePrice: 100, baseDemand: 0.517, icon: '🐟', maxStock: 135, shelfLifeDays: 1, suggestedMarkup: 0.5 },
+    { name: 'Dal (Lentil)', category: 'RESTAURANT', basePrice: 30, baseDemand: 0.628, icon: '🥘', maxStock: 165, shelfLifeDays: 3, suggestedMarkup: 0.55 },
+    { name: 'Kacchi Biryani', category: 'RESTAURANT', basePrice: 200, baseDemand: 0.701, icon: '🍛', maxStock: 185, shelfLifeDays: 2, suggestedMarkup: 0.55 },
+    { name: 'Roti/Naan', category: 'RESTAURANT', basePrice: 15, baseDemand: 0.665, icon: '🫓', maxStock: 175, shelfLifeDays: 1, suggestedMarkup: 0.6 },
   ],
 };
 

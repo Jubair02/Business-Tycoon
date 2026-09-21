@@ -35,6 +35,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { spawn, type ChildProcess, spawnSync } from 'node:child_process';
 import net from 'node:net';
+import { randomBytes } from 'node:crypto';
 
 export interface ApiResponse<T = any> {
   status: number;
@@ -53,6 +54,8 @@ export interface Harness {
    * call site passes a plain object and the harness serialises it.
    */
   api<T = any>(path: string, init?: RequestOptions): Promise<ApiResponse<T>>;
+  /** Bearer token for the analytics report endpoint. */
+  analyticsToken: string;
   /** Advance the game clock by one day, as an external cron would. */
   tick(): Promise<ApiResponse>;
   stop(): Promise<void>;
@@ -126,6 +129,7 @@ export async function startHarness(): Promise<Harness> {
 
   const cronSecret = 'e2e-cron-secret-0123456789abcdef0123456789abcdef';
   const sessionSecret = 'e2e-session-secret-0123456789abcdef0123456789';
+  const analyticsToken = randomBytes(16).toString('hex');
 
   // ---- Database ----
   const db = await PGlite.create();
@@ -159,6 +163,9 @@ export async function startHarness(): Promise<Harness> {
       CRON_SECRET: cronSecret,
       SESSION_SECRET: sessionSecret,
       APP_URL: origin,
+      // So the journey can read back what it recorded, through the real
+      // endpoint rather than by querying the table behind it.
+      ANALYTICS_REPORT_TOKEN: analyticsToken,
     },
     shell: true,
   });
@@ -220,6 +227,7 @@ export async function startHarness(): Promise<Harness> {
   return {
     origin,
     cronSecret,
+    analyticsToken,
     api,
     tick: () =>
       api('/api/game/tick', {

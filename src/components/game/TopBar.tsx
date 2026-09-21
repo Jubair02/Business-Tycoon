@@ -10,6 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import PlayerProfile from './PlayerProfile';
 import NotificationCenter from './NotificationCenter';
 import { ThemeToggleButton } from './ThemeToggle';
+import { useCalendar } from '@/hooks/use-calendar';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 interface TopBarProps {
   /** ISO timestamp of the next scheduled day, or null if unknown. */
@@ -36,8 +38,14 @@ function formatCountdown(nextTickAt: string | null, now: number): string | null 
   if (remainingMs <= 0) return 'any moment';
 
   const totalSeconds = Math.ceil(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
+
+  // A game day is four real hours, so this counts in hours far more often than
+  // it counts in seconds. Before the clock slowed it only ever formatted
+  // minutes, which would have rendered the common case as "239m 45s".
+  if (hours > 0) return `${hours}h ${minutes}m`;
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
@@ -61,6 +69,13 @@ function useTickingNow(): number {
 
 export default function TopBar({ nextTickAt, schedulerEnabled }: TopBarProps) {
   const { player, gameDay } = useGameStore();
+  const { locale } = useI18n();
+  const calendar = useCalendar();
+  const bengaliDate = calendar
+    ? locale === 'bn'
+      ? calendar.world.bengali.formattedBn
+      : calendar.world.bengali.formattedEn
+    : null;
   const now = useTickingNow();
   const countdown = useMemo(() => formatCountdown(nextTickAt, now), [nextTickAt, now]);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -160,6 +175,16 @@ export default function TopBar({ nextTickAt, schedulerEnabled }: TopBarProps) {
               <span className="md:hidden" style={cashDirection === 'up' ? { color: '#16a34a' } : cashDirection === 'down' ? { color: '#dc2626' } : undefined}>{formatTakaShort(player.cash)}</span>
               <span className="md:hidden">·</span>
               <span>Day {gameDay}</span>
+              {/* The world's Bangladeshi date, always in view. A game set here
+                  should say what day it is here, not only which tick it is. */}
+              {bengaliDate && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="hidden truncate sm:inline" title={calendar?.world.date}>
+                    {bengaliDate}
+                  </span>
+                </>
+              )}
               {/* Auto-tick speed indicator dot */}
               <span className="inline-block w-1.5 h-1.5 rounded-full ml-1" style={{ background: 'var(--auto-tick-color, #d1d5db)' }} title="Auto-play status" />
             </div>

@@ -10,6 +10,8 @@ import { handleApiError, unauthorized, validationError, conflict, notFound } fro
 import { resolveSession } from '@/lib/auth/user-session';
 import { getActiveSeason } from '@/lib/game/seasons/seasons';
 import { canClaimTier, claimKeyFor, passProgress } from '@/lib/commerce/season-pass';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 const claimSchema = z.object({
   tier: z.number().int().min(1).max(100),
@@ -83,6 +85,8 @@ export async function POST(request: NextRequest) {
 
       return { sku: verdict.sku ?? null, xp: pass.xp };
     });
+
+    void trackServer(EVENTS.PASS_TIER_CLAIMED);
 
     return NextResponse.json({
       success: true,

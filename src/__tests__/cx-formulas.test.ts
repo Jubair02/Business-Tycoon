@@ -12,6 +12,9 @@ import {
   calculateLoyalty,
   calculateNPS,
   calculateSegmentDemands,
+  calculateSegmentDemandModifier,
+  SEGMENT_REFERENCE,
+  SEGMENT_MODIFIER_BOUNDS,
   generateReviews,
   calculateCXDemandModifier,
   determineSentiment,
@@ -1540,5 +1543,86 @@ describe('Phase 3 Verification: Review Generation Bounds', () => {
   it('empty inventory produces zero-price competitiveness (default 0.5)', () => {
     const result = calculatePriceCompetitiveness([], [], {});
     expect(result).toBe(0.5);
+  });
+});
+
+// ============================================
+// The segment demand modifier (the U2 fix)
+// ============================================
+
+describe('calculateSegmentDemandModifier', () => {
+  it('is neutral for an ordinary shop', () => {
+    // The defect this function exists to fix: summing the raw segment scores
+    // gave ~0.10 for a new shop, so the term was a 10x penalty multiplied onto
+    // a base that had already counted the same employees and reputation. A
+    // fully stocked tea stall served nine customers a day and could not trade
+    // profitably however well it was run.
+    const modifier = calculateSegmentDemandModifier({
+      productQuality: SEGMENT_REFERENCE.productQuality,
+      serviceQuality: SEGMENT_REFERENCE.serviceQuality,
+      reputation: SEGMENT_REFERENCE.reputation,
+    });
+
+    expect(modifier).toBeCloseTo(1, 9);
+  });
+
+  it('rewards a better-run shop and penalises a worse one', () => {
+    const good = calculateSegmentDemandModifier({
+      productQuality: 0.8,
+      serviceQuality: 0.9,
+      reputation: 80,
+    });
+    const poor = calculateSegmentDemandModifier({
+      productQuality: 0.2,
+      serviceQuality: 0.1,
+      reputation: 20,
+    });
+
+    expect(good).toBeGreaterThan(1);
+    expect(poor).toBeLessThan(1);
+    expect(good).toBeGreaterThan(poor);
+  });
+
+  it('stays inside its bounds for every input', () => {
+    // Employees and reputation are already counted upstream, so an unbounded
+    // normalisation would double-count upward instead of downward — trading one
+    // bug for its mirror image.
+    for (const quality of [0, 0.25, 0.5, 0.75, 1]) {
+      for (const service of [0, 0.25, 0.5, 0.75, 1]) {
+        for (const reputation of [0, 25, 50, 75, 100]) {
+          const modifier = calculateSegmentDemandModifier({
+            productQuality: quality,
+            serviceQuality: service,
+            reputation,
+          });
+          expect(Number.isFinite(modifier)).toBe(true);
+          expect(modifier).toBeGreaterThanOrEqual(SEGMENT_MODIFIER_BOUNDS.min);
+          expect(modifier).toBeLessThanOrEqual(SEGMENT_MODIFIER_BOUNDS.max);
+        }
+      }
+    }
+  });
+
+  it('survives inputs outside their stated range', () => {
+    // A NaN here would propagate into customers, revenue and net worth while
+    // still looking like a number.
+    for (const bad of [Number.NaN, Infinity, -1, 99]) {
+      const modifier = calculateSegmentDemandModifier({
+        productQuality: bad,
+        serviceQuality: bad,
+        reputation: bad,
+      });
+      expect(Number.isFinite(modifier), `productQuality=${bad}`).toBe(true);
+    }
+  });
+
+  it('moves monotonically with each input', () => {
+    const at = (quality: number, service: number, reputation: number) =>
+      calculateSegmentDemandModifier({ productQuality: quality, serviceQuality: service, reputation });
+
+    // Taken below the clamp so the bound does not mask a broken ordering.
+    expect(at(0.3, 0.1, 50)).toBeLessThan(at(0.6, 0.1, 50));
+    expect(at(0.3, 0.1, 50)).toBeLessThan(at(0.3, 0.4, 50));
+    expect(at(0.3, 0.1, 20)).toBeLessThan(at(0.3, 0.1, 60));
   });
 });

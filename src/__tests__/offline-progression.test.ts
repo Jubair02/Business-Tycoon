@@ -8,9 +8,22 @@ import {
   summariseOfflineProgress,
   OFFLINE_CONFIG,
 } from '@/lib/game/offline/offline-progression';
+import { OFFLINE_GRACE_GAME_DAYS } from '@/lib/game/offline/offline-config';
+import { DEFAULT_TICK_INTERVAL_MS } from '@/lib/game/tick-schedule';
 
 const NOW = new Date('2026-09-18T12:00:00.000Z');
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 60 * 60 * 1000);
+
+/**
+ * A point either side of the grace window, derived rather than hardcoded.
+ *
+ * These used to be written as 7.9 and 8.1 hours. That was true only while the
+ * clock ran at a game day a minute, so slowing the clock broke tests that were
+ * describing correct behaviour — the assertion, not the code, was pinned to the
+ * wrong thing.
+ */
+const justInside = () => new Date(NOW.getTime() - OFFLINE_CONFIG.graceMs * 0.99);
+const justOutside = () => new Date(NOW.getTime() - OFFLINE_CONFIG.graceMs * 1.01);
 
 describe('isWithinOfflineWindow', () => {
   it('counts a player who beat a moment ago as present', () => {
@@ -18,15 +31,18 @@ describe('isWithinOfflineWindow', () => {
   });
 
   it('counts a player who has been away less than the grace window as present', () => {
-    expect(isWithinOfflineWindow(hoursAgo(7.9), NOW)).toBe(true);
+    expect(isWithinOfflineWindow(justInside(), NOW)).toBe(true);
   });
 
   it('counts a player who has been away longer than the grace window as absent', () => {
-    expect(isWithinOfflineWindow(hoursAgo(8.1), NOW)).toBe(false);
+    expect(isWithinOfflineWindow(justOutside(), NOW)).toBe(false);
   });
 
-  it('caps at eight hours by default', () => {
-    expect(OFFLINE_CONFIG.graceMs).toBe(8 * 60 * 60 * 1000);
+  it('is worth a fixed number of game days, whatever the clock speed', () => {
+    // Expressed in game days now, not wall-clock hours: the harm it guards
+    // against is unattended *game* days, so tying it to the clock meant it
+    // silently changed meaning whenever the tick rate did.
+    expect(OFFLINE_CONFIG.graceMs).toBe(OFFLINE_GRACE_GAME_DAYS * DEFAULT_TICK_INTERVAL_MS);
   });
 
   it('honours an explicit grace window', () => {

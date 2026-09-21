@@ -51,6 +51,7 @@ model Player {
   user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   season     Season?    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   businesses Business[]
+  credits    SupplierCredit[]
   gameLogs   GameLog[]
   loans      Loan[]
 
@@ -377,6 +378,46 @@ model CohortObjective {
   @@index([cohortId])
 }
 
+// ============================================
+// Product analytics
+// ============================================
+//
+// First-party, in this database, on purpose. The report that prompted this
+// found the single biggest gap in the business case was that no question about
+// players could be answered at all — not that the answers were bad.
+//
+// Kept first-party rather than shipped to a SaaS because: no third-party
+// credentials exist, nothing about players leaves the country, and the funnel
+// and retention definitions stay reviewable in `lib/analytics/metrics.ts`
+// instead of being whatever a vendor's UI decided. `lib/analytics/sinks.ts`
+// leaves a seam for PostHog later without touching a single call site.
+//
+// ---- Volume ----
+//
+// A game day is one real minute, so simulation internals must NEVER be
+// recorded here. This table holds *player actions and milestones* only; the
+// per-day economic numbers already live in `BusinessMetric`. Events older than
+// the retention window should be pruned — see `ANALYTICS_CONFIG.retainDays`.
+model AnalyticsEvent {
+  id          String   @id @default(cuid())
+  /// Event name from the closed taxonomy in `lib/analytics/events.ts`.
+  name        String
+  /// Null before sign-up. Stitched to `anonymousId` when the account is made.
+  userId      String?
+  /// Per-browser id, so the pre-signup funnel is not a black hole.
+  anonymousId String?
+  /// Season the event happened in, for season-over-season comparison.
+  seasonId    String?
+  /// Small JSON bag. Never PII — see `lib/analytics/track.ts`.
+  props       String   @default("{}")
+  occurredAt  DateTime @default(now())
+
+  @@index([name, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([anonymousId, occurredAt])
+  @@index([occurredAt])
+}
+
 /// A browser or installed app that has agreed to receive push notifications.
 ///
 /// Keyed on the endpoint because that is what the push service issues and what
@@ -519,6 +560,9 @@ model Business {
   metrics     BusinessMetric[]
   reviews     CustomerReview[]
   campaigns   MarketingCampaign[]
+  godowns     Godown[]
+  preOrders   PreOrder[]
+  credits     SupplierCredit[]
 
   @@index([playerId])
 }
@@ -545,6 +589,15 @@ model Inventory {
   /// leaving the suggested markup. Read by the guided first week, which has no
   /// other way to tell a deliberate price from a default one.
   priceEdited   Boolean  @default(false)
+
+  /// Weighted average age of this stock, in game days.
+  ///
+  /// Averaged rather than tracked per batch: the shelf is one row with one cost
+  /// basis, and splitting it into batches would double the size of the hottest
+  /// table in the tick for a distinction players cannot see. Fresh stock pulls
+  /// the average down exactly as it pulls the cost basis around, so a shop that
+  /// restocks daily never ages and one that hoards fish does.
+  averageAgeDays Float @default(0)
   createdAt     DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -748,4 +801,133 @@ model CampaignMetric {
 
   @@unique([campaignId, gameDay])
   @@index([campaignId, gameDay])
+}
+
+// ---- Storage & pre-buying ----
+// Shelf space is fixed per business type, which meant the calendar could
+// promise an Eid rush a shop had no way to prepare for. A godown is rented
+// space that raises what a shop may *hold* without changing what it can
+// *sell* — the selling figure still drives demand, so renting storage can
+// never be a backdoor demand bonus. See `lib/game/storage/capacity.ts`.
+
+model Godown {
+  id         String @id @default(cuid())
+  businessId String
+
+  /// SMALL | MEDIUM | LARGE. Resolved against `STORAGE_CONFIG.tiers`.
+  tier String
+
+  /// Extra units of storage while this rental is live. Stored rather than
+  /// recomputed so a tier's definition can change without silently resizing
+  /// warehouses people have already paid for.
+  capacityBonus Int
+
+  /// What the whole term cost, paid upfront. Rent is not billed per tick: a
+  /// godown is a capital commitment like a shelf of stock, and charging it
+  /// daily would let an unattended shop go bankrupt on storage it is not using.
+  termCost Float
+
+  /// Season game days.
+  rentedOnDay  Int
+  expiresOnDay Int
+
+  /// Renew on expiry if the player can afford it, otherwise let it lapse.
+  autoRenew Boolean @default(false)
+
+  /// ACTIVE | EXPIRED | CANCELLED
+  status String @default("ACTIVE")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([status, expiresOnDay])
+}
+
+model PreOrder {
+  id         String @id @default(cuid())
+  businessId String
+
+  productName String
+  category    String
+  quantity    Int
+
+  /// Locked when the order is placed. Market prices move every third tick, so
+  /// ordering ahead of Eid is a hedge and not only a logistics convenience.
+  unitCost  Float
+  /// 0-1. Bulk orders earn a discount; see `STORAGE_CONFIG.bulkDiscounts`.
+  discount  Float @default(0)
+  /// Charged in full at placement, so delivery can never fail for want of cash.
+  totalCost Float
+
+  /// Season game days.
+  placedOnDay Int
+  deliveryDay Int
+
+  /// PENDING | DELIVERED | PARTIAL | CANCELLED
+  status String @default("PENDING")
+
+  /// Which supplier filled it. See `game/supply/suppliers.ts`.
+  supplierId String @default("LOCAL")
+  /// NET_0 | NET_7 | NET_15 | NET_30. NET_0 is cash on order.
+  paymentTerm String @default("NET_0")
+
+  /// What actually arrived. Below `quantity` when capacity shrank in between —
+  /// an expired godown, say — and the remainder was refunded.
+  deliveredQuantity Int   @default(0)
+  refunded          Float @default(0)
+  /// Why an order did not arrive whole, for the player to read.
+  note              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status])
+  @@index([status, deliveryDay])
+}
+
+// ---- Suppliers ----
+// Stock bought on terms rather than with cash in hand. This is how the trade
+// actually runs here: a shopkeeper takes goods from a distributor before Eid
+// and settles after selling them. It is also the mechanic that lets a player
+// prepare for a rush they cannot yet afford, which is why it sits next to
+// godowns and pre-orders rather than in a system of its own.
+
+model SupplierCredit {
+  id         String @id @default(cuid())
+  playerId   String
+  businessId String
+
+  supplierId String
+  /// NET_7 | NET_15 | NET_30.
+  term       String
+
+  /// Goods value, before the credit surcharge.
+  principal  Float
+  /// What the supplier charges for waiting.
+  surcharge  Float
+  /// principal + surcharge, and what must be paid on the day.
+  totalDue   Float
+  /// Late fees run up on an overdue account.
+  penalty    Float @default(0)
+
+  issuedOnDay Int
+  dueOnDay    Int
+  paidOnDay   Int?
+
+  /// OPEN | PAID | OVERDUE
+  status String @default("OPEN")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  player   Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, status])
+  @@index([status, dueOnDay])
 }

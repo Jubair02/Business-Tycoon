@@ -48,7 +48,15 @@ import { runSimulation, analyseBalance } from '@/lib/game/ai/ai-simulation-test'
  * something regressed.
  */
 const BASELINE = {
-  /** Identical in 12 of 12 runs: two AGGRESSIVE and one EXPANSIONIST. */
+  /**
+   * Was "identical in 12 of 12 runs" — which was a lucky sample, not a fact:
+   * with `Math.random` seeded the run is now genuinely reproducible, and before
+   * it was, a fourth bankruptcy turned up about one run in ten.
+   *
+   * Left as a bound rather than tightened to the exact seeded figure. An exact
+   * pin would fail on any economy change at all, including improvements, which
+   * is more noise than a balance harness is worth.
+   */
   maxBankruptcies: 3,
   /** Observed 1.12–1.35; the error bar in `analyseBalance` sits at 2.0. */
   maxCoefficientOfVariation: 1.45,
@@ -56,9 +64,36 @@ const BASELINE = {
   competitors: 8,
 } as const;
 
+/**
+ * A seeded stand-in for `Math.random`, installed for the length of the run.
+ *
+ * The simulation takes a seed, but it only governs the AI's *choices*: the
+ * shared economy formulas it calls reach for `Math.random` directly — Layer 7
+ * of `calculatePotentialCustomers` is a random demand variation — so the run
+ * was never actually reproducible. The ratchets below were calibrated on a
+ * sample that happened to give three bankruptcies twelve times running, and
+ * then failed about one run in ten on a fourth. A ratchet that cries wolf at
+ * that rate is one people learn to re-run rather than read.
+ *
+ * Mulberry32: small, fast, and good enough for a balance harness.
+ */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // One run, shared. A hundred simulated days across eight players is not free,
 // and every assertion below reads a different facet of the same run.
+const realRandom = Math.random;
+Math.random = seededRandom(20260921);
 const result = runSimulation();
+Math.random = realRandom;
 
 describe('AI simulation', () => {
   describe('structure — asserted hard', () => {

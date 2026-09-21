@@ -35,6 +35,7 @@ import MarketingView from '@/components/game/MarketingView';
 import { BusinessDetailProvider, type RestockSettingsState } from './business-detail/context';
 import OverviewTab from './business-detail/OverviewTab';
 import InventoryTab from './business-detail/InventoryTab';
+import StorageTab from './business-detail/StorageTab';
 import AnalyticsTab from './business-detail/AnalyticsTab';
 import CxTab from './business-detail/CxTab';
 import StaffTab from './business-detail/StaffTab';
@@ -601,6 +602,7 @@ export default function BusinessDetail({ businessId }: { businessId?: string } =
             {[
               ['overview', 'Overview'],
               ['inventory', 'Inventory'],
+              ['storage', 'Storage'],
               ['analytics', 'Analytics'],
               ['cx', 'CX'],
               ['marketing', 'Marketing'],
@@ -628,6 +630,10 @@ export default function BusinessDetail({ businessId }: { businessId?: string } =
 
           <TabsContent value="inventory">
             <InventoryTab />
+          </TabsContent>
+
+          <TabsContent value="storage">
+            <StorageTab />
           </TabsContent>
 
           <TabsContent value="analytics">

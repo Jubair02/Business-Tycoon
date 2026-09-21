@@ -10,6 +10,7 @@ import Navigation from '@/components/game/Navigation';
 import HintBar from '@/components/game/HintBar';
 import FirstWeekGuide from '@/components/game/FirstWeekGuide';
 import SeasonBanner from '@/components/game/SeasonBanner';
+import ObservanceStrip from '@/components/game/ObservanceStrip';
 import DailySummary from '@/components/game/DailySummary';
 import TutorialOverlay from '@/components/game/TutorialOverlay';
 import SectionTabs from '@/components/game/SectionTabs';
@@ -329,6 +330,7 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
         {pathname === ROUTES.dashboard && (
           <div className="mt-2 space-y-2">
             <SeasonBanner />
+            <ObservanceStrip />
             <FirstWeekGuide />
             <HintBar />
           </div>

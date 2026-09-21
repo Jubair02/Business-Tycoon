@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requirePlayerId, notFound, forbidden, validationError, handleApiError, updatePriceSchema } from '@/lib/errors';
+import { trackServerOnce } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 export async function PATCH(
   request: NextRequest,
@@ -46,6 +48,8 @@ export async function PATCH(
       // price deliberately, and this is how that is recognised.
       data: { sellPrice, priceEdited: true },
     });
+
+    void trackServerOnce(EVENTS.FIRST_PRICE_SET);
 
     return NextResponse.json(updated);
   } catch (error) {

@@ -9,6 +9,8 @@ import { db } from '@/lib/db';
 import { handleApiError, unauthorized, validationError, notFound, conflict } from '@/lib/errors';
 import { resolveSession } from '@/lib/auth/user-session';
 import { canJoinCohort, normaliseJoinCode, isValidJoinCode } from '@/lib/education/scenarios';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 const joinSchema = z.object({
   code: z.string().trim().min(1).max(20),
@@ -59,6 +61,8 @@ export async function POST(request: NextRequest) {
 
       return { cohort, alreadyIn: false };
     });
+
+    void trackServer(EVENTS.COHORT_JOINED);
 
     return NextResponse.json({
       success: true,

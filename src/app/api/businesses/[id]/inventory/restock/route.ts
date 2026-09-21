@@ -20,6 +20,8 @@ import {
   manualRestockSchema,
 } from '@/lib/errors';
 import { runRestock } from '@/lib/game/operations/auto-restock';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 async function requireOwnedBusiness(id: string, playerId: string) {
   const business = await db.business.findUnique({
@@ -91,6 +93,8 @@ export async function PUT(
         autoRestockBudget: true,
       },
     });
+
+    void trackServer(EVENTS.RESTOCK_ORDER_SET, { enabled: updated.autoRestock });
 
     return NextResponse.json({ success: true, settings: updated });
   } catch (error) {

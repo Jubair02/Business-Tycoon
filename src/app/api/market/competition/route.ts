@@ -11,6 +11,8 @@ interface CompetitionMarketRow {
   businessType: string;
   businessTypeName: string;
   totalDemand: number;
+  /** True before anyone has traded: the figure is modelled, not measured. */
+  demandIsEstimate: boolean;
   totalBusinesses: number;
   aiBusinesses: number;
   playerBusinesses: number;
@@ -68,6 +70,7 @@ export async function GET(request: NextRequest) {
               businessType: bt.id,
               businessTypeName: bt.name,
               totalDemand: Math.round(data.totalDemand),
+              demandIsEstimate: data.demandIsEstimate,
               totalBusinesses: data.shares.length,
               aiBusinesses: data.shares.filter(s => s.isAI).length,
               playerBusinesses: playerShares.length,
@@ -121,6 +124,7 @@ export async function GET(request: NextRequest) {
       city,
       businessType: type,
       totalDemand: Math.round(data.totalDemand),
+      demandIsEstimate: data.demandIsEstimate,
       totalBusinesses: data.shares.length,
       aiBusinesses: data.shares.filter(s => s.isAI).length,
       playerBusinesses: data.shares.filter(s => !s.isAI).length,

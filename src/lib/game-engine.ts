@@ -57,6 +57,7 @@ import {
   calculateLoyalty,
   calculateNPS,
   calculateSegmentDemands,
+  calculateSegmentDemandModifier,
   generateReviews,
   calculatePriceCompetitiveness,
   calculateServiceQuality,
@@ -94,12 +95,24 @@ import { runAutoRestockForTick } from './game/operations/auto-restock';
 
 // Phase 7: Offline progression — which shops are open this tick
 import { resolveTradingBusinesses } from './game/offline/offline-progression';
+import { recordTickMilestones } from './analytics/milestones';
+import { deliverDuePreOrders, expireGodowns } from './game/storage/storage-service';
+import {
+  applySpoilage,
+  settleSupplierCredit,
+  outstandingSupplierDebt,
+} from './game/supply/supply-service';
+import { sellableStock } from './game/storage/capacity';
+import { seasonalDemandMultiplier } from './calendar/seasonal-demand';
+import { gameDayToCivilDate } from './calendar/game-clock';
+import type { TradeId as CalendarTradeId } from './calendar/observances';
+import { pruneOldEvents } from './analytics/track';
 
 // Phase 8: Seasons — the day belongs to a season, not to the world
 import {
   ensureActiveSeason,
   advanceSeasonDay,
-  getCurrentGameDay,
+  getActiveSeason,
   rollOverSeason,
 } from './game/seasons/seasons';
 import { daysRemaining } from './game/seasons/season-config';
@@ -235,7 +248,13 @@ async function recalculateNetWorth(tx: PrismaTx, playerId: string): Promise<void
   });
   const outstandingDebt = activeLoans.reduce((sum, loan) => sum + loan.remainingDebt, 0);
 
-  const netWorth = player.cash + totalBusinessCash + totalInventoryValue - outstandingDebt;
+  // Goods taken on supplier terms are owed for, exactly as a loan is. Leaving
+  // them out would let a player inflate net worth simply by buying everything
+  // on thirty days and never settling.
+  const supplierDebt = await outstandingSupplierDebt(tx, playerId);
+
+  const netWorth =
+    player.cash + totalBusinessCash + totalInventoryValue - outstandingDebt - supplierDebt;
   await tx.player.update({ where: { id: playerId }, data: { netWorth } });
 }
 
@@ -541,11 +560,26 @@ export async function simulateBusinessTick(
    */
   sponsorLedger?: SponsorshipLedger,
 ): Promise<void> {
-  // ---- Step 0: Standing restock order ----
-  // Runs before anything is read below, so a shop with a standing order opens
-  // the day stocked and the customer/stock-availability model sees the topped-up
-  // shelves rather than yesterday's empty ones.
+  // ---- Step 0: Deliveries, then the standing restock order ----
+  //
+  // Pre-orders land first, because stock ordered *for* the morning of Eid has
+  // to be on the shelves for that day's customers rather than the next one.
+  // The standing order then tops up whatever the delivery did not cover, and
+  // both run before anything below reads the shelves.
+  //
+  // The season is read once here rather than twice: the delivery needs the day
+  // before anything else runs, and the marketing and calendar steps below
+  // needed it anyway.
+  const activeSeason = await getActiveSeason();
+  const gameDay = activeSeason?.gameDay ?? 1;
+
+  await deliverDuePreOrders(businessId, gameDay);
   await runAutoRestockForTick(businessId);
+
+  // Fresh goods go off. Runs after stock arrives — so this morning's delivery
+  // is fresh for today's customers — and before the shelves are read, so
+  // yesterday's fish is in the bin rather than sold to someone.
+  await applySpoilage(businessId);
 
   const business = await db.business.findUnique({
     where: { id: businessId },
@@ -613,21 +647,30 @@ export async function simulateBusinessTick(
       : 0,
     2 + business.level,
   );
+  // The per-segment breakdown, for the metrics row and the CX screen.
   const segmentDemands = calculateSegmentDemands({
     priceCompetitiveness: 1.0,  // Price already handled by priceDemandMultiplier + satisfaction
     productQuality: Math.max(0, Math.min(1, business.healthScore / 100)), // Use health as quality proxy from previous tick
     serviceQuality: previousCxServiceQuality,
     reputation: Math.min(100, business.reputation * 0.5 + 50),  // Dampened: avg 50 ± 25 from reputation
   });
-  // Aggregate segment demand: sum of demand multipliers (NOT weighted by share again)
-  // demandMultiplier already includes baseShare, so we just sum them
-  const segmentDemandModifier = segmentDemands.reduce(
-    (sum, seg) => sum + seg.demandMultiplier, 0
-  );
+
+  // What actually multiplies into demand. Summing the raw segment scores gave a
+  // number that was ~0.10 for a new shop and 1.0 only if every factor were
+  // perfect — a penalty wearing a modifier's name, and the bulk of the 12x
+  // suppression recorded as U2. This is normalised so an ordinary shop reads
+  // 1.0. See `calculateSegmentDemandModifier`.
+  const segmentDemandModifier = calculateSegmentDemandModifier({
+    productQuality: Math.max(0, Math.min(1, business.healthScore / 100)),
+    serviceQuality: previousCxServiceQuality,
+    reputation: business.reputation,
+  });
 
   // ---- Step 0.6: Marketing Demand Modifier (Phase 4) ----
   // Fetch gameDay early (needed for marketing metrics and later for business metrics)
-  const gameDay = await getCurrentGameDay();
+  // The world's Bangladeshi date is the season's start date plus the day — see
+  // `calendar/game-clock.ts`. `activeSeason` and `gameDay` were read at Step 0.
+  const worldDate = gameDayToCivilDate(activeSeason?.startedAt, gameDay);
 
   const marketingEffect = await processMarketingTick(
     business.id,
@@ -641,7 +684,14 @@ export async function simulateBusinessTick(
   );
 
   // ---- Step 1: Calculate potential customers ----
-  const totalStock = business.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
+  // What the demand model may count. Each product contributes at most its own
+  // shelf space, so goods stockpiled in a rented godown raise what the shop can
+  // *hold* without raising what it appears able to *sell* — see
+  // `storage/capacity.ts`. For a shop inside its shelf limits this is exactly
+  // the old sum, so ordinary play is unchanged.
+  const totalStock = sellableStock(business.inventories, PRODUCTS[business.type] || []);
+  /** Everything on hand, godown included. Used for the "sold out" check only. */
+  const stockOnHand = business.inventories.reduce((sum, inv) => sum + inv.quantity, 0);
   // Max stock capacity: sum of product maxStock values for this business type
   const productDefs = PRODUCTS[business.type] || [];
   const maxStockCapacity = productDefs.reduce((sum, p) => sum + p.maxStock, 0);
@@ -728,8 +778,18 @@ export async function simulateBusinessTick(
   const brandAwarenessBonus = calculateBrandAwarenessDemandBonus(marketingEffect.newBrandAwareness);
   const setupModifier = calculateSetupModifier(business.setupDaysRemaining);
 
+  // ---- The Bangladeshi calendar ----
+  // Eid, Pohela Boishakh, the monsoon. Safe to multiply into a chain this deep
+  // only because its annual mean is exactly 1.0 by construction: it moves a
+  // year's custom around the year without adding or removing any of it. See
+  // `calendar/seasonal-demand.ts`, and INVARIANTS.md CAL4.
+  const seasonalDemandModifier = seasonalDemandMultiplier(
+    worldDate,
+    business.type as CalendarTradeId,
+  );
+
   const potentialCustomers = Math.max(0, Math.floor(
-    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus * setupModifier * competition.pressure
+    basePotentialCustomers * previousCxDemandModifier * segmentDemandModifier * marketingDemandModifier * brandAwarenessBonus * setupModifier * competition.pressure * seasonalDemandModifier
   ));
 
   // ---- Step 2: Product-level sales simulation ----
@@ -843,7 +903,7 @@ export async function simulateBusinessTick(
   // Empty shelves are the one thing a player genuinely wants waking up for:
   // the shop is still paying rent and earning nothing. Rate-limited to once
   // every six hours per account inside the notifier.
-  if (!business.player.isAI && business.player.userId && totalStock <= 0) {
+  if (!business.player.isAI && business.player.userId && stockOnHand <= 0) {
     void notifyOutOfStock(business.player.userId, business.name, business.id).catch(() => {
       // A notification is never worth failing a tick for.
     });
@@ -1276,6 +1336,15 @@ export async function gameTick(): Promise<void> {
   // window and are shuttered past it, so a player who closes the tab overnight
   // comes back to a paused chain rather than to hundreds of unattended days of
   // rent. AI competitors always trade. See `game/offline/offline-progression`.
+  // Rentals that have run their term close here, before anyone trades, so a
+  // shop's capacity for the day is settled before deliveries are measured
+  // against it. Stock already in a lapsed godown is kept, not confiscated.
+  try {
+    await expireGodowns(currentDay);
+  } catch (err) {
+    console.error('[GameEngine] Failed to close expired rentals:', err);
+  }
+
   const tradingBusinessIds = await resolveTradingBusinesses(currentDay);
   // Sponsorship counts accumulate in memory across the whole day's businesses
   // and are written once at the end — see `sponsorship/tracking.ts` for why a
@@ -1303,11 +1372,35 @@ export async function gameTick(): Promise<void> {
     console.error('[GameEngine] Failed to process loan payments:', err);
   }
 
+  // 2.5 Supplier bills. A player who cannot pay does not lose their shop —
+  // the bill goes overdue, accrues a late fee, and no supplier will sell them
+  // on terms until it is cleared.
+  try {
+    await settleSupplierCredit(currentDay);
+  } catch (err) {
+    console.error('[GameEngine] Failed to settle supplier credit:', err);
+  }
+
   // 3. Simulate AI player activity (Phase 2: Real AI decisions)
   try {
     await simulateAIPlayersTick(currentDay);
   } catch (err) {
     console.error('[GameEngine] Failed to simulate AI tick:', err);
+  }
+
+  // 3.5 Onboarding milestones the simulation just produced. `first_profit` and
+  // `first_week_completed` have no request behind them, so they are detected
+  // here rather than in a route handler.
+  try {
+    await recordTickMilestones(currentDay, season.id);
+  } catch (err) {
+    console.error('[GameEngine] Failed to record analytics milestones:', err);
+  }
+
+  // A game day is a real minute, so the event table grows steadily. Pruned once
+  // a game month rather than every tick.
+  if (tickNum % 30 === 0) {
+    void pruneOldEvents().catch(() => {});
   }
 
   // 4. Generate news (50% chance)

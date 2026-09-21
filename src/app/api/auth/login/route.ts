@@ -6,6 +6,9 @@ import { hashPassword, verifyPassword } from '@/lib/auth/password';
 import { createSession, attachSessionCookie } from '@/lib/auth/user-session';
 import { ensurePlayerForUser, getAccountProfile } from '@/lib/auth/account';
 import { enforceRateLimit } from '@/lib/rate-limit';
+import { track } from '@/lib/analytics/track';
+import { anonymousIdFromCookies } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 /**
  * A throwaway hash, verified against when the email is unknown.
@@ -44,6 +47,11 @@ export async function POST(request: NextRequest) {
     const { claimedGuestSave } = await ensurePlayerForUser(user);
     const token = await createSession(user.id, request.headers.get('user-agent'));
     const profile = await getAccountProfile(user.id);
+
+    void track(EVENTS.SIGNED_IN, {
+      userId: user.id,
+      anonymousId: await anonymousIdFromCookies(),
+    }, { method: 'password' });
 
     return attachSessionCookie(NextResponse.json({ ...profile, claimedGuestSave }), token);
   } catch (error) {

@@ -1,18 +1,31 @@
 // ============================================
-// Bangladesh Business Tycoon - Standing Restock Orders
+// Bangladesh Business Tycoon - Emergency top-up
 // ============================================
 //
-// Stock empties in roughly a game day, and a game day is a minute of real
-// time. Without a standing order the core interaction of the game is re-buying
-// the same six products every single tick, for every business owned — a chore
-// that grows linearly with success and drives early churn. The AI competitors
-// have had `performMandatoryRestock` since Phase 2; players had nothing.
+// This used to be a standing restock order that bought properly on the player's
+// behalf: their chosen threshold, their chosen target, at market price. It
+// worked, and that was the problem — buying was the most interesting decision
+// in a trading game and a toggle was making it.
 //
-// This module is the player's version of it. The planning half is pure and
-// testable; the executing half is the only part that touches the database.
+// It is now a **safety net, not a strategy**. When a shelf falls below
+// `EMERGENCY.threshold` the shop buys from the corner counter at
+// `SUPPLIERS.EMERGENCY.priceFactor` — a quarter over the odds, no bulk
+// discount, no credit — and only tops up to `EMERGENCY.target`, which is enough
+// to keep the doors open and not enough to trade well on.
+//
+// That keeps the game playable for someone who checks in twice a day (a game
+// day is four real hours, and shelves empty in about one) while making the
+// supplier screen the place where buying is actually decided. A player who
+// never opens it will survive and will quietly earn much less than one who does.
+//
+// The planning half is pure and testable; the executing half is the only part
+// that touches the database.
 
 import { db } from '@/lib/db';
 import { PRODUCTS } from '@/lib/game-data';
+import { capacityReport } from '../storage/capacity';
+import { blendAge } from '../supply/spoilage';
+import type { GodownTier } from '../storage/storage-config';
 import type { ProductDef } from '@/lib/game-data';
 
 /** Shelf state of one product line, as the planner needs to see it. */
@@ -59,6 +72,21 @@ export const RESTOCK_DEFAULTS: RestockSettings = {
   budget: null,
 };
 
+/**
+ * What the automatic top-up does, whatever the player has configured.
+ *
+ * Deliberately worse than buying properly. It waits until a shelf is nearly
+ * bare, refills it barely past a quarter, and pays the counter premium for the
+ * privilege — so it rescues an unattended shop without ever being the sensible
+ * way to stock one.
+ */
+export const EMERGENCY_RESTOCK: RestockSettings & { priceFactor: number } = {
+  threshold: 0.15,
+  target: 0.35,
+  budget: null,
+  priceFactor: 1.25,
+};
+
 /** Bounds the UI and the API both enforce, so a save cannot hold a nonsense order. */
 export const RESTOCK_LIMITS = {
   minThreshold: 0.05,
@@ -85,8 +113,22 @@ export function planRestock(params: {
   priceMultipliers: Record<string, number>;
   availableCash: number;
   settings: RestockSettings;
+  /**
+   * Units of storage free. Defaults to unlimited, which is what it effectively
+   * was before godowns existed: the plan only ever targets shelf levels, so it
+   * could not exceed base capacity on its own. It can now, if stock is sitting
+   * in a godown that has since lapsed and left the shop over its ceiling.
+   */
+  spaceAvailable?: number;
+  /**
+   * Multiplier on the market price. 1.0 is the wholesaler; the emergency
+   * top-up pays the counter's 1.25.
+   */
+  priceFactor?: number;
 }): RestockPlan {
   const { inventories, productDefs, priceMultipliers, availableCash, settings } = params;
+  const spaceAvailable = params.spaceAvailable ?? Number.POSITIVE_INFINITY;
+  const priceFactor = params.priceFactor ?? 1;
 
   const threshold = clamp(settings.threshold, RESTOCK_LIMITS.minThreshold, RESTOCK_LIMITS.maxThreshold);
   const target = clamp(settings.target, RESTOCK_LIMITS.minTarget, RESTOCK_LIMITS.maxTarget);
@@ -104,7 +146,7 @@ export function planRestock(params: {
       const quantity = targetQuantity - inv.quantity;
       if (quantity <= 0) return null;
 
-      const unitCost = Math.max(1, Math.round(def.basePrice * (priceMultipliers[inv.productName] ?? 1)));
+      const unitCost = Math.max(1, Math.round(def.basePrice * (priceMultipliers[inv.productName] ?? 1) * priceFactor));
       return { inv, def, stockRatio, quantity, unitCost };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null)
@@ -115,6 +157,8 @@ export function planRestock(params: {
   const skipped: RestockPlan['skipped'] = [];
   let spent = 0;
 
+  let spaceLeft = Math.max(0, spaceAvailable);
+
   for (const c of candidates) {
     const remainingBudget = budget - spent;
     const remainingCash = availableCash - spent;
@@ -122,7 +166,8 @@ export function planRestock(params: {
 
     // Buy as much of the wanted quantity as the money left will cover, rather
     // than dropping the line entirely — a partly filled shelf still sells.
-    const quantity = Math.min(c.quantity, Math.floor(affordable / c.unitCost));
+    // Bounded by room as well as by money.
+    const quantity = Math.min(c.quantity, Math.floor(affordable / c.unitCost), spaceLeft);
     if (quantity <= 0) {
       skipped.push({
         productName: c.inv.productName,
@@ -131,6 +176,7 @@ export function planRestock(params: {
       continue;
     }
 
+    spaceLeft -= quantity;
     const lineCost = quantity * c.unitCost;
     // Cost basis is a weighted average, matching the manual buy route, so COGS
     // and the liquidation value of stock stay honest.
@@ -188,7 +234,7 @@ const EMPTY_RESULT: RestockResult = { restocked: false, totalCost: 0, lines: [],
  */
 export async function runRestock(
   businessId: string,
-  options: { overrideSettings?: RestockSettings; logActivity?: boolean } = {},
+  options: { overrideSettings?: RestockSettings; logActivity?: boolean; priceFactor?: number } = {},
 ): Promise<RestockResult> {
   const business = await db.business.findUnique({
     where: { id: businessId },
@@ -215,6 +261,17 @@ export async function runRestock(
   const priceMultipliers: Record<string, number> = {};
   for (const mp of marketPrices) priceMultipliers[mp.productName] = mp.priceMultiplier;
 
+  // Godowns in force today, so a standing order cannot push a shop past its
+  // ceiling — reachable when a rental lapses under stock already stored.
+  const [godowns, season] = await Promise.all([
+    db.godown.findMany({
+      where: { businessId, status: 'ACTIVE' },
+      select: { id: true, tier: true, capacityBonus: true, expiresOnDay: true },
+    }),
+    db.season.findFirst({ where: { status: 'ACTIVE' }, select: { gameDay: true } }),
+  ]);
+  const gameDay = season?.gameDay ?? 0;
+
   return db.$transaction(async tx => {
     const player = await tx.player.findUnique({
       where: { id: business.playerId },
@@ -229,7 +286,24 @@ export async function runRestock(
       select: { id: true, productName: true, quantity: true, purchasePrice: true },
     });
 
+    const space = capacityReport({
+      productDefs: productDefs.map(p => ({ name: p.name, maxStock: p.maxStock })),
+      inventories,
+      godowns: godowns.map(g => ({
+        id: g.id,
+        tier: g.tier as GodownTier,
+        capacityBonus: g.capacityBonus,
+        expiresOnDay: g.expiresOnDay,
+      })),
+      // Pre-orders have their own space reserved at placement; counting it
+      // again here would stop a standing order filling shelves it may fill.
+      incoming: 0,
+      gameDay,
+    });
+
     const plan = planRestock({
+      spaceAvailable: space.available,
+      priceFactor: options.priceFactor,
       inventories,
       productDefs,
       priceMultipliers,
@@ -247,11 +321,25 @@ export async function runRestock(
     });
 
     for (const line of plan.lines) {
+      // Age is blended alongside the cost basis: stock arriving today is fresh
+      // and pulls the shelf's average down, which is why a shop that is topped
+      // up regularly never spoils and one left to sit does.
+      const before = await tx.inventory.findUnique({
+        where: { id: line.inventoryId },
+        select: { quantity: true, averageAgeDays: true },
+      });
+
       await tx.inventory.update({
         where: { id: line.inventoryId },
         data: {
           quantity: { increment: line.quantity },
           purchasePrice: line.newPurchasePrice,
+          averageAgeDays: blendAge({
+            existingQuantity: before?.quantity ?? 0,
+            existingAgeDays: before?.averageAgeDays ?? 0,
+            incomingQuantity: line.quantity,
+            incomingAgeDays: 0,
+          }),
         },
       });
     }
@@ -284,12 +372,24 @@ export async function runRestock(
 export async function runAutoRestockForTick(businessId: string): Promise<RestockResult> {
   const business = await db.business.findUnique({
     where: { id: businessId },
-    select: { autoRestock: true },
+    select: { autoRestock: true, autoRestockBudget: true },
   });
   if (!business?.autoRestock) return EMPTY_RESULT;
 
   try {
-    return await runRestock(businessId);
+    // The player's threshold and target are deliberately ignored here. This is
+    // the emergency top-up, not their buying plan: it waits until a shelf is
+    // nearly bare, refills it barely, and pays the counter premium. Their own
+    // budget cap is still honoured, because capping what an unattended shop may
+    // spend is a safety setting rather than a purchasing decision.
+    return await runRestock(businessId, {
+      overrideSettings: {
+        threshold: EMERGENCY_RESTOCK.threshold,
+        target: EMERGENCY_RESTOCK.target,
+        budget: business.autoRestockBudget,
+      },
+      priceFactor: EMERGENCY_RESTOCK.priceFactor,
+    });
   } catch (error) {
     // A failed restock must not take the whole tick down with it; the shop
     // simply opens with the stock it has.

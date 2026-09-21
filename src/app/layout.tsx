@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import Providers from "./providers";
 import { getLocale } from "@/lib/i18n/server";
 import { LOCALE_META } from "@/lib/i18n/config";
+import { AnalyticsProvider } from "@/components/game/AnalyticsProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,6 +43,7 @@ export default async function RootLayout({
         <Providers locale={locale}>
           {children}
           <Toaster richColors position="top-right" />
+          <AnalyticsProvider />
         </Providers>
       </body>
     </html>

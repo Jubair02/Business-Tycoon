@@ -43,8 +43,11 @@ export const ECONOMY_CONFIG = {
   baseRentPerLevel: 1.0,   // Each business type controls its own rent scaling
 
   // ---- Inventory ----
-  /** Stock capacity multiplier per product (maxStock × this = capacity) */
-  stockCapacityMultiplier: 1.0,
+  // `stockCapacityMultiplier` used to sit here at 1.0, unread by anything. It
+  // implied a capacity knob that did not exist, which is worse than no knob:
+  // storage is now a real mechanic and lives in `game/storage/` — shelf space
+  // stays fixed per business type and rented godowns raise what a shop may
+  // hold, without touching what the demand model reads.
 
   // ---- Random Variation ----
   /** Random variation center (1.0 = no bias) */

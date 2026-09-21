@@ -345,6 +345,91 @@ export function calculateSegmentDemands(params: {
 }
 
 // ============================================
+// 6b. SEGMENT DEMAND MODIFIER
+// ============================================
+//
+// `calculateSegmentDemands` above returns *absolute* attractiveness per segment,
+// and summing it gives a number that is 1.0 only when every factor is perfect
+// and around 0.10 for a brand-new shop. Multiplied onto base demand it is
+// therefore not a modifier at all — it is a penalty that can only ever subtract,
+// and it was the largest term in the ~12x demand suppression recorded as U2 in
+// INVARIANTS.md. A fully stocked tea stall holding 47% of its market served
+// nine customers a day and could not trade profitably however well it was run.
+//
+// Two things were wrong, and both are fixed here rather than in
+// `calculateSegmentDemands`, which is left alone so satisfaction, reviews and
+// its own tests keep their meaning:
+//
+//   1. **Double counting.** Employees are already Layer 5 of
+//      `calculatePotentialCustomers` and reputation is already Layer 3. The
+//      call site had noticed this for price (passed as 1.0) and reputation
+//      (dampened), but quality and service were passed raw — and service is
+//      0.1 flat for a shop with no staff, which is where most of the loss came
+//      from. They are now dampened the same way.
+//
+//   2. **No neutral point.** The result is normalised against a reference shop
+//      — health 50, no staff, reputation 50 — so that shop reads exactly 1.0
+//      and the term expresses how segments react *relative* to it, which is the
+//      only job left once the absolute level is handled upstream.
+//
+// The result is clamped, because the factors it draws on are partly counted
+// elsewhere and an unbounded normalisation would double-count upward instead.
+
+/** Quality and service are pulled into this band before being applied. */
+function dampen(value: number): number {
+  return 0.5 + 0.5 * Math.max(0, Math.min(1, value));
+}
+
+/** The shop the rest of the demand chain already treats as neutral. */
+export const SEGMENT_REFERENCE = {
+  /** Starting health. */
+  productQuality: 0.5,
+  /** No employees: an owner-run stall, which is the ordinary case here. */
+  serviceQuality: 0.1,
+  /** Starting reputation. */
+  reputation: 50,
+} as const;
+
+/** Bounds on the term, so a well-run shop cannot re-earn its staffing bonus. */
+export const SEGMENT_MODIFIER_BOUNDS = { min: 0.65, max: 1.5 } as const;
+
+function rawSegmentScore(params: {
+  productQuality: number;
+  serviceQuality: number;
+  reputation: number;
+}): number {
+  return calculateSegmentDemands({
+    // Price is handled by `priceDemandMultiplier` and by satisfaction; passing
+    // it again here would be a third count.
+    priceCompetitiveness: 1.0,
+    productQuality: dampen(params.productQuality),
+    serviceQuality: dampen(params.serviceQuality),
+    // Matches the dampening the engine already applied: 0-100 becomes 50-100.
+    reputation: Math.min(100, params.reputation * 0.5 + 50),
+  }).reduce((sum, segment) => sum + segment.demandMultiplier, 0);
+}
+
+/**
+ * How segments react to this shop, relative to an ordinary one. Neutral is 1.0.
+ *
+ * This is what the tick multiplies into demand. Anything wanting the per-segment
+ * breakdown — the CX screen, reviews — still calls `calculateSegmentDemands`.
+ */
+export function calculateSegmentDemandModifier(params: {
+  productQuality: number;
+  serviceQuality: number;
+  reputation: number;
+}): number {
+  const reference = rawSegmentScore(SEGMENT_REFERENCE);
+  if (!Number.isFinite(reference) || reference <= 0) return 1;
+
+  const modifier = rawSegmentScore(params) / reference;
+  if (!Number.isFinite(modifier)) return 1;
+
+  return Math.min(SEGMENT_MODIFIER_BOUNDS.max, Math.max(SEGMENT_MODIFIER_BOUNDS.min, modifier));
+}
+
+// ============================================
 // 7. REVIEW GENERATION
 // ============================================
 

@@ -14,9 +14,13 @@ import { CATALOGUE, getCatalogueItem, canPurchase } from '@/lib/commerce/catalog
 import { buildPassTrack, passProgress, PASS_CONFIG } from '@/lib/commerce/season-pass';
 import { REWARD_PLACEMENTS } from '@/lib/commerce/rewards';
 import { getPaymentProvider, adsEnabled, newIdempotencyKey } from '@/lib/commerce/providers';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 export async function GET() {
   try {
+    void trackServer(EVENTS.STORE_VIEWED);
+
     const session = await resolveSession();
     const season = await getActiveSeason();
 
@@ -132,6 +136,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    void trackServer(EVENTS.PURCHASE_STARTED, { sku, kind: item.kind, priceMinor: item.priceMinor });
+
     const origin = new URL(request.url).origin;
     const checkout = await provider.createCheckout({
       purchaseId: purchase.id,
@@ -169,6 +175,8 @@ export async function POST(request: NextRequest) {
           });
         }
       });
+
+      void trackServer(EVENTS.PURCHASE_COMPLETED, { sku, kind: item.kind, priceMinor: item.priceMinor });
 
       return NextResponse.json({
         success: true,

@@ -17,6 +17,8 @@ import {
 } from '@/lib/errors';
 import { validateCampaign, calculateCampaignROI, calculateCampaignEffectiveness } from '@/lib/game/marketing/marketing-formulas';
 import { getChannelConfig } from '@/lib/game/marketing/marketing-config';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 import type { MarketingChannel } from '@/lib/game/marketing/marketing-config';
 
 // ---- POST: Create a new marketing campaign ----
@@ -109,6 +111,8 @@ export async function POST(
         },
       });
     });
+
+    void trackServer(EVENTS.CAMPAIGN_LAUNCHED);
 
     return NextResponse.json(
       { success: true, data: campaign },

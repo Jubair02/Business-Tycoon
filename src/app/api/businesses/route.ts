@@ -11,6 +11,8 @@ import {
   checkExpansionEligibility,
 } from '@/lib/game/expansion';
 import { awardExperience, PROGRESSION_CONFIG } from '@/lib/game/progression';
+import { trackServer, trackServerOnce } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 export async function GET() {
   try {
@@ -183,6 +185,9 @@ export async function POST(request: NextRequest) {
 
       return created;
     });
+
+    void trackServerOnce(EVENTS.FIRST_BUSINESS_OPENED, { businessType: type, city });
+    void trackServer(EVENTS.BUSINESS_OPENED, { businessType: type, city });
 
     return NextResponse.json(business, { status: 201 });
   } catch (error) {

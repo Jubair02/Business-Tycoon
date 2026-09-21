@@ -178,7 +178,7 @@ export default function NewsFeed() {
                 <Newspaper className="h-7 w-7" style={{ color: '#006a4e', opacity: 0.5 }} />
               </div>
               <p className="text-sm font-medium mb-1">No news yet</p>
-              <p className="text-xs text-muted-foreground font-medium max-w-[220px] mx-auto">Advance to the next day to generate news!</p>
+              <p className="text-xs text-muted-foreground font-medium max-w-[220px] mx-auto">Stories arrive as the days pass.</p>
             </CardContent>
           </Card>
         </motion.div>

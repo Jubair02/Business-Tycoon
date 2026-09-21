@@ -17,6 +17,8 @@ import { getActiveSeason } from '@/lib/game/seasons/seasons';
 import { verifyAdReward, adsEnabled } from '@/lib/commerce/providers';
 import { canGrantReward } from '@/lib/commerce/rewards';
 import { applyDailyXp, PASS_CONFIG } from '@/lib/commerce/season-pass';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 const callbackSchema = z.object({
   userId: z.string().min(1).max(64),
@@ -107,6 +109,8 @@ export async function POST(request: NextRequest) {
     if (granted === null) {
       return NextResponse.json({ success: false, reason: 'already-granted' });
     }
+
+    void trackServer(EVENTS.AD_REWARD_GRANTED, { passXpGranted: granted });
 
     return NextResponse.json({ success: true, passXpGranted: granted, dailyCap: PASS_CONFIG.dailyXpCap });
   } catch (error) {

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { useBusinessDetail } from './context';
+import SeasonalDemandPanel from '../calendar/SeasonalDemandPanel';
 
 /**
  * The day at a glance: takings, costs and the most recent activity.
@@ -28,6 +29,9 @@ export default function OverviewTab() {
 
   return (
     <>
+      {/* What the Bangladeshi calendar is doing to this shop today, named. */}
+      <SeasonalDemandPanel businessType={currentBusiness.type} />
+
       <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4 lg:gap-3">
         {[
           {
@@ -127,7 +131,7 @@ export default function OverviewTab() {
               <div className="h-24 flex items-center justify-center">
                 <div className="text-center">
                   <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
-                  <p className="text-xs text-muted-foreground">No profit data yet. Advance days to see your chart.</p>
+                  <p className="text-xs text-muted-foreground">No profit data yet. Your chart builds as the days pass.</p>
                 </div>
               </div>
             );
@@ -170,7 +174,7 @@ export default function OverviewTab() {
             <div className="h-24 flex items-center justify-center">
               <div className="text-center">
                 <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
-                <p className="text-xs text-muted-foreground">No data yet. Advance days to see your chart.</p>
+                <p className="text-xs text-muted-foreground">No data yet. Your chart builds as the days pass.</p>
               </div>
             </div>
           )}

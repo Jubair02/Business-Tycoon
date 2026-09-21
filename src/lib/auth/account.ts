@@ -10,6 +10,8 @@ import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { STARTING_CASH } from '@/lib/game-data';
 import { ensureActiveSeason } from '@/lib/game/seasons/seasons';
+import { track } from '@/lib/analytics/track';
+import { EVENTS } from '@/lib/analytics/events';
 import { SESSION_COOKIE, readSessionValue } from './session';
 
 export interface AccountUser {
@@ -123,6 +125,21 @@ export async function ensurePlayerForUser(user: AccountUser): Promise<EnsurePlay
     },
     select: { id: true },
   });
+
+  // Joining a season is the retention event the whole seasonal design rests on.
+  // A second or later season is recorded separately, because "came back for the
+  // next season" is the number that decides whether seasons were worth building.
+  const seasonsPlayed = await db.player.count({ where: { userId: user.id } });
+  void track(EVENTS.SEASON_JOINED, { userId: user.id, seasonId: season.id }, {
+    seasonNumber: season.number,
+    seasonsPlayed,
+  });
+  if (seasonsPlayed > 1) {
+    void track(EVENTS.RETURNED_NEXT_SEASON, { userId: user.id, seasonId: season.id }, {
+      seasonNumber: season.number,
+      seasonsPlayed,
+    });
+  }
 
   return { playerId: created.id, claimedGuestSave: false };
 }

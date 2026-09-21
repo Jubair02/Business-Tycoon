@@ -6,6 +6,7 @@
 // (one tick in flight at a time, survives failures, does not double-start),
 // not about the simulation, and they must not touch a database.
 
+import { DEFAULT_TICK_INTERVAL_MS } from '@/lib/game/tick-schedule';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const gameTick = vi.fn();
@@ -177,6 +178,6 @@ describe('getTickIntervalMs', () => {
   });
 
   it('defaults when unset', () => {
-    expect(getTickIntervalMs()).toBe(60_000);
+    expect(getTickIntervalMs()).toBe(DEFAULT_TICK_INTERVAL_MS);
   });
 });

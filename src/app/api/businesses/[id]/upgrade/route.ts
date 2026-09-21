@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { BUSINESS_TYPES } from '@/lib/game-data';
 import { requirePlayerId, notFound, forbidden, insufficientFunds, validationError, handleApiError } from '@/lib/errors';
 import { awardExperience, calculateUpgradeXp } from '@/lib/game/progression';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 export async function POST(
   _request: NextRequest,
@@ -79,6 +81,8 @@ export async function POST(
 
       return upgraded;
     });
+
+    void trackServer(EVENTS.BUSINESS_UPGRADED, { level: updated.level });
 
     return NextResponse.json(updated);
   } catch (error) {

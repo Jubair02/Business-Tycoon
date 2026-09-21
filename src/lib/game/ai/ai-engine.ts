@@ -418,6 +418,8 @@ export async function calculateMarketShare(
     revenue: number;
   }[];
   totalDemand: number;
+  /** True before anyone has traded, when the figure is modelled not measured. */
+  demandIsEstimate: boolean;
 }> {
   const businesses = await db.business.findMany({
     where: { city, type: businessType },
@@ -427,7 +429,7 @@ export async function calculateMarketShare(
     },
   });
 
-  if (businesses.length === 0) return { shares: [], totalDemand: 0 };
+  if (businesses.length === 0) return { shares: [], totalDemand: 0, demandIsEstimate: true };
 
   const scored = businesses.map(b => ({
     businessId: b.id,
@@ -453,12 +455,33 @@ export async function calculateMarketShare(
     share: totalScore > 0 ? s.score / totalScore : 0,
   }));
 
-  // Total demand estimate (based on city customer multiplier)
+  // ---- How big this market actually is ----
+  //
+  // This used to report `baseCustomers x cityMultiplier` — one shop's *base*,
+  // before the level, reputation, stock, staffing, segment and seasonal terms
+  // the tick applies, and before competition splits it. It was therefore not
+  // the market at all, and once the segment-demand fix let shops trade properly
+  // a single tea stall served 130 customers out of a "112-customer market".
+  // The Competition screen was contradicting the simulation in front of the
+  // player, which is invariant U3.
+  //
+  // The market is now what the shops in it actually served on the last day —
+  // observed rather than modelled, so it agrees with the tick by construction.
+  const observedDemand = businesses.reduce((sum, b) => sum + (b.dailyCustomers || 0), 0);
+
+  // Before anyone has traded there is nothing to observe, so the old estimate
+  // stands in — flagged, so the screen can say it is an opening estimate rather
+  // than a measurement.
   const cityData = CITIES.find(c => c.id === city);
   const bType = BUSINESS_TYPES.find(b => b.id === businessType);
-  const baseDemand = bType ? bType.baseCustomers * (cityData?.customerMultiplier || 1) : 50;
+  const estimate = (bType ? bType.baseCustomers * (cityData?.customerMultiplier || 1) : 50)
+    * Math.max(1, businesses.length);
 
-  return { shares, totalDemand: baseDemand };
+  return {
+    shares,
+    totalDemand: observedDemand > 0 ? observedDemand : estimate,
+    demandIsEstimate: observedDemand <= 0,
+  };
 }
 
 // ---- Barrel Export ----

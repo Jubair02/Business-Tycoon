@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requirePlayerId, notFound, validationError, conflict, handleApiError, takeLoanSchema } from '@/lib/errors';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 const INTEREST_RATE = 0.05;
 const MAX_ACTIVE_LOANS = 3;
@@ -71,6 +73,8 @@ export async function POST(request: NextRequest) {
 
       return newLoan;
     });
+
+    void trackServer(EVENTS.LOAN_TAKEN, { amount, days });
 
     return NextResponse.json(loan, { status: 201 });
   } catch (error) {

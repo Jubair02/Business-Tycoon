@@ -20,10 +20,22 @@ export async function GET(
       throw forbidden();
     }
 
+    // Fifteen is the right number for the panel and the wrong one for anything
+    // looking for a particular kind of entry: a tick writes a trading line
+    // every day, so a spoilage or delivery note is out of reach within a
+    // fortnight. Both are now reachable, bounded.
+    const url = new URL(request.url);
+    const requested = Number(url.searchParams.get('limit'));
+    const limit = Number.isFinite(requested)
+      ? Math.min(200, Math.max(1, Math.floor(requested)))
+      : 15;
+
+    const type = url.searchParams.get('type');
+
     const logs = await db.gameLog.findMany({
-      where: { businessId: id },
+      where: { businessId: id, ...(type ? { type } : {}) },
       orderBy: { createdAt: 'desc' },
-      take: 15,
+      take: limit,
     });
 
     return NextResponse.json(logs);

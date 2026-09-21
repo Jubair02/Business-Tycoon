@@ -18,6 +18,7 @@ export const ROUTES = {
   bank: '/bank',
   leaderboard: '/leaderboard',
   news: '/news',
+  calendar: '/calendar',
   achievements: '/achievements',
   store: '/store',
   classroom: '/classroom',
@@ -127,6 +128,7 @@ export const NAV_SECTIONS: NavSection[] = [
     href: ROUTES.news,
     routes: [
       { href: ROUTES.news, label: 'nav.tab.news' },
+      { href: ROUTES.calendar, label: 'nav.tab.calendar' },
       { href: ROUTES.store, label: 'nav.tab.store' },
       { href: ROUTES.classroom, label: 'nav.tab.classroom' },
       { href: ROUTES.settings, label: 'nav.tab.settings' },

@@ -15,11 +15,17 @@
 import { NextResponse } from 'next/server';
 import { requirePlayerId, handleApiError } from '@/lib/errors';
 import { recordPresence, OFFLINE_CONFIG } from '@/lib/game/offline/offline-progression';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 export async function POST() {
   try {
     const playerId = await requirePlayerId();
     const away = await recordPresence(playerId);
+
+    if (away) {
+      void trackServer(EVENTS.RETURNED_FROM_AWAY, { daysAway: away.daysAway, daysTraded: away.daysTraded });
+    }
 
     return NextResponse.json({
       success: true,

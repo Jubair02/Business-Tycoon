@@ -13,6 +13,8 @@ import { resolveSession } from '@/lib/auth/user-session';
 import { getActiveSeason } from '@/lib/game/seasons/seasons';
 import { SCENARIOS, getScenario, generateJoinCode, seatUsage } from '@/lib/education/scenarios';
 import { OBJECTIVE_METRICS } from '@/lib/education/objectives';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 export async function GET() {
   try {
@@ -133,6 +135,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (!cohort) throw validationError('Could not allocate a join code. Try again.');
+
+    void trackServer(EVENTS.COHORT_CREATED, { scenario: cohort.scenario });
 
     return NextResponse.json({
       success: true,

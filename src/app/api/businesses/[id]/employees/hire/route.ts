@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { GAME_CONFIG, getRandomName, EMPLOYEE_ROLES } from '@/lib/game-data';
 import { requirePlayerId, notFound, forbidden, validationError, handleApiError, hireEmployeeSchema } from '@/lib/errors';
+import { trackServer } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 export async function POST(
   request: NextRequest,
@@ -62,6 +64,8 @@ export async function POST(
         },
       });
     });
+
+    void trackServer(EVENTS.EMPLOYEE_HIRED, { role });
 
     return NextResponse.json(employee, { status: 201 });
   } catch (error) {

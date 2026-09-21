@@ -44,7 +44,7 @@ export default function LogsTab() {
           <Card className="border-dashed">
             <CardContent className="py-12 text-center">
               <div className="text-4xl mb-2">📋</div>
-              <p className="text-sm text-muted-foreground">No activity yet. Advance to the next day to generate logs!</p>
+              <p className="text-sm text-muted-foreground">No activity yet. The log fills in once a day has been traded.</p>
             </CardContent>
           </Card>
         ) : (

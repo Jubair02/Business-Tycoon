@@ -339,7 +339,7 @@ export default function AnalyticsTab() {
                   <div className="h-32 flex items-center justify-center">
                     <div className="text-center">
                       <BarChart3 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-1" />
-                      <p className="text-xs text-muted-foreground">No history yet. Advance days to generate data.</p>
+                      <p className="text-xs text-muted-foreground">No history yet. It fills in as the days pass.</p>
                     </div>
                   </div>
                 )}

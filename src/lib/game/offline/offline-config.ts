@@ -4,19 +4,45 @@
 //
 // Pure configuration, free of Prisma and Node imports so it can be read from
 // tests, the client and the Edge runtime alike.
+//
+// The grace window is expressed in *game days* and converted to real time from
+// the clock speed, because that is the unit the harm is measured in. See
+// `OFFLINE_GRACE_GAME_DAYS`.
+
+import { resolveTickIntervalMs } from '../tick-schedule';
+
+/**
+ * How many **game days** a player's shops keep trading unattended.
+ *
+ * This is the number that actually matters, and it used to be written as eight
+ * real hours. The harm it guards against is measured in game days — a chain
+ * bankrupted by rent while nobody restocked it, or a fortune earned by an empty
+ * chair — so pinning it to the wall clock meant the protection silently changed
+ * meaning whenever the tick rate did. At the old 60-second tick, "eight hours"
+ * was 480 game days: more than five entire seasons of unattended trading, which
+ * is not a grace window, it is the whole game played by nobody.
+ *
+ * Twelve game days is about a week and a half of a shop's life: long enough
+ * that a weekend away costs you nothing, short enough that returning matters.
+ */
+export const OFFLINE_GRACE_GAME_DAYS = 12;
+
+/** The grace window in real time, for a given clock speed. */
+export function graceMsFor(tickIntervalMs: number): number {
+  return OFFLINE_GRACE_GAME_DAYS * tickIntervalMs;
+}
 
 export const OFFLINE_CONFIG = {
   /**
    * How long a player's shops keep trading after the player goes away.
    *
-   * The world runs on a server clock at roughly a game day per minute, so a
-   * player who closes the tab overnight would otherwise come back to hundreds
-   * of unattended days — either a fortune earned by an empty chair, or a chain
-   * of shops bankrupted by rent while nobody was restocking them. Neither is a
-   * game. Eight hours of catch-up is generous enough to cover a night's sleep
-   * or a working day, and bounded enough that returning still matters.
+   * Derived from the clock rather than fixed, so it stays worth the same number
+   * of game days whatever the tick interval is set to. At the default four
+   * hours a game day that is two real days.
    */
-  graceMs: 8 * 60 * 60 * 1000,
+  get graceMs(): number {
+    return graceMsFor(resolveTickIntervalMs(process.env.GAME_TICK_INTERVAL_MS));
+  },
 
   /**
    * A return is only worth reporting if enough happened. Below this many game

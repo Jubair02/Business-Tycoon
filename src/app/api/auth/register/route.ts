@@ -5,6 +5,9 @@ import { hashPassword } from '@/lib/auth/password';
 import { createSession, attachSessionCookie } from '@/lib/auth/user-session';
 import { ensurePlayerForUser, getAccountProfile } from '@/lib/auth/account';
 import { enforceRateLimit } from '@/lib/rate-limit';
+import { track } from '@/lib/analytics/track';
+import { anonymousIdFromCookies } from '@/lib/analytics/identity';
+import { EVENTS } from '@/lib/analytics/events';
 
 /**
  * Create an account with an email and password, and start a session.
@@ -46,6 +49,11 @@ export async function POST(request: NextRequest) {
     const { claimedGuestSave } = await ensurePlayerForUser(user);
     const token = await createSession(user.id, request.headers.get('user-agent'));
     const profile = await getAccountProfile(user.id);
+
+    void track(EVENTS.SIGNED_UP, {
+      userId: user.id,
+      anonymousId: await anonymousIdFromCookies(),
+    }, { claimedGuestSave, method: 'password' });
 
     return attachSessionCookie(
       NextResponse.json({ ...profile, claimedGuestSave }, { status: 201 }),

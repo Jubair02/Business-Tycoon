@@ -8,11 +8,11 @@ import type { ProductDef } from '@/lib/game-data';
 
 const tea: ProductDef = {
   name: 'Tea (Cha)', category: 'TEA_STALL', basePrice: 8, baseDemand: 0.823,
-  icon: '🫖', maxStock: 190, suggestedMarkup: 0.6,
+  icon: '🫖', maxStock: 190, suggestedMarkup: 0.6, shelfLifeDays: 3,
 };
 const biscuits: ProductDef = {
   name: 'Biscuits', category: 'TEA_STALL', basePrice: 5, baseDemand: 0.493,
-  icon: '🍪', maxStock: 115, suggestedMarkup: 0.5,
+  icon: '🍪', maxStock: 115, suggestedMarkup: 0.5, shelfLifeDays: 0,
 };
 const PRODUCT_DEFS = [tea, biscuits];
 
