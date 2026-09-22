@@ -15,7 +15,7 @@ import { runScheduledTick, getTickIntervalMs, schedulerEnabled } from '@/lib/gam
  * It previously required only a player session, which let any signed-in player
  * fast-forward the shared economy by looping the request.
  */
-export async function POST(request: NextRequest) {
+async function advanceTheWorld(request: NextRequest) {
   try {
     const auth = authorizeTickRequest(request.headers);
     if (!auth.authorized) {
@@ -43,11 +43,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export async function POST(request: NextRequest) {
+  return advanceTheWorld(request);
+}
+
 /**
- * Whether the in-process clock is running here, and how fast.
- * Useful for confirming a deployment is actually advancing the world.
+ * Two jobs, decided by whether the caller proves it is the cron.
+ *
+ * **Authorized** — advance the world. Vercel Cron issues a plain `GET` with the
+ * secret in an `Authorization` header, and there is no way to ask it for a
+ * `POST`. This route used to answer such a request with a status payload and a
+ * cheerful 200, which is the worst possible shape for the failure: the cron
+ * dashboard stays green while the game's clock never moves at all.
+ *
+ * **Unauthorized** — report whether the in-process clock is running here and
+ * how fast, which is how you confirm a deployment is actually advancing the
+ * world. Reading it changes nothing, so it stays open.
+ *
+ * A mutating GET is poor HTTP manners. It is also what hosted cron schedulers
+ * send, and a frozen world is a worse outcome than an unfashionable verb.
  */
-export function GET() {
+export async function GET(request: NextRequest) {
+  if (authorizeTickRequest(request.headers).authorized) {
+    return advanceTheWorld(request);
+  }
+
   return NextResponse.json({
     schedulerEnabled: schedulerEnabled(),
     tickIntervalMs: getTickIntervalMs(),

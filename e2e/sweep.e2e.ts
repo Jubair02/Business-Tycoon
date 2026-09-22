@@ -371,6 +371,51 @@ describe('the whole surface', () => {
     expect(since(from), JSON.stringify(since(from), null, 2)).toEqual([]);
   }, 180_000);
 
+  it('advances the world from a plain GET, the way a hosted cron does', async () => {
+    // Vercel Cron issues a `GET` and cannot be asked for a `POST`. This route
+    // used to answer that with a status payload and a 200, so the cron
+    // dashboard would have stayed green for ever while the game's clock never
+    // moved. Nothing would have alerted; the world would simply have frozen.
+    const before = await app.api('/api/game/state');
+
+    const ticked = await app.api('/api/game/tick', {
+      headers: { Authorization: `Bearer ${app.cronSecret}` },
+    });
+    expect(ticked.status).toBe(200);
+    expect(ticked.body.ticked === true || ticked.body.reason === 'locked').toBe(true);
+
+    const after = await app.api('/api/game/state');
+    expect(after.body.gameDay).toBeGreaterThan(before.body.gameDay);
+  }, 180_000);
+
+  it('still reports the clock to an unauthenticated GET, without moving it', async () => {
+    // The status payload is how you confirm a deployment is actually ticking,
+    // so it stays open — and reading it must not be a way to drive the world.
+    const before = await app.api('/api/game/state');
+
+    const status = await app.api('/api/game/tick');
+    expect(status.status).toBe(200);
+    expect(status.body).toHaveProperty('schedulerEnabled');
+    expect(status.body).toHaveProperty('tickIntervalMs');
+    expect(status.body.ticked).toBeUndefined();
+
+    const after = await app.api('/api/game/state');
+    expect(after.body.gameDay, 'an anonymous GET advanced the world').toBe(before.body.gameDay);
+  }, 120_000);
+
+  it('refuses a GET carrying the wrong secret', async () => {
+    const before = await app.api('/api/game/state');
+
+    const wrong = await app.api('/api/game/tick', {
+      headers: { Authorization: 'Bearer not-the-cron-secret' },
+    });
+    // Falls through to the status payload rather than ticking.
+    expect(wrong.body.ticked).toBeUndefined();
+
+    const after = await app.api('/api/game/state');
+    expect(after.body.gameDay).toBe(before.body.gameDay);
+  }, 120_000);
+
   it('renders every screen', async () => {
     const from = mark();
     for (const route of [
