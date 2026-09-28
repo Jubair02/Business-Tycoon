@@ -16,7 +16,12 @@
 import { db } from '@/lib/db';
 import { getCurrentGameDay } from '../seasons/seasons';
 import { notifyShopsDormant } from '@/lib/push/notifications';
-import { OFFLINE_CONFIG, isWithinOfflineWindow } from './offline-config';
+import { OFFLINE_CONFIG, isWithinOfflineWindow, graceMsFor } from './offline-config';
+import { effectiveIntervalMs } from '../clock-speed';
+import { readClockSpeed } from '../clock-speed-store';
+// `tick-schedule` rather than `scheduler`: the scheduler imports the engine,
+// and the engine imports this file, so going through it would be a cycle.
+import { resolveTickIntervalMs } from '../tick-schedule';
 
 export { OFFLINE_CONFIG, isWithinOfflineWindow };
 
@@ -179,6 +184,13 @@ export async function recordPresence(playerId: string): Promise<OfflineSummary |
 export async function resolveTradingBusinesses(currentGameDay: number): Promise<string[]> {
   const now = new Date();
 
+  // The grace window is twelve *game* days, and at 8x those pass eight times
+  // as fast. Measured against the effective interval, so a player away for a
+  // real evening at 8x is treated exactly as one away for four real days at 1x
+  // — the same number of trading days missed.
+  const speed = await readClockSpeed();
+  const graceMs = graceMsFor(effectiveIntervalMs(resolveTickIntervalMs(process.env.GAME_TICK_INTERVAL_MS), speed));
+
   const businesses = await db.business.findMany({
     select: {
       id: true,
@@ -193,7 +205,7 @@ export async function resolveTradingBusinesses(currentGameDay: number): Promise<
   const shutteredPerUser = new Map<string, number>();
 
   for (const biz of businesses) {
-    const present = biz.player.isAI || isWithinOfflineWindow(biz.player.lastSeenAt, now);
+    const present = biz.player.isAI || isWithinOfflineWindow(biz.player.lastSeenAt, now, graceMs);
     if (present) {
       trading.push(biz.id);
     } else if (biz.dormantSinceDay === null) {

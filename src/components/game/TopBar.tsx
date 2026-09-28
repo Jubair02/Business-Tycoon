@@ -16,8 +16,14 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 interface TopBarProps {
   /** ISO timestamp of the next scheduled day, or null if unknown. */
   nextTickAt: string | null;
-  /** False when no server clock is running, so nothing is counting down. */
+  /**
+   * Whether anything is advancing the world — the in-process loop, or a hosted
+   * cron that has ticked recently. False means "paused", and it is only false
+   * when the world has genuinely stalled.
+   */
   schedulerEnabled: boolean;
+  /** The world's speed dial: 1, 2, 4 or 8. Everyone sees the same value. */
+  speed?: number;
 }
 
 /**
@@ -67,7 +73,7 @@ function useTickingNow(): number {
   return now;
 }
 
-export default function TopBar({ nextTickAt, schedulerEnabled }: TopBarProps) {
+export default function TopBar({ nextTickAt, schedulerEnabled, speed = 1 }: TopBarProps) {
   const { player, gameDay } = useGameStore();
   const { locale } = useI18n();
   const calendar = useCalendar();
@@ -268,11 +274,18 @@ export default function TopBar({ nextTickAt, schedulerEnabled }: TopBarProps) {
             style={{ background: 'linear-gradient(135deg, #006a4e 0%, #00895e 60%, #00a86b 100%)' }}
             title={
               schedulerEnabled
-                ? 'The world advances on a server clock, the same for every player.'
-                : 'No game clock is running on the server.'
+                ? speed > 1
+                  ? `The world is running at ${speed}x — the same for every player.`
+                  : 'The world advances on a server clock, the same for every player.'
+                : 'The world has stopped advancing. Nothing is driving the clock.'
             }
           >
-            <Sun className="h-3.5 w-3.5 animate-spin" style={{ animationDuration: '3s' }} aria-hidden="true" />
+            {/* The sun spins faster as the world does. */}
+            <Sun
+              className="h-3.5 w-3.5 animate-spin"
+              style={{ animationDuration: `${3 / Math.max(1, speed)}s` }}
+              aria-hidden="true"
+            />
             <span className="bt-numeric whitespace-nowrap" aria-live="off">
               {!schedulerEnabled
                 ? 'Clock paused'
@@ -280,6 +293,16 @@ export default function TopBar({ nextTickAt, schedulerEnabled }: TopBarProps) {
                   ? <><span className="hidden sm:inline">Next day in </span>{countdown}</>
                   : <span className="hidden sm:inline">Next day soon</span>}
             </span>
+            {/* Shown to everyone: a world at 4x is something every player
+                should know, not a setting hidden in an admin screen. */}
+            {schedulerEnabled && speed > 1 && (
+              <span
+                className="bt-numeric rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-bold leading-none"
+                aria-label={`World speed ${speed} times`}
+              >
+                {speed}×
+              </span>
+            )}
           </div>
         </div>
       </div>

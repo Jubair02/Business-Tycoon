@@ -19,6 +19,19 @@ vi.mock('@/lib/game-engine', () => ({
   releaseTickLock: (...args: unknown[]) => releaseTickLock(...args),
 }));
 
+// The loop re-reads the world's speed after every tick, and that read goes to
+// the database. This test has no database, on purpose — so the store is mocked
+// to answer instantly, which is the whole reason it lives in its own module.
+// Without this the second tick is never armed: the read never settles under
+// fake timers, and every "ticks again" assertion fails at one call.
+const readClockSpeed = vi.fn();
+
+vi.mock('@/lib/game/clock-speed-store', () => ({
+  readClockSpeed: (...args: unknown[]) => readClockSpeed(...args),
+  readLastTick: () => Promise.resolve(null),
+  writeClockSpeed: () => Promise.resolve(),
+}));
+
 import {
   runScheduledTick,
   startTickScheduler,
@@ -29,6 +42,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  readClockSpeed.mockResolvedValue(1);
   acquireTickLock.mockResolvedValue(true);
   gameTick.mockResolvedValue(undefined);
   releaseTickLock.mockResolvedValue(undefined);
@@ -179,5 +193,43 @@ describe('getTickIntervalMs', () => {
 
   it('defaults when unset', () => {
     expect(getTickIntervalMs()).toBe(DEFAULT_TICK_INTERVAL_MS);
+  });
+});
+
+describe('the speed dial', () => {
+  it('re-arms at the effective interval after a tick, without a restart', async () => {
+    // An operator turns the dial to 4x while the clock is running. The loop
+    // must notice on its own: the *next* wait is a quarter of the base
+    // interval, not the full one it was started with.
+    vi.useFakeTimers();
+    process.env.GAME_TICK_INTERVAL_MS = '40000';
+    readClockSpeed.mockResolvedValue(4);
+
+    startTickScheduler();
+
+    // First cycle is armed synchronously at the base interval (1x).
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(gameTick).toHaveBeenCalledTimes(1);
+
+    // From here the loop has read 4x, so a day is 10s, not 40s.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(gameTick).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(gameTick).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps ticking at 1x if the speed cannot be read', async () => {
+    // The store already falls back to 1x on a failed read; this pins that the
+    // loop survives it rather than stopping. A broken settings row must slow
+    // nothing and freeze nothing.
+    vi.useFakeTimers();
+    process.env.GAME_TICK_INTERVAL_MS = '10000';
+    readClockSpeed.mockResolvedValue(1);
+
+    startTickScheduler();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(gameTick).toHaveBeenCalledTimes(2);
+    expect(isTickSchedulerRunning()).toBe(true);
   });
 });

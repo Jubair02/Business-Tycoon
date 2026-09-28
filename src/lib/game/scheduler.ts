@@ -12,6 +12,8 @@
 
 import { gameTick, acquireTickLock, releaseTickLock } from '@/lib/game-engine';
 import { resolveTickIntervalMs, isSchedulerEnabled } from './tick-schedule';
+import { effectiveIntervalMs } from './clock-speed';
+import { readClockSpeed } from './clock-speed-store';
 
 /**
  * Module-level so a second `register()` — which Next's dev server does on
@@ -20,8 +22,21 @@ import { resolveTickIntervalMs, isSchedulerEnabled } from './tick-schedule';
 let timer: ReturnType<typeof setTimeout> | null = null;
 let running = false;
 
+/** The base interval: how long a game day takes at 1x. */
 export function getTickIntervalMs(): number {
   return resolveTickIntervalMs(process.env.GAME_TICK_INTERVAL_MS);
+}
+
+/**
+ * How long a game day takes *right now*, at the world's current speed.
+ *
+ * Read fresh each time rather than cached, because the speed is a world
+ * setting an operator can change at any moment, and the loop below re-arms
+ * itself from this after every tick so the change takes effect on the next
+ * cycle without a restart.
+ */
+export async function getEffectiveTickIntervalMs(): Promise<number> {
+  return effectiveIntervalMs(getTickIntervalMs(), await readClockSpeed());
 }
 
 export function schedulerEnabled(): boolean {
@@ -71,7 +86,9 @@ function scheduleNext(intervalMs: number): void {
   timer = setTimeout(async () => {
     if (!running) return;
     await runScheduledTick();
-    if (running) scheduleNext(intervalMs);
+    // Re-read the speed after every tick, so an operator turning the dial does
+    // not have to restart the server for the world to notice.
+    if (running) scheduleNext(await getEffectiveTickIntervalMs());
   }, intervalMs);
 
   // Do not hold the process open on this timer alone.
@@ -89,10 +106,12 @@ export function startTickScheduler(): void {
     return;
   }
 
-  const intervalMs = getTickIntervalMs();
   running = true;
+  // The first arm uses the base interval synchronously so starting the clock
+  // stays a plain call; the speed is honoured from the second cycle onward.
+  const intervalMs = getTickIntervalMs();
   scheduleNext(intervalMs);
-  console.info(`[scheduler] Game clock started — one day every ${Math.round(intervalMs / 1000)}s.`);
+  console.info(`[scheduler] Game clock started — one day every ${Math.round(intervalMs / 1000)}s at 1x.`);
 }
 
 export function stopTickScheduler(): void {

@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/game/tick",
-      "schedule": "0 */4 * * *"
+      "schedule": "*/30 * * * *"
     }
   ],
   "functions": {

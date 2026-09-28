@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AppError, handleApiError } from '@/lib/errors';
 import { authorizeTickRequest } from '@/lib/game/tick-auth';
 import { runScheduledTick, getTickIntervalMs, schedulerEnabled } from '@/lib/game/scheduler';
+import { isTickDue, effectiveIntervalMs } from '@/lib/game/clock-speed';
+import { readClockSpeed, readLastTick } from '@/lib/game/clock-speed-store';
 
 /**
  * Advance the game clock.
@@ -65,6 +67,30 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   if (authorizeTickRequest(request.headers).authorized) {
+    // ---- The cron path is gated on the world's speed ----
+    //
+    // A hosted cron fires at the *fastest* cadence the dial allows — every
+    // 30 minutes for a 4-hour day at 8x — and asks here whether a day is
+    // actually owed yet. At 1x, seven of every eight firings are correct
+    // no-ops. This is what lets an operator change the speed at runtime
+    // without redeploying a cron schedule.
+    //
+    // Only GET is gated. An authorized POST is "tick now": that is what the
+    // test harness and a human operator use, and it stays unconditional.
+    const [speed, lastTick] = await Promise.all([readClockSpeed(), readLastTick()]);
+    const baseIntervalMs = getTickIntervalMs();
+
+    if (!isTickDue({ lastTickISO: lastTick, now: new Date(), baseIntervalMs, speed })) {
+      return NextResponse.json({
+        success: true,
+        ticked: false,
+        reason: 'not-due',
+        speed,
+        effectiveIntervalMs: effectiveIntervalMs(baseIntervalMs, speed),
+        lastTick,
+      });
+    }
+
     return advanceTheWorld(request);
   }
 

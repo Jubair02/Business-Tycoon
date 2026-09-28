@@ -371,22 +371,97 @@ describe('the whole surface', () => {
     expect(since(from), JSON.stringify(since(from), null, 2)).toEqual([]);
   }, 180_000);
 
-  it('advances the world from a plain GET, the way a hosted cron does', async () => {
+  it('advances the world from a plain GET only when a day is owed', async () => {
     // Vercel Cron issues a `GET` and cannot be asked for a `POST`. This route
     // used to answer that with a status payload and a 200, so the cron
     // dashboard would have stayed green for ever while the game's clock never
     // moved. Nothing would have alerted; the world would simply have frozen.
+    //
+    // The cron now fires at the fastest cadence the speed dial allows and asks
+    // whether a day is actually due. The world just ticked (via POST, above),
+    // so the honest answer right now is "not yet" — and that must be a 200
+    // with `not-due`, not a tick and not an error.
     const before = await app.api('/api/game/state');
 
-    const ticked = await app.api('/api/game/tick', {
+    const notYet = await app.api('/api/game/tick', {
       headers: { Authorization: `Bearer ${app.cronSecret}` },
     });
-    expect(ticked.status).toBe(200);
-    expect(ticked.body.ticked === true || ticked.body.reason === 'locked').toBe(true);
+    expect(notYet.status).toBe(200);
+    expect(notYet.body.ticked).toBe(false);
+    expect(notYet.body.reason).toBe('not-due');
+    expect(notYet.body.speed).toBe(1);
 
     const after = await app.api('/api/game/state');
-    expect(after.body.gameDay).toBeGreaterThan(before.body.gameDay);
+    expect(after.body.gameDay, 'a not-due cron firing advanced the world').toBe(before.body.gameDay);
+
+    // An authorized POST is "tick now" and stays unconditional — it is what
+    // this harness and a human operator use.
+    const forced = await app.tick();
+    expect(forced.status).toBe(200);
+    const afterForced = await app.api('/api/game/state');
+    expect(afterForced.body.gameDay).toBeGreaterThan(after.body.gameDay);
   }, 180_000);
+
+  it('lets the operator set the world speed, and shows it to everyone', async () => {
+    // A world dial: one tick moves the day for every player, so the speed is
+    // one value for the whole world and every player can read it.
+    const open = await app.api('/api/admin/clock');
+    expect(open.status).toBe(200);
+    expect(open.body.speed).toBe(1);
+    expect(open.body.speeds).toEqual([1, 2, 4, 8]);
+
+    const set = await app.api('/api/admin/clock', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${app.cronSecret}` },
+      body: { speed: 4 },
+    });
+    expect(set.status).toBe(200);
+    expect(set.body.speed).toBe(4);
+    expect(set.body.effectiveIntervalMs).toBe(set.body.baseIntervalMs / 4);
+
+    // The state route every client polls reports the same value, and its
+    // countdown is now a quarter of the base interval.
+    const state = await app.api('/api/game/state');
+    expect(state.body.speed).toBe(4);
+    expect(state.body.tickIntervalMs).toBe(state.body.baseTickIntervalMs / 4);
+
+    // Back to 1x so nothing later in this file inherits a faster world.
+    const reset = await app.api('/api/admin/clock', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${app.cronSecret}` },
+      body: { speed: 1 },
+    });
+    expect(reset.body.speed).toBe(1);
+  }, 120_000);
+
+  it('refuses a speed that is not on the dial, and anyone without the secret', async () => {
+    const bogus = await app.api('/api/admin/clock', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${app.cronSecret}` },
+      body: { speed: 3 },
+    });
+    expect(bogus.status).toBe(400);
+
+    const anonymous = await app.api('/api/admin/clock', {
+      method: 'POST',
+      body: { speed: 8 },
+    });
+    expect(anonymous.status).toBe(401);
+
+    // Neither attempt moved the dial.
+    const after = await app.api('/api/admin/clock');
+    expect(after.body.speed).toBe(1);
+  }, 120_000);
+
+  it('reports the world as running even with no in-process scheduler', async () => {
+    // The Vercel case, exactly as this harness runs: GAME_TICK_SCHEDULER=off,
+    // the world advanced by an outside caller. Every player used to see
+    // "Clock paused" and no countdown while the cron ticked the world
+    // underneath them.
+    const state = await app.api('/api/game/state');
+    expect(state.body.clockRunning).toBe(true);
+    expect(state.body.nextTickAt).not.toBeNull();
+  }, 120_000);
 
   it('still reports the clock to an unauthenticated GET, without moving it', async () => {
     // The status payload is how you confirm a deployment is actually ticking,

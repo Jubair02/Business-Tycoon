@@ -28,8 +28,11 @@ GAME_TICK_SCHEDULER=off      # stop the in-process loop trying
 and [`vercel.json`](../vercel.json) schedules the tick instead:
 
 ```json
-{ "crons": [{ "path": "/api/game/tick", "schedule": "0 */4 * * *" }] }
+{ "crons": [{ "path": "/api/game/tick", "schedule": "*/30 * * * *" }] }
 ```
+
+Every thirty minutes, not every four hours — see **The speed dial** below for
+why. At 1x, seven of every eight firings are a correct no-op.
 
 Vercel Cron sends `Authorization: Bearer $CRON_SECRET`, which
 [`tick-auth.ts`](../src/lib/game/tick-auth.ts) already understood.
@@ -47,13 +50,48 @@ still returns the harmless status payload to anyone else. A mutating `GET` is
 poor HTTP manners. It is also what hosted cron schedulers send, and a frozen
 world is worse than an unfashionable verb.
 
+### The speed dial
+
+The world runs at **1x, 2x, 4x or 8x** the base interval, set at runtime for
+everyone at once:
+
+```bash
+# Read it — open to anyone.
+curl https://your-app.vercel.app/api/admin/clock
+
+# Set it — operator secret.
+curl -X POST https://your-app.vercel.app/api/admin/clock   -H "Authorization: Bearer $CRON_SECRET"   -H "Content-Type: application/json"   -d '{"speed": 4}'
+```
+
+This is a *world* dial, not a player one. One tick advances the day for every
+player and every AI competitor, so there is no such thing as one player's clock
+running faster than another's — the game removed a "Next Day" button for
+exactly that reason. Whoever holds `CRON_SECRET` sets the pace for the whole
+world, and the top bar shows the current speed to every player.
+
+**How the cron keeps up without redeploying.** The cron fires at the *fastest*
+cadence the dial allows — every 30 minutes, which is a 4-hour day at 8x — and
+each firing asks the tick endpoint whether a day is actually owed yet at the
+current speed. At 1x seven of every eight firings return `not-due`; at 8x every
+one ticks. Turn the dial and the next firing honours it. Nothing needs
+redeploying.
+
+An authorized `POST` to `/api/game/tick` is still "tick now", unconditionally —
+that is what the test harness and a human operator use.
+
+**8x is for events and testing, not a permanent setting.** At 8x a two-week
+season finishes in under two days, prestige accrues eight times as fast, and
+the offline grace (twelve game days, however fast they pass) shrinks to six
+real hours. `season-coherence.test.ts` pins the *default* pace; the dial is
+the deliberate exception to it.
+
 ### Cron frequency
 
 Hobby plans restrict how often cron may run. If yours will not accept
-`0 */4 * * *`, either upgrade or slow the game to match — set
-`GAME_TICK_INTERVAL_MS` to whatever interval you can actually schedule, so a
-game day and a cron firing stay the same thing. They must agree, or the world
-runs at a speed nobody chose.
+`*/30 * * * *`, the dial's top speeds will not be reachable — the world cannot
+tick more often than the cron fires. Either upgrade, or accept that the
+effective maximum is whatever cadence your plan allows. The world will never
+run *faster* than the cron; a slower cron simply caps the dial.
 
 `season-coherence.test.ts` checks the clock still makes sense against the season
 length, the offline grace and the season pass after any such change.
@@ -160,6 +198,12 @@ Generate secrets with `openssl rand -hex 32`, and VAPID keys with
 # Unauthenticated: reports the clock without touching it.
 curl https://your-app.vercel.app/api/game/tick
 # -> {"schedulerEnabled":false,"tickIntervalMs":14400000}
+
+# Authenticated GET — what the cron does. Ticks only if a day is owed at the
+# current speed; otherwise says so, which is correct and not an error.
+curl https://your-app.vercel.app/api/game/tick   -H "Authorization: Bearer $CRON_SECRET"
+# -> {"success":true,"ticked":false,"reason":"not-due","speed":1,...}   (between days)
+# -> {"success":true,"ticked":true}                                     (when a day is owed)
 
 # Authenticated: advances the world, exactly as the cron does.
 curl -X POST https://your-app.vercel.app/api/game/tick \

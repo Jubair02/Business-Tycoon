@@ -52,9 +52,10 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
   const [showSummary, setShowSummary] = useState(false);
   const [awaySummary, setAwaySummary] = useState<OfflineSummary | null>(null);
   const [preTickBusinesses, setPreTickBusinesses] = useState<any[]>([]);
-  const [clock, setClock] = useState<{ nextTickAt: string | null; schedulerEnabled: boolean }>({
+  const [clock, setClock] = useState<{ nextTickAt: string | null; schedulerEnabled: boolean; speed: number }>({
     nextTickAt: null,
     schedulerEnabled: true,
+    speed: 1,
   });
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const clockTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -137,7 +138,11 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
         setGameDay(data.gameDay || 1);
         setClock({
           nextTickAt: data.nextTickAt ?? null,
-          schedulerEnabled: data.schedulerEnabled !== false,
+          // `clockRunning` is the honest figure: true whenever anything is
+          // advancing the world, cron included. `schedulerEnabled` is the
+          // older name, kept as a fallback for a stale server.
+          schedulerEnabled: (data.clockRunning ?? data.schedulerEnabled) !== false,
+          speed: typeof data.speed === 'number' ? data.speed : 1,
         });
         return data as { gameDay?: number };
       }
@@ -318,7 +323,7 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <TopBar nextTickAt={clock.nextTickAt} schedulerEnabled={clock.schedulerEnabled} />
+      <TopBar nextTickAt={clock.nextTickAt} schedulerEnabled={clock.schedulerEnabled} speed={clock.speed} />
 
       <main className="flex-1 pb-28 md:pb-0 md:pl-52">
         {/* Second-level navigation for the sections that hold more than one
