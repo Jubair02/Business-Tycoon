@@ -193,6 +193,19 @@ export const bn: Catalogue = {
   'calendar.kind.CULTURAL': 'সাংস্কৃতিক',
   'calendar.kind.SEASONAL': 'ঋতুভিত্তিক',
 
+  // ---- World clock speed dial ----
+  'clock.title': 'বিশ্বের গতি',
+  'clock.help': 'শেয়ার করা খেলার দিন কত দ্রুত যায় — সব খেলোয়াড়ের জন্য একসঙ্গে।',
+  'clock.current': 'এখন',
+  'clock.dayLength': 'প্রতি {hours} ঘণ্টায় এক দিন',
+  'clock.needSecret': 'আগে অপারেটর সিক্রেট দিন।',
+  'clock.wrongSecret': 'সিক্রেটটি গ্রহণ করা হয়নি। এটি রাখা হয়নি।',
+  'clock.speedSet': 'বিশ্বের গতি {speed}× করা হয়েছে।',
+  'clock.secretLabel': 'অপারেটর সিক্রেট',
+  'clock.secretPlaceholder': 'আপনার ডিপ্লয়মেন্টের CRON_SECRET',
+  'clock.secretRemembered': 'এই ট্যাবের জন্য মনে রাখা আছে — আবার ব্যবহার করতে খালি রাখুন',
+  'clock.warning': 'এটি সবার জন্য গতি বদলায়। ৮× গতিতে দুই সপ্তাহের সিজন দুই দিনেরও কম সময়ে শেষ হয় — ইভেন্ট ও পরীক্ষার জন্য ব্যবহার করে আবার আগের মতো করে দিন।',
+
   // ---- Errors ----
   'error.network': 'নেটওয়ার্ক সমস্যা। সংযোগ দেখে আবার চেষ্টা করুন।',
   'error.generic': 'কিছু একটা ভুল হয়েছে।',

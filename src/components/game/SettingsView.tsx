@@ -13,6 +13,7 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 import PwaManager from './PwaManager';
 import { useT } from '@/lib/i18n/I18nProvider';
 import AccountCard from './AccountCard';
+import WorldClockCard from './WorldClockCard';
 import {
   Settings as SettingsIcon,
   RotateCcw,
@@ -143,6 +144,9 @@ export default function SettingsView() {
           <LanguageSwitcher />
         </CardContent>
       </Card>
+
+      {/* The world clock's speed dial. Reading is open; changing needs the operator secret. */}
+      <WorldClockCard />
 
       {/* Appearance */}
       <Card className="game-shine">

@@ -188,6 +188,19 @@ export const en = {
   'calendar.kind.CULTURAL': 'Cultural',
   'calendar.kind.SEASONAL': 'Seasonal',
 
+  // ---- World clock speed dial ----
+  'clock.title': 'World speed',
+  'clock.help': 'How fast the shared game day passes — for every player at once.',
+  'clock.current': 'Right now',
+  'clock.dayLength': 'a day every {hours} h',
+  'clock.needSecret': 'Enter the operator secret first.',
+  'clock.wrongSecret': 'That secret was refused. It has not been kept.',
+  'clock.speedSet': 'World speed set to {speed}×.',
+  'clock.secretLabel': 'Operator secret',
+  'clock.secretPlaceholder': 'The CRON_SECRET from your deployment',
+  'clock.secretRemembered': 'Remembered for this tab — leave blank to reuse it',
+  'clock.warning': 'This changes the pace for everyone. 8× finishes a two-week season in under two days — use it for events and testing, then set it back.',
+
   // ---- Errors ----
   'error.network': 'Network error. Check your connection and try again.',
   'error.generic': 'Something went wrong.',

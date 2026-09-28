@@ -105,13 +105,33 @@ function killTree(child: ChildProcess | null): void {
   }
 }
 
+/**
+ * Thrown when the spawned `next dev` refused to start because one is already
+ * running for this directory. Carries the PID so the message can say exactly
+ * what to stop.
+ */
+class DevServerAlreadyRunning extends Error {
+  constructor(public readonly pid: string) {
+    super(
+      `Another next dev server is already running for this project (PID ${pid}).
+` +
+        `Next.js 16 allows one dev server per directory, so the harness cannot start its own.
+` +
+        `Stop it first — Ctrl+C in that terminal, or: taskkill /PID ${pid} /F`,
+    );
+    this.name = 'DevServerAlreadyRunning';
+  }
+}
+
 async function waitFor(check: () => Promise<boolean>, label: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       if (await check()) return;
-    } catch {
-      // Not up yet.
+    } catch (error) {
+      // A definitive refusal is not "not up yet"; let it out immediately.
+      if (error instanceof DevServerAlreadyRunning) throw error;
+      // Anything else: not up yet.
     }
     await new Promise(r => setTimeout(r, 1000));
   }
@@ -213,7 +233,18 @@ export async function startHarness(): Promise<Harness> {
 
   try {
     await waitFor(
-      async () => (await fetch(`${origin}/api/game/state`).catch(() => null))?.ok ?? false,
+      async () => {
+        // Next.js 16 allows one dev server per project directory. If one is
+        // already running — a developer's `npm run dev`, typically — the one
+        // this harness just spawned prints a refusal and exits at once, and
+        // without this check the harness would poll an empty port for four
+        // minutes and then blame "the app". Fail now, and say what to stop.
+        const refusal = /Another next dev server is already running[\s\S]*?PID:\s*(\d+)/.exec(serverLog);
+        if (refusal) {
+          throw new DevServerAlreadyRunning(refusal[1]);
+        }
+        return (await fetch(`${origin}/api/game/state`).catch(() => null))?.ok ?? false;
+      },
       'the app to serve requests',
       240_000,
     );
