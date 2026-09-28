@@ -181,19 +181,24 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
   }, [setAchievements]);
 
   const fetchAllData = useCallback(async () => {
-    const pData = await fetchPlayer();
-    if (pData) {
-      await Promise.all([
-        fetchBusinesses(),
-        fetchEvents(),
-        fetchNews(),
-        fetchLeaderboard(),
-        fetchGameDay(),
-        fetchAchievements(),
-      ]);
-      if (selectedBusinessId) {
-        fetchCurrentBusiness(selectedBusinessId);
-      }
+    // All seven at once. This used to await the player *before* starting the
+    // other six, which cost a whole sequential phase — a function cold start
+    // plus every one of that route's database round-trips — before anything
+    // else could even begin. None of the six needs the player payload: each
+    // route authenticates itself from the session cookie, and each already
+    // answers correctly for a signed-out caller. Only the business-detail
+    // fetch depends on knowing there is a player, so only it waits.
+    const [pData] = await Promise.all([
+      fetchPlayer(),
+      fetchBusinesses(),
+      fetchEvents(),
+      fetchNews(),
+      fetchLeaderboard(),
+      fetchGameDay(),
+      fetchAchievements(),
+    ]);
+    if (pData && selectedBusinessId) {
+      fetchCurrentBusiness(selectedBusinessId);
     }
   }, [fetchPlayer, fetchBusinesses, fetchEvents, fetchNews, fetchLeaderboard, fetchGameDay, fetchAchievements, fetchCurrentBusiness, selectedBusinessId]);
 

@@ -345,11 +345,21 @@ export default function InventoryTab() {
                       )}
                       <div className="text-xs text-muted-foreground">sell price</div>
                     </div>
+                    {/* Liquidating an empty shelf is not a thing you can do.
+                        The default quantity was `Math.min(1, inv.quantity)`,
+                        which on a sold-out shelf is 0 — the dialog opened
+                        offering "Sell for ৳0", and the request was then
+                        rejected outright, because the endpoint requires a
+                        positive quantity. Shelves empty in about a game day, so
+                        this was reachable constantly. */}
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 dark:bg-amber-950/40 shrink-0"
-                      onClick={() => { setSellInventory(inv); setSellQuantity(Math.min(1, inv.quantity)); setShowSellDialog(true); }}
+                      disabled={(inv.quantity || 0) <= 0}
+                      title={(inv.quantity || 0) <= 0 ? 'Nothing left to liquidate' : 'Liquidate stock'}
+                      aria-label={`Liquidate ${inv.productName}`}
+                      className="h-8 w-8 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 dark:bg-amber-950/40 shrink-0 disabled:opacity-40"
+                      onClick={() => { setSellInventory(inv); setSellQuantity(1); setShowSellDialog(true); }}
                     >
                       <PackageOpen className="h-3.5 w-3.5" />
                     </Button>

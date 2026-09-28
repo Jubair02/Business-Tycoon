@@ -204,6 +204,7 @@ export const bn: Catalogue = {
   'clock.secretLabel': 'অপারেটর সিক্রেট',
   'clock.secretPlaceholder': 'আপনার ডিপ্লয়মেন্টের CRON_SECRET',
   'clock.secretRemembered': 'এই ট্যাবের জন্য মনে রাখা আছে — আবার ব্যবহার করতে খালি রাখুন',
+  'clock.enterSecretHint': 'গতি বদলাতে উপরে অপারেটর সিক্রেট দিন।',
   'clock.warning': 'এটি সবার জন্য গতি বদলায়। ৮× গতিতে দুই সপ্তাহের সিজন দুই দিনেরও কম সময়ে শেষ হয় — ইভেন্ট ও পরীক্ষার জন্য ব্যবহার করে আবার আগের মতো করে দিন।',
 
   // ---- Errors ----

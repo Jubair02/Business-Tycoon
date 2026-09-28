@@ -144,6 +144,12 @@ export default function WorldClockCard() {
   };
 
   const hours = clock ? clock.effectiveIntervalMs / 3_600_000 : null;
+  /**
+   * Whether clicking a speed could possibly succeed. The buttons are disabled
+   * otherwise — the first version let you click 4x with an empty secret field
+   * and answered with an error toast, which is a trap, not a control.
+   */
+  const hasToken = secret.length > 0 || remembered;
 
   return (
     <Card className="game-shine">
@@ -162,24 +168,6 @@ export default function WorldClockCard() {
           <span className="bt-numeric font-semibold">
             {clock ? `${clock.speed}× · ${t('clock.dayLength', { hours: hours ?? 0 })}` : '…'}
           </span>
-        </div>
-
-        <div className="grid grid-cols-4 gap-2">
-          {(clock?.speeds ?? [1, 2, 4, 8]).map(speed => {
-            const active = clock?.speed === speed;
-            return (
-              <Button
-                key={speed}
-                variant={active ? 'default' : 'outline'}
-                disabled={busy || active}
-                className={cn('h-10 text-sm font-bold', active && 'pointer-events-none')}
-                onClick={() => setSpeed(speed)}
-                aria-pressed={active}
-              >
-                {busy && !active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `${speed}×`}
-              </Button>
-            );
-          })}
         </div>
 
         {/* Changing the pace is an operator action, and the world is shared. */}
@@ -201,6 +189,31 @@ export default function WorldClockCard() {
             {t('clock.warning')}
           </p>
         </div>
+
+        <div className="grid grid-cols-4 gap-2">
+          {(clock?.speeds ?? [1, 2, 4, 8]).map(speed => {
+            const active = clock?.speed === speed;
+            return (
+              <Button
+                key={speed}
+                variant={active ? 'default' : 'outline'}
+                disabled={busy || active || !hasToken}
+                className={cn('h-10 text-sm font-bold', active && 'pointer-events-none')}
+                onClick={() => setSpeed(speed)}
+                aria-pressed={active}
+              >
+                {busy && !active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `${speed}×`}
+              </Button>
+            );
+          })}
+        </div>
+
+        {/* Said inline, before anyone clicks — not as an error after. */}
+        {!hasToken && (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {t('clock.enterSecretHint')}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

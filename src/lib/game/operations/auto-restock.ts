@@ -25,6 +25,7 @@ import { db } from '@/lib/db';
 import { PRODUCTS } from '@/lib/game-data';
 import { capacityReport } from '../storage/capacity';
 import { blendAge } from '../supply/spoilage';
+import { collapseDuplicateShelves } from '../supply/supply-service';
 import type { GodownTier } from '../storage/storage-config';
 import type { ProductDef } from '@/lib/game-data';
 
@@ -279,8 +280,14 @@ export async function runRestock(
     });
     if (!player) return EMPTY_RESULT;
 
+    // Put right any shop still holding two rows for one product before
+    // planning. A duplicated shelf would otherwise be topped up twice — once
+    // per row — and the plan would read the shop as having less stock per
+    // product than it does. Does nothing on a healthy shop.
+    await collapseDuplicateShelves(tx, businessId);
+
     // Re-read the shelves inside the transaction: the tick may have sold stock
-    // since the read above.
+    // since the read above, and the collapse above may have removed rows.
     const inventories = await tx.inventory.findMany({
       where: { businessId },
       select: { id: true, productName: true, quantity: true, purchasePrice: true },

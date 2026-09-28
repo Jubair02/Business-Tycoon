@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getProductsForBusiness } from '@/lib/game-data';
 import { capacityReport } from '@/lib/game/storage/capacity';
-import { blendAge } from '@/lib/game/supply/spoilage';
+import { addStockToShelf } from '@/lib/game/supply/supply-service';
 import type { GodownTier } from '@/lib/game/storage/storage-config';
-import { requirePlayerId, notFound, forbidden, insufficientFunds, validationError, handleApiError, buyInventorySchema } from '@/lib/errors';
+import { requirePlayerId, notFound, forbidden, insufficientFunds, validationError, internalError, handleApiError, buyInventorySchema } from '@/lib/errors';
 import { trackServer, trackServerOnce } from '@/lib/analytics/identity';
 import { EVENTS } from '@/lib/analytics/events';
 
@@ -45,7 +45,6 @@ export async function POST(
     const unitCost = Math.round(productDef.basePrice * priceMultiplier);
     const totalCost = unitCost * quantity;
 
-    const suggestedSellPrice = Math.round(unitCost * (1 + productDef.suggestedMarkup));
 
     const result = await db.$transaction(async (tx) => {
       const player = await tx.player.findUnique({ where: { id: playerId } });
@@ -99,45 +98,39 @@ export async function POST(
         data: { cash: { decrement: totalCost } },
       });
 
-      const existingInventory = await tx.inventory.findFirst({
-        where: { businessId: id, productId },
+      // ---- Merge on the product, not on `productId` ----
+      //
+      // This route used to do its own merge, keyed on `productId`. That column
+      // is '' on every shelf a shop opened with before it was fixed, and on
+      // rows the AI writes, and it holds an *order* id on pre-order deliveries.
+      // So the lookup missed and a second shelf was created for a product that
+      // already had one — which is what shows up in the Inventory tab as the
+      // same product listed twice, each half with its own stock and price.
+      //
+      // `addStockToShelf` is the shared path every other writer already uses:
+      // it matches on the product name, blends cost basis and age, and folds
+      // any existing duplicates back into one row.
+      await addStockToShelf({
+        tx,
+        businessId: id,
+        businessType: business.type,
+        productName,
+        category,
+        quantity,
+        unitCost,
+        incomingAgeDays: 0,
+        productIdFallback: productId,
       });
 
-      if (existingInventory) {
-        const totalOldCost = existingInventory.purchasePrice * existingInventory.quantity;
-        const newTotalCost = totalOldCost + totalCost;
-        const newQuantity = existingInventory.quantity + quantity;
-        const avgPurchasePrice = newTotalCost / newQuantity;
-
-        return tx.inventory.update({
-          where: { id: existingInventory.id },
-          data: {
-            quantity: newQuantity,
-            purchasePrice: Math.round(avgPurchasePrice),
-            // Fresh stock lowers the shelf's average age, exactly as it moves
-            // the cost basis. Without this a counter purchase would inherit
-            // yesterday's rot.
-            averageAgeDays: blendAge({
-              existingQuantity: existingInventory.quantity,
-              existingAgeDays: existingInventory.averageAgeDays,
-              incomingQuantity: quantity,
-              incomingAgeDays: 0,
-            }),
-          },
-        });
-      } else {
-        return tx.inventory.create({
-          data: {
-            businessId: id,
-            productId,
-            productName,
-            category,
-            quantity,
-            purchasePrice: unitCost,
-            sellPrice: suggestedSellPrice,
-          },
-        });
+      const shelf = await tx.inventory.findFirst({
+        where: { businessId: id, productName },
+      });
+      if (!shelf) {
+        // addStockToShelf either updated a shelf or created one, so this is
+        // unreachable; failing loudly beats returning a success with no row.
+        throw internalError('Stock was purchased but the shelf could not be read back.');
       }
+      return shelf;
     });
 
     void trackServerOnce(EVENTS.FIRST_STOCK_BOUGHT, { businessType: business.type, category });

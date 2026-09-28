@@ -98,6 +98,35 @@ length, the offline grace and the season pass after any such change.
 
 ---
 
+## Put the functions next to the database
+
+The database is on Neon in **Singapore** (`ap-southeast-1`). Vercel functions
+default to **Virginia** (`iad1`). With that pairing every query crosses the
+Pacific and back — about 200 ms — and a page load that makes a dozen of them
+in sequence spends seconds doing nothing but waiting on distance. Logging in
+took several seconds for exactly this reason.
+
+[`vercel.json`](../vercel.json) pins the functions to the same place:
+
+```json
+{ "regions": ["sin1"] }
+```
+
+`sin1` is Vercel's Singapore region. A query now costs a couple of
+milliseconds, and Singapore is also far closer to a player in Bangladesh than
+Virginia is. Hobby plans allow one region; Pro allows several, but there is no
+reason to add any — the database is in one place, so the functions should be too.
+
+If the database ever moves, move this with it. The two must be colocated or
+every request pays the round-trip again.
+
+The dashboard also used to fetch the player record *before* starting its other
+six requests, which cost a whole sequential phase — a cold start plus that
+route's round-trips — before anything else began. Those seven now run in
+parallel; only the business-detail fetch waits for the player.
+
+---
+
 ## Standalone output is for self-hosting
 
 `output: "standalone"` builds a self-contained server tree. Vercel builds and

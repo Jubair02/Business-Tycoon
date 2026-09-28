@@ -199,6 +199,7 @@ export const en = {
   'clock.secretLabel': 'Operator secret',
   'clock.secretPlaceholder': 'The CRON_SECRET from your deployment',
   'clock.secretRemembered': 'Remembered for this tab — leave blank to reuse it',
+  'clock.enterSecretHint': 'Enter the operator secret above to change the speed.',
   'clock.warning': 'This changes the pace for everyone. 8× finishes a two-week season in under two days — use it for events and testing, then set it back.',
 
   // ---- Errors ----

@@ -111,6 +111,78 @@ export async function applySpoilage(businessId: string): Promise<SpoilageResult>
  * purchase and an emergency top-up all age a shelf the same way. Before this,
  * each did its own weighted average of price and none of them touched age.
  */
+/**
+ * Fold any repeated shelves in a shop back into one row per product.
+ *
+ * A shop can be holding more than one row for the same product because
+ * `POST /inventory/buy` used to merge on `productId` — a column that is '' on
+ * older shelves and on rows the AI writes, and an order id on pre-order
+ * deliveries. Each miss minted a duplicate, which the Inventory tab lists twice
+ * and the tick treats as two shelves drawing demand separately.
+ *
+ * The buy path repairs the product being bought on its own (see
+ * `addStockToShelf`). This exists for the paths that top up everything at once,
+ * so one "Restock all" puts a whole shop right instead of needing a purchase
+ * per product.
+ *
+ * Returns the number of rows removed. Safe to call on a healthy shop, where it
+ * does nothing.
+ */
+export async function collapseDuplicateShelves(tx: Tx, businessId: string): Promise<number> {
+  const rows = await tx.inventory.findMany({
+    where: { businessId },
+    select: {
+      id: true,
+      productName: true,
+      productId: true,
+      quantity: true,
+      purchasePrice: true,
+      averageAgeDays: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const byProduct = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const group = byProduct.get(row.productName);
+    if (group) group.push(row);
+    else byProduct.set(row.productName, [row]);
+  }
+
+  const strayIds: string[] = [];
+
+  for (const group of byProduct.values()) {
+    if (group.length < 2) continue;
+
+    // The oldest row survives: it is the one the player has been pricing, and
+    // the one every other screen has been pointing at.
+    const [primary, ...strays] = group;
+
+    const totalQuantity = group.reduce((sum, r) => sum + r.quantity, 0);
+    const totalCost = group.reduce((sum, r) => sum + r.purchasePrice * r.quantity, 0);
+    const ageWeighted = group.reduce((sum, r) => sum + r.averageAgeDays * r.quantity, 0);
+
+    await tx.inventory.update({
+      where: { id: primary.id },
+      data: {
+        quantity: totalQuantity,
+        purchasePrice: totalQuantity > 0 ? Math.round(totalCost / totalQuantity) : primary.purchasePrice,
+        averageAgeDays: totalQuantity > 0 ? ageWeighted / totalQuantity : primary.averageAgeDays,
+        // Salvage a real product id from whichever duplicate had one.
+        ...(primary.productId ? {} : { productId: group.find(r => r.productId)?.productId ?? '' }),
+      },
+    });
+
+    strayIds.push(...strays.map(r => r.id));
+  }
+
+  if (strayIds.length > 0) {
+    await tx.inventory.deleteMany({ where: { id: { in: strayIds } } });
+  }
+
+  return strayIds.length;
+}
+
 export async function addStockToShelf(params: {
   tx: Tx;
   businessId: string;
@@ -126,29 +198,56 @@ export async function addStockToShelf(params: {
   const { tx, businessId, productName, quantity, unitCost } = params;
   if (quantity <= 0) return;
 
-  const existing = await tx.inventory.findFirst({
+  // ---- One product, one shelf ----
+  //
+  // `findMany`, not `findFirst`, because a shop can already be holding more
+  // than one row for the same product: `POST /inventory/buy` used to merge on
+  // `productId`, a column that older rows carry as '' and that pre-order
+  // deliveries carry an order id in. Every mismatch minted a second shelf for a
+  // product that already had one, and the tick then treated it as a second
+  // shelf — drawing its own demand, holding its own price.
+  //
+  // Folding the strays in here repairs a shop through ordinary play, which is
+  // the only repair path available for saves that already went wrong.
+  const shelves = await tx.inventory.findMany({
     where: { businessId, productName },
-    select: { id: true, quantity: true, purchasePrice: true, averageAgeDays: true },
+    select: { id: true, quantity: true, purchasePrice: true, averageAgeDays: true, productId: true },
+    orderBy: { createdAt: 'asc' },
   });
 
-  if (existing) {
-    const newQuantity = existing.quantity + quantity;
-    const newCost =
-      (existing.purchasePrice * existing.quantity + unitCost * quantity) / newQuantity;
+  if (shelves.length > 0) {
+    const [primary, ...strays] = shelves;
+
+    // Collapse what is already on the shelves into single running totals, so
+    // the incoming stock blends against the shop's real position rather than
+    // against whichever duplicate happened to be found first.
+    const heldQuantity = shelves.reduce((sum, s) => sum + s.quantity, 0);
+    const heldCost = shelves.reduce((sum, s) => sum + s.purchasePrice * s.quantity, 0);
+    const heldAgeWeighted = shelves.reduce((sum, s) => sum + s.averageAgeDays * s.quantity, 0);
+
+    const newQuantity = heldQuantity + quantity;
+    const newCost = (heldCost + unitCost * quantity) / newQuantity;
 
     await tx.inventory.update({
-      where: { id: existing.id },
+      where: { id: primary.id },
       data: {
         quantity: newQuantity,
         purchasePrice: Math.round(newCost),
         averageAgeDays: blendAge({
-          existingQuantity: existing.quantity,
-          existingAgeDays: existing.averageAgeDays,
+          existingQuantity: heldQuantity,
+          existingAgeDays: heldQuantity > 0 ? heldAgeWeighted / heldQuantity : 0,
           incomingQuantity: quantity,
           incomingAgeDays: params.incomingAgeDays,
         }),
+        // Backfill a real product id onto rows that were written without one,
+        // so anything still keying on it stops missing.
+        ...(primary.productId ? {} : { productId: params.productIdFallback ?? '' }),
       },
     });
+
+    if (strays.length > 0) {
+      await tx.inventory.deleteMany({ where: { id: { in: strays.map(s => s.id) } } });
+    }
     return;
   }
 
