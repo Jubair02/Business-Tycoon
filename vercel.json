@@ -6,7 +6,7 @@
   "crons": [
     {
       "path": "/api/game/tick",
-      "schedule": "*/30 * * * *"
+      "schedule": "* * * * *"
     }
   ],
   "functions": {

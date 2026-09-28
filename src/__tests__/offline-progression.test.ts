@@ -64,7 +64,9 @@ describe('isWithinOfflineWindow', () => {
   });
 
   it('accepts an ISO string as well as a Date', () => {
-    expect(isWithinOfflineWindow(hoursAgo(1).toISOString(), NOW)).toBe(true);
+    // Derived from the grace window, not a fixed hour: this is about the
+    // argument type, and must not start failing when the clock speed changes.
+    expect(isWithinOfflineWindow(justInside().toISOString(), NOW)).toBe(true);
   });
 });
 

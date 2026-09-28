@@ -55,27 +55,36 @@ interval, the season length, the offline grace, the pass track and the payback
 band. Each was set sensibly alone. Their product was a season that finished in
 **ninety minutes** — the same failure as U2, one layer up.
 
+The clock has since been set deliberately fast again: **a game day is four real
+minutes**, so a season is about six hours and the game is one you sit through
+rather than check in on. K1 and K6 below were rewritten for that, and what the
+pace costs is written down rather than left to be rediscovered.
+
 | # | Must remain true | Why it exists | Guarded by |
 |---|---|---|---|
-| K1 | A season runs over **days, not minutes** | At a game day a minute a season ended in 90 minutes, prestige capped inside a day, the ladder reset before lunch, and D1/D7/D30 measured nothing | `season-coherence.test.ts` → *"runs a season over days, not minutes"* |
-| K2 | The offline grace is worth a **fixed number of game days** | It was eight real hours, but the harm it guards against is unattended *game* days — so at the old clock it was letting 480 of them pass, five whole seasons | `season-coherence.test.ts` → *"is worth a fixed number of game days, whatever the clock speed"* |
+| K1 | A season runs over **hours**, and a game day is long enough to act in | A season that ends before a player can build anything makes prestige and the ladder meaningless; a game day under a minute leaves no time to reprice, restock or hire, so the player is watching rather than playing | `season-coherence.test.ts` → *"runs a season over hours, not a whole evening and not ninety minutes"* and *"leaves a player long enough to act inside a single game day"* |
+| K2 | The offline grace is worth a **fixed number of game days** | It was eight real hours, but the harm it guards against is unattended *game* days — so at the old clock it was letting 480 of them pass, five whole seasons. At four minutes a day the twelve-day window is ~48 real minutes: a break, not a night | `season-coherence.test.ts` → *"is worth a fixed number of game days, whatever the clock speed"* and *"covers stepping away from the screen"* |
 | K3 | The default tick sits **inside its own bounds** | The ceiling was an hour while the default became four, which would have clamped the shipped game to a quarter of its pace in silence | `season-coherence.test.ts` → *"keeps the default inside its own bounds"* |
 | K4 | A season fits **more than one payback cycle** | E1 solves every type to 25-45 game days. A season holding one of those gives a player a single shop, earned back as the books close | `season-coherence.test.ts` → *"fits several payback cycles"* |
 | K5 | The pass is **reachable by playing and not by waiting** | A track finished in the first week stops being a reason to return; one a single passive shop completes is asking nothing | `season-coherence.test.ts` → *"is reachable by a player who actually plays"* and *"is not handed to someone running a single shop passively"* |
-| K6 | More than one season fits inside a **30-day window** | `returned_next_season` is the number the seasonal design rests on. A season longer than the retention window can never be observed being returned to | `season-coherence.test.ts` → *"fits more than one season inside a 30-day window"* |
+| K6 | More than one season fits inside a **30-day window** | `returned_next_season` is the number the seasonal design rests on. A season longer than the retention window can never be observed being returned to. At the current pace a season is ~6 hours, so this now holds trivially — and the metric measures sessions, not weeks. Read it accordingly | `season-coherence.test.ts` → *"fits more than one season inside a 30-day window"* and *"records that seasonal retention no longer measures weeks"* |
 
 | K7 | The speed dial is a **world** setting: 1x, 2x, 4x or 8x, the same for every player | One tick advances the day for every player and every AI competitor. A per-player clock would put players in different days of the same market — the "Next Day" button was removed for exactly that. Anything not on the dial narrows to 1x, so a corrupt row leaves the world running normally rather than frozen | `clock-speed.test.ts` → *"offers exactly 1x, 2x, 4x and 8x"* and *"narrows an untrusted value to a real speed, or to 1x"* |
-| K8 | A cron at the fastest cadence gets a **correct answer at every speed** | The cron fires every 30 minutes regardless of the dial and asks whether a day is owed. At 1x seven of eight firings are no-ops; at 8x every one ticks. This is what lets the pace change at runtime with nothing redeployed | `clock-speed.test.ts` → *"gives a cron at the fastest cadence a correct answer at every speed"*; `sweep.e2e.ts` → *"advances the world from a plain GET only when a day is owed"* |
+| K8 | A cron at the fastest cadence gets a **correct answer at every speed** | The cron fires on one fixed schedule regardless of the dial and asks whether a day is owed; at slower speeds most firings are no-ops. This is what lets the pace change at runtime with nothing redeployed. **At a four-minute day the hosted cron tops out at 4x**, because one minute is the finest schedule Vercel offers and 8x needs a firing every 30 seconds — the in-process scheduler has no such limit | `clock-speed.test.ts` → *"gives a cron at the fastest cadence a correct answer at every speed"*; `sweep.e2e.ts` → *"advances the world from a plain GET only when a day is owed"* |
 | K9 | Only the **cron path (GET) is gated** on due-ness; an authorized **POST ticks unconditionally** | POST is "tick now" — what the test harness and a human operator use. Gating it would break every end-to-end suite, which ticks dozens of times a minute | `sweep.e2e.ts` → *"advances the world from a plain GET only when a day is owed"* |
 | K10 | The world reports itself **running whenever anything is advancing it**, cron included | `schedulerEnabled()` alone is always false on Vercel, so every player saw "Clock paused" and no countdown while the cron ticked the world beneath them. Running means the in-process loop here, or a tick recent enough to trust; two silent effective intervals is a stall, and the UI says so rather than counting down to a day that is not coming | `clock-speed.test.ts` → *"is running when a cron has ticked it recently"* and *"has stalled once two intervals pass with no tick"*; `sweep.e2e.ts` → *"reports the world as running even with no in-process scheduler"* |
 | K11 | The offline grace is measured **at the current speed** | It is twelve *game* days. At 8x those pass eight times as fast, so a player away for a real evening at 8x has missed the same trading days as one away four real days at 1x, and is treated the same | `offline-progression.test.ts` → *"is worth a fixed number of game days, whatever the clock speed"* |
 
-**Settled at four hours a game day**, making a 90-day season **two weeks**. Every
-other system already assumed a check-in game: push notifications, the offline
-grace, the "while you were away" report, the PWA install prompt. The 60-second
-clock was a development convenience that shipped. `GAME_TICK_INTERVAL_MS`
-overrides it; the coherence test re-checks the relationships whatever it is set
-to, so retuning the pace is safe and letting it drift apart is not.
+**Now set at four minutes a game day**, making a 90-day season about **six
+hours**. This reverses an earlier settlement at four hours, which had been
+chosen because every other system assumed a check-in game: push notifications,
+the offline grace, the "while you were away" report, the PWA install prompt.
+Those systems still work — everything of consequence is counted in game days
+and follows the clock — but the product is a different one, and the costs are
+named in K1, K2, K6 and K8 rather than left to be rediscovered.
+`GAME_TICK_INTERVAL_MS` overrides the default; the coherence test re-checks the
+relationships whatever it is set to, so retuning the pace is safe and letting it
+drift apart is not.
 
 **The speed dial (K7–K11) is the deliberate exception to that default.** It
 multiplies the pace at runtime for everyone at once — an operator's lever for

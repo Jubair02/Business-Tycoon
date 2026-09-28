@@ -12,7 +12,7 @@
 //   2. **Price.** The unit cost is locked when the order is placed, and market
 //      prices move every third tick. Ordering ahead of a rush is a hedge.
 //   3. **Bulk.** Larger orders earn a discount.
-//   4. **It arrives without you.** A game day is four real hours; nobody is
+//   4. **It arrives without you.** A game day is four real minutes; nobody is
 //      going to be at the counter on the morning of the rush.
 //
 // Pure: validation, pricing and the delivery plan. Nothing here touches the

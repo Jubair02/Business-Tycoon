@@ -21,9 +21,19 @@ import {
 } from '@/lib/game/clock-speed';
 import { DEFAULT_TICK_INTERVAL_MS } from '@/lib/game/tick-schedule';
 
-const HOUR = 60 * 60 * 1000;
 const BASE = DEFAULT_TICK_INTERVAL_MS;
 const at = (iso: string) => new Date(iso);
+
+/**
+ * Offsets are written as fractions of the base interval, never as wall-clock
+ * hours.
+ *
+ * They used to be hardcoded — "04:00Z is one day after 00:00Z" — which was only
+ * true while a game day happened to be four real hours. Changing the clock then
+ * broke a dozen assertions that were describing entirely correct behaviour.
+ */
+const since = (last: string, ms: number) => new Date(new Date(last).getTime() + ms);
+const before = (from: Date, ms: number) => new Date(from.getTime() - ms).toISOString();
 
 describe('the dial', () => {
   it('offers exactly 1x, 2x, 4x and 8x', () => {
@@ -65,23 +75,23 @@ describe('when a day is due', () => {
   });
 
   it('waits a full base interval at 1x', () => {
-    expect(isTickDue({ lastTickISO: last, now: at('2026-09-28T02:00:00Z'), baseIntervalMs: BASE, speed: 1 })).toBe(false);
-    expect(isTickDue({ lastTickISO: last, now: at('2026-09-28T04:00:00Z'), baseIntervalMs: BASE, speed: 1 })).toBe(true);
+    expect(isTickDue({ lastTickISO: last, now: since(last, BASE / 2), baseIntervalMs: BASE, speed: 1 })).toBe(false);
+    expect(isTickDue({ lastTickISO: last, now: since(last, BASE), baseIntervalMs: BASE, speed: 1 })).toBe(true);
   });
 
   it('is due four times as often at 4x', () => {
-    expect(isTickDue({ lastTickISO: last, now: at('2026-09-28T00:30:00Z'), baseIntervalMs: BASE, speed: 4 })).toBe(false);
-    expect(isTickDue({ lastTickISO: last, now: at('2026-09-28T01:00:00Z'), baseIntervalMs: BASE, speed: 4 })).toBe(true);
+    expect(isTickDue({ lastTickISO: last, now: since(last, BASE / 8), baseIntervalMs: BASE, speed: 4 })).toBe(false);
+    expect(isTickDue({ lastTickISO: last, now: since(last, BASE / 4), baseIntervalMs: BASE, speed: 4 })).toBe(true);
   });
 
-  it('forgives a cron that fires a few seconds early', () => {
-    // "Every 30 minutes" lands a little either side of the mark. Skipping a
-    // firing that is 2 seconds early would cost the world a whole interval.
-    expect(isTickDue({ lastTickISO: last, now: at('2026-09-28T03:59:50Z'), baseIntervalMs: BASE, speed: 1 })).toBe(true);
+  it('forgives a cron that fires a fraction early', () => {
+    // A scheduled firing lands a little either side of the mark. Skipping one
+    // that is barely early would cost the world a whole interval.
+    expect(isTickDue({ lastTickISO: last, now: since(last, BASE * 0.99), baseIntervalMs: BASE, speed: 1 })).toBe(true);
   });
 
   it('does not forgive a firing that is genuinely early', () => {
-    expect(isTickDue({ lastTickISO: last, now: at('2026-09-28T03:30:00Z'), baseIntervalMs: BASE, speed: 1 })).toBe(false);
+    expect(isTickDue({ lastTickISO: last, now: since(last, BASE * 0.875), baseIntervalMs: BASE, speed: 1 })).toBe(false);
   });
 
   it('treats an unreadable last tick as due', () => {
@@ -89,8 +99,8 @@ describe('when a day is due', () => {
   });
 
   it('gives a cron at the fastest cadence a correct answer at every speed', () => {
-    // The whole reason the cron can fire every 30 minutes regardless of the
-    // dial: at 1x, seven of eight firings say "not yet", and the eighth ticks.
+    // The whole reason one cron schedule serves every position of the dial: at
+    // 1x, seven of eight firings say "not yet", and the eighth ticks.
     const cadence = fastestIntervalMs(BASE);
     expect(cadence).toBe(BASE / 8);
 
@@ -114,9 +124,9 @@ describe('the countdown', () => {
   it('points at the next day, at the current speed', () => {
     const last = '2026-09-28T00:00:00.000Z';
     expect(nextTickAtSpeed({ lastTickISO: last, baseIntervalMs: BASE, speed: 1 }))
-      .toBe('2026-09-28T04:00:00.000Z');
+      .toBe(since(last, BASE).toISOString());
     expect(nextTickAtSpeed({ lastTickISO: last, baseIntervalMs: BASE, speed: 8 }))
-      .toBe('2026-09-28T00:30:00.000Z');
+      .toBe(since(last, BASE / 8).toISOString());
   });
 
   it('is null only for a world that has never ticked', () => {
@@ -135,22 +145,23 @@ describe('whether the world is running', () => {
   it('is running when a cron has ticked it recently', () => {
     // The Vercel case: no scheduler here, but the world is advancing. Telling
     // players "clock paused" while it did so was a real bug.
-    const recent = new Date(now.getTime() - HOUR).toISOString();
+    const recent = before(now, BASE / 4);
     expect(clockIsRunning({ schedulerEnabledHere: false, lastTickISO: recent, now, baseIntervalMs: BASE, speed: 1 })).toBe(true);
   });
 
   it('has stalled once two intervals pass with no tick', () => {
     // The cron stopped reaching the endpoint. Counting down to a day that is
     // not coming would be worse than saying so.
-    const stale = new Date(now.getTime() - 9 * HOUR).toISOString();
+    const stale = before(now, BASE * 2.25);
     expect(clockIsRunning({ schedulerEnabledHere: false, lastTickISO: stale, now, baseIntervalMs: BASE, speed: 1 })).toBe(false);
   });
 
   it('judges staleness at the current speed', () => {
-    // At 8x a day is 30 minutes, so an hour of silence is a stall.
-    const anHourAgo = new Date(now.getTime() - HOUR - 1).toISOString();
-    expect(clockIsRunning({ schedulerEnabledHere: false, lastTickISO: anHourAgo, now, baseIntervalMs: BASE, speed: 8 })).toBe(false);
-    expect(clockIsRunning({ schedulerEnabledHere: false, lastTickISO: anHourAgo, now, baseIntervalMs: BASE, speed: 1 })).toBe(true);
+    // A gap of a quarter of the base interval is two whole days at 8x — a
+    // stall — and a fraction of one at 1x.
+    const gap = before(now, BASE / 4 + 1);
+    expect(clockIsRunning({ schedulerEnabledHere: false, lastTickISO: gap, now, baseIntervalMs: BASE, speed: 8 })).toBe(false);
+    expect(clockIsRunning({ schedulerEnabledHere: false, lastTickISO: gap, now, baseIntervalMs: BASE, speed: 1 })).toBe(true);
   });
 
   it('is not running for a world that has never ticked and has no scheduler', () => {

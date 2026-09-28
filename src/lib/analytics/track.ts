@@ -133,7 +133,7 @@ export async function trackOnce(
 /**
  * Delete events past the retention window.
  *
- * A game day is a real minute, so even a player-actions-only table grows
+ * A game day is four real minutes, so even a player-actions-only table grows
  * steadily. Called from the tick on a long interval; safe to call at any time.
  */
 export async function pruneOldEvents(now: Date = new Date()): Promise<number> {

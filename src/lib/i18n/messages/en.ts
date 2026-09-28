@@ -124,7 +124,7 @@ export const en = {
   'offline.byShop': 'By shop',
   'offline.tradedThenClosed': 'Your shops traded for {traded} days, then closed for {dormant}.',
   'offline.capExplained':
-    'A shop runs unattended for up to eight hours. After that it shutters until you are back — it earns nothing, but it pays no rent either. They are open again now.',
+    'A shop runs unattended for up to {days} game days. After that it shutters until you are back — it earns nothing, but it pays no rent either. They are open again now.',
   'offline.soldOutCount': { one: '{count} shop sold out', other: '{count} shops sold out' },
   'offline.nothingTrading': 'You had no shops trading while you were away.',
 
@@ -193,6 +193,7 @@ export const en = {
   'clock.help': 'How fast the shared game day passes — for every player at once.',
   'clock.current': 'Right now',
   'clock.dayLength': 'a day every {hours} h',
+  'clock.dayLengthMinutes': 'a day every {minutes} min',
   'clock.needSecret': 'Enter the operator secret first.',
   'clock.wrongSecret': 'That secret was refused. It has not been kept.',
   'clock.speedSet': 'World speed set to {speed}×.',
@@ -200,7 +201,7 @@ export const en = {
   'clock.secretPlaceholder': 'The CRON_SECRET from your deployment',
   'clock.secretRemembered': 'Remembered for this tab — leave blank to reuse it',
   'clock.enterSecretHint': 'Enter the operator secret above to change the speed.',
-  'clock.warning': 'This changes the pace for everyone. 8× finishes a two-week season in under two days — use it for events and testing, then set it back.',
+  'clock.warning': 'This changes the pace for everyone, and a game day is already only four minutes. Use the faster settings for events and testing, then set it back.',
 
   // ---- Errors ----
   'error.network': 'Network error. Check your connection and try again.',

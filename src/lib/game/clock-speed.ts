@@ -21,10 +21,14 @@
 //   tick is due        = now - lastTick >= effective interval
 //
 // The scheduler re-reads the speed after every tick, so a change takes effect
-// on the next cycle. A cron fires at the *fastest* cadence the dial allows —
-// every 30 minutes for a 4-hour day at 8x — and at slower speeds most of those
-// firings are correct no-ops. Either way the world moves at the chosen pace and
-// nothing needs redeploying to change it.
+// on the next cycle. A cron fires on one fixed schedule and at slower speeds
+// most of those firings are correct no-ops. Either way the world moves at the
+// chosen pace and nothing needs redeploying to change it.
+//
+// One limit worth knowing: at the shipped four-minute day, 8x is a day every
+// 30 seconds, which is finer than any hosted cron can be asked to fire. A
+// cron-driven deployment therefore tops out at 4x; the in-process scheduler
+// runs the full dial.
 //
 // Pure: no Prisma, no clock of its own.
 
@@ -71,9 +75,9 @@ export function isTickDue(params: {
   const last = new Date(params.lastTickISO).getTime();
   if (!Number.isFinite(last)) return true;
 
-  // A small tolerance, because a cron that fires "every 30 minutes" lands a
-  // few seconds either side of the mark. Without it a firing 2s early would
-  // be skipped and the world would wait a whole extra interval.
+  // A small tolerance, because a scheduled firing lands a few seconds either
+  // side of the mark. Without it a firing slightly early would be skipped and
+  // the world would wait a whole extra interval.
   const tolerance = Math.min(60_000, effectiveIntervalMs(params.baseIntervalMs, params.speed) * 0.05);
 
   return params.now.getTime() - last >= effectiveIntervalMs(params.baseIntervalMs, params.speed) - tolerance;

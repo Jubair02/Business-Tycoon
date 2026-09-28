@@ -69,11 +69,11 @@ export async function GET(request: NextRequest) {
   if (authorizeTickRequest(request.headers).authorized) {
     // ---- The cron path is gated on the world's speed ----
     //
-    // A hosted cron fires at the *fastest* cadence the dial allows — every
-    // 30 minutes for a 4-hour day at 8x — and asks here whether a day is
-    // actually owed yet. At 1x, seven of every eight firings are correct
-    // no-ops. This is what lets an operator change the speed at runtime
-    // without redeploying a cron schedule.
+    // A hosted cron fires on one fixed schedule and asks here whether a day
+    // is actually owed yet. At a four-minute day and a one-minute cron, three
+    // of every four firings are correct no-ops at 1x. This is what lets an
+    // operator change the speed at runtime without redeploying a cron
+    // schedule — up to 4x, past which the cron cannot fire often enough.
     //
     // Only GET is gated. An authorized POST is "tick now": that is what the
     // test harness and a human operator use, and it stays unconditional.

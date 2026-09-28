@@ -143,7 +143,15 @@ export default function WorldClockCard() {
     }
   };
 
-  const hours = clock ? clock.effectiveIntervalMs / 3_600_000 : null;
+  /**
+   * A game day is four real minutes, so "a day every 0 h" is what rounding to
+   * hours produces. Under an hour the label counts in minutes instead.
+   */
+  const dayLength = clock
+    ? clock.effectiveIntervalMs >= 3_600_000
+      ? t('clock.dayLength', { hours: Math.round((clock.effectiveIntervalMs / 3_600_000) * 10) / 10 })
+      : t('clock.dayLengthMinutes', { minutes: Math.max(1, Math.round(clock.effectiveIntervalMs / 60_000)) })
+    : null;
   /**
    * Whether clicking a speed could possibly succeed. The buttons are disabled
    * otherwise — the first version let you click 4x with an empty secret field
@@ -166,7 +174,7 @@ export default function WorldClockCard() {
         <div className="bt-surface flex flex-wrap items-baseline justify-between gap-2 p-2.5 text-xs">
           <span className="text-muted-foreground">{t('clock.current')}</span>
           <span className="bt-numeric font-semibold">
-            {clock ? `${clock.speed}× · ${t('clock.dayLength', { hours: hours ?? 0 })}` : '…'}
+            {clock ? `${clock.speed}× · ${dayLength}` : '…'}
           </span>
         </div>
 

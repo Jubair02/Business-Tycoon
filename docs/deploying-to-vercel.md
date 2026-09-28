@@ -10,7 +10,7 @@ changed and why, so nobody puts it back.
 
 ## The clock is the whole problem
 
-A game day is four real hours and the world advances on a server clock. That
+A game day is four real minutes and the world advances on a server clock. That
 clock used to be a `setInterval` started by [`src/instrumentation.ts`](../src/instrumentation.ts)
 when the server booted.
 
@@ -28,11 +28,18 @@ GAME_TICK_SCHEDULER=off      # stop the in-process loop trying
 and [`vercel.json`](../vercel.json) schedules the tick instead:
 
 ```json
-{ "crons": [{ "path": "/api/game/tick", "schedule": "*/30 * * * *" }] }
+{ "crons": [{ "path": "/api/game/tick", "schedule": "* * * * *" }] }
 ```
 
-Every thirty minutes, not every four hours — see **The speed dial** below for
-why. At 1x, seven of every eight firings are a correct no-op.
+Every minute, not every four minutes — see **The speed dial** below for why.
+At 1x, three of every four firings are a correct no-op.
+
+> **A four-minute game day is at the edge of what hosted cron can drive.** One
+> minute is the finest schedule Vercel offers, so the cron keeps up at 1x, 2x
+> and 4x, but **not at 8x**, which needs a firing every 30 seconds. If you need
+> the full dial, run the in-process scheduler on a host that stays up
+> (`GAME_TICK_SCHEDULER` unset) instead of the cron. Vercel's Hobby plan also
+> limits cron to once per day, which cannot drive this game at all.
 
 Vercel Cron sends `Authorization: Bearer $CRON_SECRET`, which
 [`tick-auth.ts`](../src/lib/game/tick-auth.ts) already understood.
@@ -41,7 +48,7 @@ Vercel Cron sends `Authorization: Bearer $CRON_SECRET`, which
 
 Vercel Cron issues a plain **`GET`**, and there is no way to ask it for a
 `POST`. The route used to answer a `GET` with a status payload and a 200 — so
-the cron dashboard would have shown a healthy green tick every four hours while
+the cron dashboard would have shown a healthy green tick every minute while
 the world stayed frozen for ever. Nothing would have alerted; the game would
 simply never have moved.
 
@@ -69,29 +76,36 @@ running faster than another's — the game removed a "Next Day" button for
 exactly that reason. Whoever holds `CRON_SECRET` sets the pace for the whole
 world, and the top bar shows the current speed to every player.
 
-**How the cron keeps up without redeploying.** The cron fires at the *fastest*
-cadence the dial allows — every 30 minutes, which is a 4-hour day at 8x — and
-each firing asks the tick endpoint whether a day is actually owed yet at the
-current speed. At 1x seven of every eight firings return `not-due`; at 8x every
-one ticks. Turn the dial and the next firing honours it. Nothing needs
-redeploying.
+**How the cron keeps up without redeploying.** The cron fires on one fixed
+schedule — every minute — and each firing asks the tick endpoint whether a day
+is actually owed yet at the current speed. At 1x (a four-minute day) three of
+every four firings return `not-due`; at 4x every one ticks. Turn the dial and
+the next firing honours it. Nothing needs redeploying.
+
+At **8x** a day is 30 seconds, which is finer than a cron can fire, so a
+cron-driven deployment cannot reach that setting — it will run at 1x-per-minute
+instead, i.e. 4x. Use the in-process scheduler if you need 8x.
 
 An authorized `POST` to `/api/game/tick` is still "tick now", unconditionally —
 that is what the test harness and a human operator use.
 
-**8x is for events and testing, not a permanent setting.** At 8x a two-week
-season finishes in under two days, prestige accrues eight times as fast, and
-the offline grace (twelve game days, however fast they pass) shrinks to six
-real hours. `season-coherence.test.ts` pins the *default* pace; the dial is
-the deliberate exception to it.
+**The faster settings are for events and testing, not a permanent setting.**
+The default is already a four-minute game day, so a six-hour season becomes
+three hours at 2x and ninety minutes at 4x, prestige accrues to match, and the
+offline grace (twelve game days, however fast they pass) shrinks from 48
+minutes to 24 and then 12. `season-coherence.test.ts` pins the *default* pace;
+the dial is the deliberate exception to it.
 
 ### Cron frequency
 
-Hobby plans restrict how often cron may run. If yours will not accept
-`*/30 * * * *`, the dial's top speeds will not be reachable — the world cannot
-tick more often than the cron fires. Either upgrade, or accept that the
-effective maximum is whatever cadence your plan allows. The world will never
-run *faster* than the cron; a slower cron simply caps the dial.
+Hobby plans restrict how often cron may run. At a four-minute game day the
+schedule has to be `* * * * *` — one minute, the finest Vercel offers — and
+even that caps the dial at 4x, because 8x needs a firing every 30 seconds. A
+Hobby plan's once-a-day cron cannot drive this game at all.
+
+The world never runs *faster* than the cron fires; a slower cron simply caps
+the dial. If you need the full dial, run the in-process scheduler on a host
+that stays up (leave `GAME_TICK_SCHEDULER` unset) rather than using cron.
 
 `season-coherence.test.ts` checks the clock still makes sense against the season
 length, the offline grace and the season pass after any such change.
@@ -202,7 +216,7 @@ URLs, which differ per environment.
 |---|---|
 | `GAME_TICK_SCHEDULER` | `off` on Vercel. See above |
 | `ANALYTICS_REPORT_TOKEN` | `GET /api/analytics/report` refuses without it rather than opening |
-| `GAME_TICK_INTERVAL_MS` | Blank for the 4-hour default. Must agree with the cron schedule |
+| `GAME_TICK_INTERVAL_MS` | Blank for the 4-minute default. Must agree with the cron schedule |
 
 ### Optional — each feature stays off if blank
 

@@ -14,7 +14,7 @@
 // to keep the doors open and not enough to trade well on.
 //
 // That keeps the game playable for someone who checks in twice a day (a game
-// day is four real hours, and shelves empty in about one) while making the
+// day is four real minutes, and shelves empty in about one) while making the
 // supplier screen the place where buying is actually decided. A player who
 // never opens it will survive and will quietly earn much less than one who does.
 //

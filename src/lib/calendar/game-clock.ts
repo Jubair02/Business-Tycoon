@@ -11,11 +11,15 @@
 // plays through Ramadan and Eid; one that starts in June plays through the
 // monsoon and Durga Puja.
 //
-// A game day is a real minute, so the world's calendar runs about 1,440 times
+// A game day is four real minutes, so the world's calendar runs about 360 times
 // faster than ours and a 90-day season covers a quarter of a year. That is the
 // point: seasons come out genuinely different from one another, which is what
 // the season names — "Eid Rush", "Winter Market" — already promised before
 // there was a calendar to back them.
+//
+// Note the mapping itself does not care about the wall clock: one game day is
+// one calendar day whatever `GAME_TICK_INTERVAL_MS` says. Only how fast that
+// calendar is experienced changes.
 //
 // The alternative, compressing a whole year into 90 days, was rejected: at four
 // calendar days per game day a one-day holiday would be skipped over entirely

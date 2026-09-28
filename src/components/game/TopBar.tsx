@@ -48,9 +48,9 @@ function formatCountdown(nextTickAt: string | null, now: number): string | null 
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  // A game day is four real hours, so this counts in hours far more often than
-  // it counts in seconds. Before the clock slowed it only ever formatted
-  // minutes, which would have rendered the common case as "239m 45s".
+  // A game day is four real minutes, so in practice this formats minutes and
+  // seconds. The hours branch is kept because the clock interval is
+  // configurable per deployment and the dial only ever makes a day shorter.
   if (hours > 0) return `${hours}h ${minutes}m`;
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }

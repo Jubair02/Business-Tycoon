@@ -12,10 +12,10 @@ export const SEASON_CONFIG = {
   /**
    * Game days in a season.
    *
-   * A game day is a real minute, so 90 days is about a day and a half of
-   * wall-clock time at the default tick rate — short enough to run a real
-   * season in testing, and the number is a single knob if the live cadence
-   * should be slower.
+   * A game day is four real minutes, so 90 days is about six hours of
+   * wall-clock time at the default tick rate. This is the single knob for the
+   * live cadence: it is counted in game days, so it follows the clock wherever
+   * `GAME_TICK_INTERVAL_MS` puts it.
    */
   lengthDays: 90,
 

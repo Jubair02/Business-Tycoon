@@ -129,7 +129,7 @@ export const bn: Catalogue = {
   'offline.byShop': 'দোকান অনুযায়ী',
   'offline.tradedThenClosed': 'আপনার দোকান {traded} দিন চলেছে, তারপর {dormant} দিন বন্ধ ছিল।',
   'offline.capExplained':
-    'একটি দোকান আপনাকে ছাড়া সর্বোচ্চ আট ঘণ্টা চলে। এরপর আপনি ফিরে না আসা পর্যন্ত বন্ধ থাকে — আয়ও হয় না, ভাড়াও লাগে না। এখন আবার খোলা হয়েছে।',
+    'একটি দোকান আপনাকে ছাড়া সর্বোচ্চ {days} গেম দিন চলে। এরপর আপনি ফিরে না আসা পর্যন্ত বন্ধ থাকে — আয়ও হয় না, ভাড়াও লাগে না। এখন আবার খোলা হয়েছে।',
   'offline.soldOutCount': { one: '{count} দোকানের মাল শেষ', other: '{count} দোকানের মাল শেষ' },
   'offline.nothingTrading': 'আপনি না থাকাকালীন আপনার কোনো দোকান চালু ছিল না।',
 
@@ -198,6 +198,7 @@ export const bn: Catalogue = {
   'clock.help': 'শেয়ার করা খেলার দিন কত দ্রুত যায় — সব খেলোয়াড়ের জন্য একসঙ্গে।',
   'clock.current': 'এখন',
   'clock.dayLength': 'প্রতি {hours} ঘণ্টায় এক দিন',
+  'clock.dayLengthMinutes': 'প্রতি {minutes} মিনিটে এক দিন',
   'clock.needSecret': 'আগে অপারেটর সিক্রেট দিন।',
   'clock.wrongSecret': 'সিক্রেটটি গ্রহণ করা হয়নি। এটি রাখা হয়নি।',
   'clock.speedSet': 'বিশ্বের গতি {speed}× করা হয়েছে।',

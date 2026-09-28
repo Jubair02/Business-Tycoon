@@ -22,6 +22,23 @@
 // verified in isolation, the composition verified by nobody. So the
 // composition is what this file checks. The numbers may be retuned; they may
 // not quietly stop making sense together.
+//
+// ---- The clock was deliberately reversed ----
+//
+// The game now runs at **four real minutes a game day**, not four hours. That
+// is a different product: a session you sit through, not one you check in on.
+// The bounds below were rewritten to match, and the guarantees given up are
+// named in the tests that used to assert them, because they were real:
+//
+//   - a season is ~6 hours, so seasonal retention (`returned_next_season`)
+//     measures sessions, not weeks;
+//   - the offline grace is ~48 minutes, so it covers a coffee break rather than
+//     a night's sleep;
+//   - a hosted cron tops out at 4x, because a one-minute schedule is the
+//     finest Vercel offers and 8x needs a firing every 30 seconds.
+//
+// None of that is an accident now. Changing the clock again should mean
+// changing this file again, on purpose.
 
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_TICK_INTERVAL_MS, MAX_TICK_INTERVAL_MS, MIN_TICK_INTERVAL_MS } from '@/lib/game/tick-schedule';
@@ -32,25 +49,28 @@ import { PASS_CONFIG, PASS_XP, xpForTier } from '@/lib/commerce/season-pass';
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-/** A game day, in real hours. */
-const gameDayHours = DEFAULT_TICK_INTERVAL_MS / HOUR;
-/** A whole season, in real days. */
-const seasonRealDays = (SEASON_CONFIG.lengthDays * DEFAULT_TICK_INTERVAL_MS) / DAY;
+const MINUTE = 60 * 1000;
+
+/** A game day, in real minutes. */
+const gameDayMinutes = DEFAULT_TICK_INTERVAL_MS / MINUTE;
+/** A whole season, in real hours. */
+const seasonRealHours = (SEASON_CONFIG.lengthDays * DEFAULT_TICK_INTERVAL_MS) / HOUR;
 
 describe('the clock', () => {
-  it('runs a season over days, not minutes', () => {
-    // The defect. A season that finishes inside one sitting makes prestige,
-    // the ladder reset and every retention metric meaningless.
-    expect(seasonRealDays).toBeGreaterThanOrEqual(7);
-    expect(seasonRealDays).toBeLessThanOrEqual(45);
+  it('runs a season over hours, not a whole evening and not ninety minutes', () => {
+    // Was: a season must last 7-45 real days, so seasonal retention had a
+    // content cycle to measure. That is given up deliberately — a season is now
+    // a long session. It still must not finish before a player can build
+    // anything, nor drag past a day.
+    expect(seasonRealHours).toBeGreaterThanOrEqual(2);
+    expect(seasonRealHours).toBeLessThanOrEqual(24);
   });
 
-  it('lets a check-in show visible progress without skipping the week', () => {
-    // Too fast and the player cannot keep up with their own shops; too slow and
-    // opening the game shows yesterday's screen again.
-    const daysPerRealDay = 24 / gameDayHours;
-    expect(daysPerRealDay).toBeGreaterThanOrEqual(2);
-    expect(daysPerRealDay).toBeLessThanOrEqual(24);
+  it('leaves a player long enough to act inside a single game day', () => {
+    // A day has to be long enough to reprice a shelf, restock and hire before
+    // it closes. Under about a minute the player is watching, not playing.
+    expect(gameDayMinutes).toBeGreaterThanOrEqual(1);
+    expect(gameDayMinutes).toBeLessThanOrEqual(60);
   });
 
   it('keeps the default inside its own bounds', () => {
@@ -72,10 +92,12 @@ describe('the offline grace', () => {
     expect(OFFLINE_CONFIG.graceMs).toBe(OFFLINE_GRACE_GAME_DAYS * DEFAULT_TICK_INTERVAL_MS);
   });
 
-  it('covers a night and a working day', () => {
-    // A player who sleeps, or who works a shift, must not come back to a
-    // shuttered chain.
-    expect(OFFLINE_CONFIG.graceMs).toBeGreaterThanOrEqual(16 * HOUR);
+  it('covers stepping away from the screen', () => {
+    // Was: a night's sleep and a working shift, 16 real hours. At four minutes
+    // a game day that would be 240 game days of unattended trading, which is
+    // most of a season played by nobody. What it has to cover now is a break —
+    // a phone call, a meal — not a night.
+    expect(OFFLINE_CONFIG.graceMs).toBeGreaterThanOrEqual(30 * MINUTE);
   });
 
   it('is a fraction of a season, not most of one', () => {
@@ -134,17 +156,17 @@ describe('the season pass fits the season', () => {
   });
 });
 
-describe('retention is measurable against this cadence', () => {
+describe('what the cadence costs the analytics', () => {
   it('fits more than one season inside a 30-day window', () => {
-    // `returned_next_season` is the number the whole seasonal design rests on.
-    // If a season is longer than the retention window, D30 can never observe a
-    // player coming back for the next one.
-    expect(seasonRealDays).toBeLessThanOrEqual(30);
+    // Still true, and now by a wide margin.
+    expect(seasonRealHours / 24).toBeLessThanOrEqual(30);
   });
 
-  it('does not turn over several seasons inside a week', () => {
-    // At the old clock a season ended every ninety minutes, so the metric
-    // fired constantly and meant nothing.
-    expect(seasonRealDays).toBeGreaterThanOrEqual(7);
+  it('records that seasonal retention no longer measures weeks', () => {
+    // Deliberately asserting the consequence rather than guarding against it.
+    // `returned_next_season` fires several times a day at this pace, so it is a
+    // session metric now. Anyone reading it as a D7/D30 signal is reading it
+    // wrong, and this test is where they find that out.
+    expect(seasonRealHours).toBeLessThan(24);
   });
 });

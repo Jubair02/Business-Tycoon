@@ -13,7 +13,7 @@ import {
 /**
  * How often the calendar is re-read.
  *
- * A game day is a real minute, so the world's date moves fast enough that a
+ * A game day is four real minutes, so the world's date moves fast enough that a
  * strip saying "Eid in 3 days" would be wrong within five minutes of a player
  * leaving the tab open.
  */

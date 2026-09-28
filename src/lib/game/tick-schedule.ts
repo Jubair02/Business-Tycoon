@@ -9,27 +9,28 @@
 /**
  * How often the world advances when nothing overrides it.
  *
- * Four hours a game day, which with a 90-day season makes a season **two
- * weeks** — the cadence every other system in the game already assumes. Push
- * notifications, the offline grace window, the "while you were away" report and
- * the PWA install prompt are all built for a game you check in on, not one you
- * sit and watch.
+ * **Four minutes a game day** — a game you sit and watch, not one you check in
+ * on. A 90-day season runs in about six hours of wall-clock time, and a whole
+ * shop pays itself back inside a couple of hours.
  *
- * It was 60 seconds, which is the right number for developing against and the
- * wrong one to ship: a season completed in **ninety minutes**, prestige capped
- * within a day of real time, the leaderboard reset before lunch, and eight
- * hours away meant 480 game days — more than five whole seasons — passed
- * without you. D1/D7/D30 retention cannot mean anything measured against a
- * content cycle that short.
+ * This is a deliberate reversal, so the trade is worth writing down. It was
+ * four hours a day, chosen so that a season lasted a fortnight and D1/D7/D30
+ * retention had a content cycle to measure against. At four minutes:
  *
- * Override with `GAME_TICK_INTERVAL_MS` for local work; 60_000 is still the
- * comfortable number to develop against.
+ *   - a season is ~6 hours, so `returned_next_season` fires several times a day
+ *     and stops being a retention signal;
+ *   - the offline grace is 12 game days = ~48 minutes of real time, so a player
+ *     who steps away for lunch comes back to shuttered shops;
+ *   - a hosted cron cannot drive the world above 4x, because Vercel's smallest
+ *     schedule is one minute and 8x needs a firing every 30 seconds. The
+ *     in-process scheduler has no such limit.
  *
- * Changing this changes more than the clock — see `season-coherence.test.ts`,
- * which checks that the offline grace, the season length and the payback band
- * still make sense together afterwards.
+ * Those are consequences of the pace, not bugs in it. `season-coherence.test.ts`
+ * pins them so they stay chosen rather than discovered.
+ *
+ * Override with `GAME_TICK_INTERVAL_MS` per deployment.
  */
-export const DEFAULT_TICK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+export const DEFAULT_TICK_INTERVAL_MS = 4 * 60 * 1000;
 
 /**
  * Floor on the configured interval. A tick walks every business in the game,

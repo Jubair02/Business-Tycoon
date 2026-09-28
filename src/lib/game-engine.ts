@@ -1397,7 +1397,7 @@ export async function gameTick(): Promise<void> {
     console.error('[GameEngine] Failed to record analytics milestones:', err);
   }
 
-  // A game day is a real minute, so the event table grows steadily. Pruned once
+  // A game day is four real minutes, so the event table grows steadily. Pruned once
   // a game month rather than every tick.
   if (tickNum % 30 === 0) {
     void pruneOldEvents().catch(() => {});
