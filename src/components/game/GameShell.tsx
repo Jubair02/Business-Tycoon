@@ -144,7 +144,7 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
           schedulerEnabled: (data.clockRunning ?? data.schedulerEnabled) !== false,
           speed: typeof data.speed === 'number' ? data.speed : 1,
         });
-        return data as { gameDay?: number };
+        return data as { gameDay?: number; daysBehind?: number };
       }
       return null;
     } catch {
@@ -252,12 +252,27 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
    */
   useEffect(() => {
     const syncClock = async (): Promise<void> => {
+      // One sync at a time. Without this, the timer and the visibility handler
+      // could both be in flight and each fire the day-change summary.
       if (syncingRef.current) return;
       syncingRef.current = true;
       try {
         const state = await fetchGameDay();
         const day = state?.gameDay;
         if (typeof day !== 'number') return;
+
+        // The clock has moved past what the server has simulated — because
+        // nothing was running, or because this host has no scheduler at all.
+        // Ask for the backlog. This cannot make the world run fast: the server
+        // only simulates days that have genuinely already passed.
+        if ((state?.daysBehind ?? 0) > 0) {
+          try {
+            await fetch('/api/game/catch-up', { method: 'POST' });
+            await fetchGameDay();
+          } catch {
+            // Offline or rate-limited; the next sync tries again.
+          }
+        }
 
         const previous = lastGameDayRef.current;
 
@@ -282,8 +297,20 @@ export default function GameShell({ children }: { children: React.ReactNode }) {
     };
 
     clockTimer.current = setInterval(() => { void syncClock(); }, 10000);
+
+    // A tab that has been in the background — or a phone that has been asleep —
+    // fires no timers at all. Coming back to the foreground is the beat that
+    // actually matters after an absence, and it is what makes "close the tab
+    // for twenty minutes and reopen" land on the right day immediately rather
+    // than up to ten seconds later.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void syncClock();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       if (clockTimer.current) clearInterval(clockTimer.current);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [fetchGameDay]);
 

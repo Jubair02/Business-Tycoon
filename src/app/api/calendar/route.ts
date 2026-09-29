@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     // The date *inside the game*, which is the one the economy runs on. The
     // real Dhaka date is sent alongside it because they are not the same thing
     // and the screen says so.
-    const worldDate = gameDayToCivilDate(season?.startedAt, gameDay);
+    const worldDate = gameDayToCivilDate(season, gameDay);
     const realDate = todayInDhaka();
 
     const day = calendarDay(worldDate);

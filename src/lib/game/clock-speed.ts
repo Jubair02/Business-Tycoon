@@ -60,9 +60,12 @@ export function effectiveIntervalMs(baseIntervalMs: number, speed: ClockSpeed): 
 /**
  * Whether the world is owed a tick.
  *
- * A world that has never ticked is always due — otherwise a fresh deployment
- * would wait a full interval before its first day, with nothing to count down
- * from.
+ * @deprecated Superseded by `daysOwed` in `day-clock.ts`. This answered a
+ * yes/no question — "has one interval passed?" — which is exactly why a missed
+ * firing used to lose a day: the answer was the same whether one day or fifty
+ * had gone by, and only ever bought one back. The clock now counts the
+ * backlog instead. Kept because `clock-speed.test.ts` documents the old
+ * cron-cadence reasoning against it; nothing in the app calls it.
  */
 export function isTickDue(params: {
   lastTickISO: string | null;

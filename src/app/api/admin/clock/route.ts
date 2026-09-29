@@ -22,9 +22,11 @@ import {
   clockIsRunning,
   effectiveIntervalMs,
   isClockSpeed,
-  nextTickAtSpeed,
 } from '@/lib/game/clock-speed';
 import { readClockSpeed, readLastTick, writeClockSpeed } from '@/lib/game/clock-speed-store';
+import { nextDayBoundaryMs } from '@/lib/game/day-clock';
+import { ensureAnchor } from '@/lib/game/day-clock-store';
+import { getCurrentGameDay } from '@/lib/game/seasons/seasons';
 
 const setSpeedSchema = z.object({
   speed: z.number().refine(isClockSpeed, {
@@ -33,17 +35,27 @@ const setSpeedSchema = z.object({
 });
 
 async function describeClock() {
-  const [speed, lastTick] = await Promise.all([readClockSpeed(), readLastTick()]);
+  const [speed, lastTick, processedDay] = await Promise.all([
+    readClockSpeed(),
+    readLastTick(),
+    getCurrentGameDay(),
+  ]);
   const baseIntervalMs = getTickIntervalMs();
   const now = new Date();
+  const dayLengthMs = effectiveIntervalMs(baseIntervalMs, speed);
+
+  // From the anchor, not from the last tick. Deriving the countdown from when
+  // the simulation last ran would drift behind the clock it is chasing, and the
+  // dial would disagree with the countdown every player sees.
+  const anchor = await ensureAnchor(processedDay, now);
 
   return {
     speed,
     speeds: CLOCK_SPEEDS,
     baseIntervalMs,
-    effectiveIntervalMs: effectiveIntervalMs(baseIntervalMs, speed),
+    effectiveIntervalMs: dayLengthMs,
     lastTick,
-    nextTickAt: nextTickAtSpeed({ lastTickISO: lastTick, baseIntervalMs, speed }),
+    nextTickAt: new Date(nextDayBoundaryMs({ anchor, nowMs: now.getTime(), dayLengthMs })).toISOString(),
     schedulerEnabledHere: schedulerEnabled(),
     running: clockIsRunning({
       schedulerEnabledHere: schedulerEnabled(),

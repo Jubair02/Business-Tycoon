@@ -55,7 +55,7 @@ import {
   windowMultiplier,
   __clearSeasonalCache,
 } from '@/lib/calendar/seasonal-demand';
-import { gameDayToCivilDate, gameDaysUntil } from '@/lib/calendar/game-clock';
+import { gameDayToCivilDate, gameDaysUntil, gameEpoch, DEFAULT_GAME_EPOCH } from '@/lib/calendar/game-clock';
 import { __clearCalendarCache } from '@/lib/calendar/calendar';
 
 const TRADES: TradeId[] = ['TEA_STALL', 'GROCERY', 'CLOTHING', 'MOBILE', 'RESTAURANT'];
@@ -542,40 +542,80 @@ describe('windowMultiplier', () => {
 // ============================================
 
 describe('the game clock', () => {
-  const started = new Date('2026-02-10T08:00:00Z');
+  const s1 = { number: 1, lengthDays: 90 };
 
-  it('opens a season on the day it actually started', () => {
-    expect(gameDayToCivilDate(started, 1)).toBe('2026-02-10');
+  it('opens the world on the epoch', () => {
+    expect(gameDayToCivilDate(s1, 1)).toBe('2027-01-01');
   });
 
   it('advances one calendar day per game day', () => {
-    expect(gameDayToCivilDate(started, 2)).toBe('2026-02-11');
-    expect(gameDayToCivilDate(started, 10)).toBe('2026-02-19');
-    expect(gameDayToCivilDate(started, 90)).toBe('2026-05-10');
+    expect(gameDayToCivilDate(s1, 2)).toBe('2027-01-02');
+    expect(gameDayToCivilDate(s1, 10)).toBe('2027-01-10');
+    expect(gameDayToCivilDate(s1, 90)).toBe('2027-03-31');
   });
 
-  it('falls back to today for a season that has not opened', () => {
-    const now = new Date('2026-09-21T06:00:00Z');
-    expect(gameDayToCivilDate(null, 1, now)).toBe('2026-09-21');
+  it('treats an un-bootstrapped world as season 1', () => {
+    expect(gameDayToCivilDate(null, 1)).toBe('2027-01-01');
+  });
+
+  it('does not depend on the wall clock', () => {
+    // The whole point of an epoch: the same season day is the same world date
+    // on a laptop and on a deployment bootstrapped months apart.
+    expect(gameDayToCivilDate(s1, 40)).toBe(gameDayToCivilDate(s1, 40));
+    expect(gameDayToCivilDate({ number: 2, lengthDays: 90 }, 1)).toBe('2027-04-01');
+  });
+
+  it('runs seasons on one continuous calendar', () => {
+    // Season 2 picks up the day after season 1 ends, so seasons land in
+    // different parts of the year instead of all replaying January.
+    const lastOfS1 = gameDayToCivilDate(s1, 90);
+    const firstOfS2 = gameDayToCivilDate({ number: 2, lengthDays: 90 }, 1);
+    expect(daysBetween(lastOfS1, firstOfS2)).toBe(1);
+
+    expect(gameDayToCivilDate({ number: 3, lengthDays: 90 }, 1)).toBe('2027-06-30');
+    expect(gameDayToCivilDate({ number: 5, lengthDays: 90 }, 1)).toBe('2027-12-27');
+  });
+
+  it('honours an epoch override', () => {
+    expect(gameEpoch('2030-06-15')).toBe('2030-06-15');
+    expect(gameDayToCivilDate(s1, 1, gameEpoch('2030-06-15'))).toBe('2030-06-15');
+  });
+
+  it('falls back to the default epoch for junk', () => {
+    expect(gameEpoch('not-a-date')).toBe(DEFAULT_GAME_EPOCH);
+    expect(gameEpoch('')).toBe(DEFAULT_GAME_EPOCH);
+    expect(gameEpoch(undefined)).toBe(DEFAULT_GAME_EPOCH);
   });
 
   it('counts game days to a date', () => {
-    expect(gameDaysUntil(started, 1, '2026-02-19')).toBe(9);
-    expect(gameDaysUntil(started, 10, '2026-02-10')).toBe(-9);
+    expect(gameDaysUntil(s1, 1, '2027-01-10')).toBe(9);
+    expect(gameDaysUntil(s1, 10, '2027-01-01')).toBe(-9);
   });
 
   it('carries a 90-day season through real observances', () => {
-    // A season starting in February plays through Ramadan and Eid; the season
-    // names promised this before there was a calendar to back them.
+    // Season 1 opens on 1 January 2027 and runs to 31 March, so it plays
+    // through Shohid Dibosh and Independence Day.
     const seen = new Set<string>();
     for (let day = 1; day <= 90; day++) {
-      for (const resolved of observancesOn(gameDayToCivilDate(started, day))) {
+      for (const resolved of observancesOn(gameDayToCivilDate(s1, day))) {
         seen.add(resolved.observance.id);
       }
     }
-    expect(seen.has('RAMADAN')).toBe(true);
-    expect(seen.has('EID_UL_FITR')).toBe(true);
+    expect(seen.has('SHOHID_DIBOSH')).toBe(true);
+    expect(seen.has('INDEPENDENCE_DAY')).toBe(true);
+  });
+
+  it('reaches Pohela Boishakh and the monsoon in later seasons', () => {
+    const seen = new Set<string>();
+    for (const number of [2, 3]) {
+      for (let day = 1; day <= 90; day++) {
+        for (const resolved of observancesOn(gameDayToCivilDate({ number, lengthDays: 90 }, day))) {
+          seen.add(resolved.observance.id);
+        }
+      }
+    }
     expect(seen.has('POHELA_BOISHAKH')).toBe(true);
+    expect(seen.has('MAY_DAY')).toBe(true);
   });
 });
 

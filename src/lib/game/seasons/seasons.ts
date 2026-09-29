@@ -11,6 +11,7 @@
 // that genuinely are world-level: the tick lock and the seed version.
 
 import { db } from '@/lib/db';
+import { reanchorToDay } from '../day-clock-store';
 import {
   SEASON_CONFIG,
   seasonName,
@@ -308,6 +309,11 @@ export async function rollOverSeason(): Promise<SeasonRolloverResult | null> {
       startedAt: new Date(),
     },
   });
+
+  // The day counter restarts at 0, so the clock anchor has to restart with it.
+  // Left alone, the anchor would still be pinned to the old season's day and
+  // the new one would be born owing ninety days of simulation it never had.
+  await reanchorToDay(next.gameDay);
 
   await db.gameLog.create({
     data: {

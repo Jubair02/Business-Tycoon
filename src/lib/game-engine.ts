@@ -668,9 +668,10 @@ export async function simulateBusinessTick(
 
   // ---- Step 0.6: Marketing Demand Modifier (Phase 4) ----
   // Fetch gameDay early (needed for marketing metrics and later for business metrics)
-  // The world's Bangladeshi date is the season's start date plus the day — see
-  // `calendar/game-clock.ts`. `activeSeason` and `gameDay` were read at Step 0.
-  const worldDate = gameDayToCivilDate(activeSeason?.startedAt, gameDay);
+  // The world's Bangladeshi date is the fixed game epoch plus however many days
+  // of world history have run — see `calendar/game-clock.ts`. `activeSeason`
+  // and `gameDay` were read at Step 0.
+  const worldDate = gameDayToCivilDate(activeSeason, gameDay);
 
   const marketingEffect = await processMarketingTick(
     business.id,

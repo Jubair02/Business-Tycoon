@@ -14,6 +14,9 @@ import { gameTick, acquireTickLock, releaseTickLock } from '@/lib/game-engine';
 import { resolveTickIntervalMs, isSchedulerEnabled } from './tick-schedule';
 import { effectiveIntervalMs } from './clock-speed';
 import { readClockSpeed } from './clock-speed-store';
+import { daysOwed, msUntilNextDay } from './day-clock';
+import { ensureAnchor } from './day-clock-store';
+import { getCurrentGameDay } from './seasons/seasons';
 
 /**
  * Module-level so a second `register()` — which Next's dev server does on
@@ -39,24 +42,106 @@ export async function getEffectiveTickIntervalMs(): Promise<number> {
   return effectiveIntervalMs(getTickIntervalMs(), await readClockSpeed());
 }
 
+/** Smallest gap between two wake-ups, so a boundary at 0ms cannot spin. */
+const MIN_WAKE_MS = 1_000;
+
+/**
+ * How long to sleep before looking at the clock again.
+ *
+ * The *next day boundary*, not a blind interval. Arming for a full day from
+ * whenever the last run happened to finish made the simulation drift later and
+ * later behind the clock; aiming at the boundary keeps the two together, and
+ * re-reading it each cycle is what lets a speed change take effect without a
+ * restart.
+ */
+export async function msUntilNextWake(now: Date = new Date()): Promise<number> {
+  try {
+    const [speed, processedDay] = await Promise.all([readClockSpeed(), getCurrentGameDay()]);
+    const anchor = await ensureAnchor(processedDay, now);
+    const dayLengthMs = effectiveIntervalMs(getTickIntervalMs(), speed);
+    const nowMs = now.getTime();
+
+    // A backlog means come straight back. Sleeping to the next boundary while
+    // days are still owed caps the loop at one day per boundary — exactly the
+    // rate the clock produces them — so a gap that opened during downtime could
+    // never close. Observed as a backlog that sat at two or three days
+    // indefinitely instead of draining.
+    const backlog = daysOwed({ anchor, processedDay, nowMs, dayLengthMs });
+    if (backlog > 0) return MIN_WAKE_MS;
+
+    return Math.max(MIN_WAKE_MS, msUntilNextDay({ anchor, nowMs, dayLengthMs }));
+  } catch (error) {
+    // A database blip must not stop the clock. Fall back to the configured day
+    // length and try again on the next cycle.
+    console.error('[scheduler] Could not read the clock; retrying next cycle:', error);
+    return getTickIntervalMs();
+  }
+}
+
 export function schedulerEnabled(): boolean {
   return isSchedulerEnabled(process.env.GAME_TICK_SCHEDULER);
 }
 
 /**
- * Run one tick, taking the same lock the HTTP entrypoint takes.
+ * How many days have passed that the simulation has not run yet.
  *
- * Losing the lock is normal, not an error: another process (or an external
- * cron hitting `/api/game/tick`) got there first, and the day has advanced
- * either way.
+ * The clock's day comes from the anchor; the simulation's day is
+ * `Season.gameDay`. The gap between them is the backlog, capped per run so one
+ * call cannot try to simulate a month and time out making no progress at all.
+ *
+ * Returns 0 when the anchor cannot be read — a world that does not know when it
+ * started must not guess, because guessing means either replaying history or
+ * skipping it.
  */
-export async function runScheduledTick(): Promise<'ran' | 'locked' | 'failed'> {
+export async function daysTheWorldOwes(now: Date = new Date()): Promise<number> {
+  const [speed, processedDay] = await Promise.all([readClockSpeed(), getCurrentGameDay()]);
+  const anchor = await ensureAnchor(processedDay, now);
+
+  return daysOwed({
+    anchor,
+    processedDay,
+    nowMs: now.getTime(),
+    dayLengthMs: effectiveIntervalMs(getTickIntervalMs(), speed),
+  });
+}
+
+/**
+ * Simulate however many days the clock says are owed.
+ *
+ * ---- Why this is a loop and not a tick ----
+ *
+ * The world's day is derived from a stored timestamp (`day-clock.ts`), so it
+ * advances whether or not anything is running. This function's job is to catch
+ * the *simulation* up to it: it asks how many days have passed that have not
+ * been simulated, and runs `gameTick()` exactly that many times.
+ *
+ * That is what makes a restart, a deploy, a sleeping laptop or a cron that
+ * fires every thirty minutes survivable. Before this, a missed firing meant a
+ * lost day — a world that should have been on day 400 sat on day 12.
+ *
+ * Each `gameTick()` advances `Season.gameDay` by one inside a transaction, and
+ * the whole run holds the tick lock, so a day can never be simulated twice: a
+ * second caller finds the lock held, and by the time it gets in the backlog is
+ * already gone.
+ *
+ * Losing the lock is normal, not an error — someone else is already doing it.
+ */
+export async function runScheduledTick(): Promise<'ran' | 'locked' | 'failed' | 'up-to-date'> {
   let acquired = false;
   try {
     acquired = await acquireTickLock();
     if (!acquired) return 'locked';
 
-    await gameTick();
+    const owed = await daysTheWorldOwes();
+    if (owed <= 0) return 'up-to-date';
+
+    for (let day = 0; day < owed; day++) {
+      await gameTick();
+    }
+
+    if (owed > 1) {
+      console.info(`[scheduler] Caught the world up by ${owed} days.`);
+    }
     return 'ran';
   } catch (error) {
     console.error('[scheduler] Tick failed:', error);
@@ -86,9 +171,10 @@ function scheduleNext(intervalMs: number): void {
   timer = setTimeout(async () => {
     if (!running) return;
     await runScheduledTick();
-    // Re-read the speed after every tick, so an operator turning the dial does
-    // not have to restart the server for the world to notice.
-    if (running) scheduleNext(await getEffectiveTickIntervalMs());
+    // Aim at the next day boundary, re-read each cycle. That is what lets an
+    // operator turn the speed dial without restarting the server, and what
+    // stops the simulation drifting later than the clock it is chasing.
+    if (running) scheduleNext(await msUntilNextWake());
   }, intervalMs);
 
   // Do not hold the process open on this timer alone.
@@ -107,11 +193,17 @@ export function startTickScheduler(): void {
   }
 
   running = true;
-  // The first arm uses the base interval synchronously so starting the clock
-  // stays a plain call; the speed is honoured from the second cycle onward.
+
+  // The first wake is soon rather than a full day away: a process that has just
+  // started is the most likely one to have a backlog waiting for it, and making
+  // `start` synchronous keeps it a plain call rather than an async one.
+  scheduleNext(MIN_WAKE_MS);
+
   const intervalMs = getTickIntervalMs();
-  scheduleNext(intervalMs);
-  console.info(`[scheduler] Game clock started — one day every ${Math.round(intervalMs / 1000)}s at 1x.`);
+  console.info(
+    `[scheduler] Game clock started — one day every ${Math.round(intervalMs / 1000)}s at 1x. ` +
+      'Days are derived from the stored anchor, so a restart catches up rather than losing time.',
+  );
 }
 
 export function stopTickScheduler(): void {

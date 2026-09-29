@@ -28,8 +28,34 @@ export async function readClockSpeed(): Promise<ClockSpeed> {
   }
 }
 
-/** Set the world's speed, for everyone. */
+/**
+ * Set the world's speed, for everyone.
+ *
+ * The anchor is rebased *before* the new speed lands, using the old day length.
+ * The day is derived as `anchorDay + elapsed / dayLength`, so changing the
+ * divisor without moving the anchor would reach backwards: switching to 8x
+ * would declare that yesterday happened eight days ago, and the world would
+ * owe itself a week of simulation it had already run.
+ *
+ * Rebasing freezes the day reached under the old rate and starts the new rate
+ * from now.
+ */
 export async function writeClockSpeed(speed: ClockSpeed): Promise<void> {
+  const previous = await readClockSpeed();
+
+  if (previous !== speed) {
+    const { effectiveIntervalMs } = await import('./clock-speed');
+    const { resolveTickIntervalMs } = await import('./tick-schedule');
+    const { rebaseAnchorForSpeedChange } = await import('./day-clock-store');
+
+    await rebaseAnchorForSpeedChange({
+      dayLengthMsBefore: effectiveIntervalMs(
+        resolveTickIntervalMs(process.env.GAME_TICK_INTERVAL_MS),
+        previous,
+      ),
+    });
+  }
+
   await db.gameState.upsert({
     where: { key: CLOCK_SPEED_KEY },
     create: { key: CLOCK_SPEED_KEY, value: String(speed) },

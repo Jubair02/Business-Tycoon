@@ -6,8 +6,14 @@
 // Node or Prisma imports so they can be unit tested, and so the middleware and
 // the Edge runtime can read the same numbers if they ever need to.
 
+import { GAME_DAY_MS } from './day-clock';
+
 /**
  * How often the world advances when nothing overrides it.
+ *
+ * An alias for {@link GAME_DAY_MS}, which is the one place the number lives —
+ * this module resolves the *configured* day length, `day-clock` defines the
+ * default. They must never be two numbers.
  *
  * **Four minutes a game day** — a game you sit and watch, not one you check in
  * on. A 90-day season runs in about six hours of wall-clock time, and a whole
@@ -30,7 +36,7 @@
  *
  * Override with `GAME_TICK_INTERVAL_MS` per deployment.
  */
-export const DEFAULT_TICK_INTERVAL_MS = 4 * 60 * 1000;
+export const DEFAULT_TICK_INTERVAL_MS = GAME_DAY_MS;
 
 /**
  * Floor on the configured interval. A tick walks every business in the game,
@@ -42,9 +48,9 @@ export const MIN_TICK_INTERVAL_MS = 5_000;
 /**
  * Ceiling. A game day should never be longer than a real one.
  *
- * Was an hour, which silently clamped anything slower — and the default is now
- * four hours, so that ceiling would have capped the game at a quarter of its
- * intended pace without saying so.
+ * Was an hour, which silently clamped anything slower without saying so. The
+ * shipped day is four minutes; this exists only so a deployment that wants a
+ * slower world can have one without the value being quietly ignored.
  */
 export const MAX_TICK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 

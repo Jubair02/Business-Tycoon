@@ -25,34 +25,69 @@
 // calendar days per game day a one-day holiday would be skipped over entirely
 // about three times in four, and Eid landing or not would be a coin toss.
 
-import { addDays, toCivilDate, type CivilDate } from './civil-date';
+import { addDays, isCivilDate, type CivilDate } from './civil-date';
+
+/**
+ * The day the world begins: season 1, day 1.
+ *
+ * The calendar used to anchor on whenever a season happened to open in real
+ * time, which meant the in-game date depended on the wall clock of whoever
+ * bootstrapped the database — a fresh deployment and a developer's laptop
+ * disagreed about what year it was, and a season re-created after a reset
+ * jumped to a different part of the year.
+ *
+ * A fixed epoch makes the world's history the same everywhere. Overridable via
+ * `GAME_EPOCH` so it can be moved without a code change; anything unparseable
+ * falls back here rather than leaving the world dateless.
+ */
+export const DEFAULT_GAME_EPOCH: CivilDate = '2027-01-01';
+
+export function gameEpoch(raw: string | undefined | null = process.env.GAME_EPOCH): CivilDate {
+  const trimmed = raw?.trim();
+  return trimmed && isCivilDate(trimmed) ? trimmed : DEFAULT_GAME_EPOCH;
+}
+
+/**
+ * How many days of world history ran before a season's day 1.
+ *
+ * Seasons follow one another on a single continuous calendar rather than each
+ * restarting at the epoch. That is the whole reason the calendar exists: a
+ * season opening in February plays through Ramadan and Eid, one opening in June
+ * through the monsoon and Durga Puja. Restarting every season at 1 January
+ * would make all of them the same season wearing different names.
+ */
+export function daysBeforeSeason(seasonNumber: number, seasonLengthDays: number): number {
+  const number = Math.max(1, Math.floor(seasonNumber || 1));
+  const length = Math.max(1, Math.floor(seasonLengthDays || 1));
+  return (number - 1) * length;
+}
 
 /**
  * The in-game date for a season day.
  *
- * `seasonStartedAt` is when the season actually opened. A season that has not
- * started yet has no date of its own, so the real today stands in — better than
- * inventing an epoch and telling the player it is 1970.
+ * `season` carries the number and length so the date lands on the continuous
+ * calendar. Passing nothing treats it as season 1 — which is what an
+ * un-bootstrapped world is.
  */
 export function gameDayToCivilDate(
-  seasonStartedAt: Date | null | undefined,
+  season: { number?: number | null; lengthDays?: number | null } | null | undefined,
   gameDay: number,
-  now: Date = new Date(),
+  epoch: CivilDate = gameEpoch(),
 ): CivilDate {
-  const anchor = seasonStartedAt ? toCivilDate(seasonStartedAt) : toCivilDate(now);
-  // Day 1 is the anchor itself, not the day after it.
-  const offset = Math.max(0, Math.floor(gameDay) - 1);
-  return addDays(anchor, offset);
+  const offsetInSeason = Math.max(0, Math.floor(gameDay) - 1);
+  const before = daysBeforeSeason(season?.number ?? 1, season?.lengthDays ?? 90);
+  // Day 1 of season 1 is the epoch itself, not the day after it.
+  return addDays(epoch, before + offsetInSeason);
 }
 
 /** How many game days until an in-game date arrives. Negative once it has passed. */
 export function gameDaysUntil(
-  seasonStartedAt: Date | null | undefined,
+  season: { number?: number | null; lengthDays?: number | null } | null | undefined,
   currentGameDay: number,
   target: CivilDate,
-  now: Date = new Date(),
+  epoch: CivilDate = gameEpoch(),
 ): number {
-  const today = gameDayToCivilDate(seasonStartedAt, currentGameDay, now);
+  const today = gameDayToCivilDate(season, currentGameDay, epoch);
   const a = Date.parse(`${today}T00:00:00Z`);
   const b = Date.parse(`${target}T00:00:00Z`);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;

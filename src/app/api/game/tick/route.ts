@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AppError, handleApiError } from '@/lib/errors';
 import { authorizeTickRequest } from '@/lib/game/tick-auth';
 import { runScheduledTick, getTickIntervalMs, schedulerEnabled } from '@/lib/game/scheduler';
-import { isTickDue, effectiveIntervalMs } from '@/lib/game/clock-speed';
+import { effectiveIntervalMs } from '@/lib/game/clock-speed';
 import { readClockSpeed, readLastTick } from '@/lib/game/clock-speed-store';
+import { daysTheWorldOwes } from '@/lib/game/scheduler';
 
 /**
  * Advance the game clock.
@@ -67,20 +68,26 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   if (authorizeTickRequest(request.headers).authorized) {
-    // ---- The cron path is gated on the world's speed ----
+    // ---- The cron path asks the clock, not the calendar ----
     //
-    // A hosted cron fires on one fixed schedule and asks here whether a day
-    // is actually owed yet. At a four-minute day and a one-minute cron, three
-    // of every four firings are correct no-ops at 1x. This is what lets an
-    // operator change the speed at runtime without redeploying a cron
-    // schedule — up to 4x, past which the cron cannot fire often enough.
+    // A hosted cron fires on one fixed schedule and asks here how many days the
+    // world owes. Because the day is derived from a stored timestamp, a cron
+    // that fires every thirty minutes against a four-minute day catches up
+    // roughly seven days each firing rather than losing six of them — which is
+    // what used to happen when this checked a boolean "is a tick due".
     //
-    // Only GET is gated. An authorized POST is "tick now": that is what the
-    // test harness and a human operator use, and it stays unconditional.
-    const [speed, lastTick] = await Promise.all([readClockSpeed(), readLastTick()]);
-    const baseIntervalMs = getTickIntervalMs();
+    // That also removes the old ceiling on speed: the cron no longer has to
+    // fire once per game day, it only has to fire often enough that the backlog
+    // stays under `MAX_CATCH_UP_DAYS`.
+    //
+    // Only GET is gated. An authorized POST is "run the backlog now": that is
+    // what the test harness and a human operator use, and it stays
+    // unconditional.
+    const owed = await daysTheWorldOwes();
 
-    if (!isTickDue({ lastTickISO: lastTick, now: new Date(), baseIntervalMs, speed })) {
+    if (owed <= 0) {
+      const [speed, lastTick] = await Promise.all([readClockSpeed(), readLastTick()]);
+      const baseIntervalMs = getTickIntervalMs();
       return NextResponse.json({
         success: true,
         ticked: false,
